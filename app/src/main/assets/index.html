@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Mobile AI Studio</title>
+<style>
+:root{--bg:#121212;--panel:#1e1e1e;--line:#333;--acc:#bb86fc;--txt:#e0e0e0;--user:#3700b3;--mute:#999;--bad:#ff6b6b;--ok:#6be7a0}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Roboto,sans-serif}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+header{display:flex;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--line)}
+#title{flex:1;min-width:0;color:var(--acc);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button,select,input,textarea{font:inherit}
+button,select{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+button:disabled{opacity:.5}
+select{max-width:140px}
+button.pri{background:var(--acc);color:#121212;font-weight:700;border:0}
+button.danger{color:var(--bad)}
+#status{min-height:18px;padding:2px 12px;font-size:.75rem;color:var(--mute)}
+#chat{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:92%;padding:10px 12px;border-radius:10px;line-height:1.45;font-size:.92rem;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
+.msg.user{align-self:flex-end;background:var(--user);color:#fff}
+.msg.assistant{align-self:flex-start;background:#2a2a2a;border:1px solid #3a3a3a}
+.msg.hint{align-self:center;color:var(--mute);background:none;text-align:center;font-size:.85rem}
+.cb{margin:6px 0;background:#0d0d0d;border:1px solid #333;border-radius:8px;overflow:hidden;white-space:normal}
+.cb .bar{display:flex;justify-content:space-between;align-items:center;padding:3px 8px;background:#1a1a1a;font-size:.75rem;color:var(--mute)}
+.cb .bar button{padding:2px 8px;font-size:.75rem}
+.cb pre{margin:0;padding:8px 10px;overflow-x:auto;white-space:pre;font-size:.8rem;color:#00ffcc;font-family:monospace}
+code.ic{background:#111;padding:1px 5px;border-radius:4px;color:#00ffcc;font-family:monospace}
+footer{display:flex;gap:6px;align-items:flex-end;padding:8px;border-top:1px solid var(--line)}
+footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(--panel);color:#fff;border:1px solid #444;border-radius:8px;padding:10px}
+.ib{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer}
+#scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:4}
+#scrim.open{display:block}
+#drawer{position:fixed;top:0;bottom:0;left:0;width:min(88vw,360px);background:#181818;border-right:1px solid var(--line);overflow-y:auto;padding:12px;z-index:5;transform:translateX(-105%);transition:transform .2s;display:flex;flex-direction:column;gap:6px}
+#drawer.open{transform:none}
+#drawer>*{flex-shrink:0}
+#drawer h3{margin:12px 0 2px;color:var(--acc);font-size:.95rem}
+#drawer label{font-size:.8rem;color:var(--mute);margin-top:6px}
+#drawer .row{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:.9rem;word-break:break-all}
+#drawer .row.sel{border-color:var(--acc)}
+#drawer .row button{padding:2px 8px}
+#drawer .skill.on{border-color:var(--acc);color:var(--acc)}
+#drawer textarea{width:100%;background:var(--panel);color:#fff;border:1px solid #444;border-radius:8px;padding:8px}
+#settings{display:none;position:fixed;top:56px;right:8px;width:min(92vw,300px);background:#222;border:1px solid var(--line);border-radius:10px;padding:12px;z-index:6}
+#settings.open{display:block}
+#settings label{display:block;font-size:.8rem;color:#aaa;margin-top:8px}
+#settings input{width:100%;background:var(--panel);color:#fff;border:1px solid #444;border-radius:6px;padding:6px}
+#settings button{width:100%;margin-top:10px}
+.overlay{display:none;position:fixed;inset:0;background:var(--bg);z-index:8;overflow-y:auto;padding:14px}
+.overlay.open{display:block}
+.overlay h2{margin:4px 0 4px;color:var(--acc);font-size:1.15rem}
+.overlay .sub{color:var(--mute);font-size:.85rem;margin-bottom:12px}
+.mrow{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.mrow.sel{border-color:var(--acc)}
+.mrow .nm{font-weight:600}
+.mrow .nt{font-size:.8rem;color:var(--mute);margin:3px 0 6px}
+.mrow .warn{font-size:.78rem;color:#ffb74d;margin-bottom:6px}
+.mrow .err{font-size:.78rem;color:var(--bad);margin-bottom:6px}
+.mrow .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tag{color:var(--ok);font-size:.82rem}
+.pbar{height:8px;background:#333;border-radius:4px;overflow:hidden;flex:1;min-width:80px}
+.pbar i{display:block;height:100%;background:var(--acc);width:0}
+.pct{font-size:.78rem;color:var(--mute)}
+.card{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:16px;margin-top:24px}
+.card p{margin:8px 0;line-height:1.45;font-size:.92rem}
+.card button{width:100%;margin-top:8px;padding:12px}
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:12;align-items:center;justify-content:center;padding:20px}
+#modal.open{display:flex}
+#modal .box{background:#222;border:1px solid var(--line);border-radius:12px;padding:16px;width:min(92vw,360px)}
+#modal .mt{margin-bottom:10px;line-height:1.4;font-size:.95rem}
+#modal input{width:100%;background:var(--panel);color:#fff;border:1px solid #444;border-radius:8px;padding:10px;margin-bottom:12px}
+#modal .btns{display:flex;gap:8px;justify-content:flex-end}
+#toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 14px;border-radius:20px;font-size:.85rem;display:none;z-index:20;max-width:90vw;text-align:center}
+</style></head>
+<body>
+<div id="app">
+  <header>
+    <button id="menuBtn" aria-label="Menu">&#9776;</button>
+    <div id="title">Mobile AI Studio</div>
+    <select id="model" aria-label="Model"></select>
+    <button id="setBtn" aria-label="Settings">&#9881;</button>
+  </header>
+  <div id="status"></div>
+  <div id="chat"></div>
+  <footer>
+    <label class="ib" title="Add a file to this project">&#128206;<input type="file" id="fileIn" multiple hidden></label>
+    <textarea id="prompt" rows="1" placeholder="Message..."></textarea>
+    <button id="send" class="pri">Send</button>
+  </footer>
+</div>
+
+<div id="scrim"></div>
+<div id="drawer"></div>
+
+<div id="settings">
+  <label>Max reply length (tokens)<input type="number" id="s_num_predict"></label>
+  <label>Memory size / context (tokens)<input type="number" id="s_num_ctx"></label>
+  <label>CPU threads (0 = automatic)<input type="number" id="s_num_thread"></label>
+  <label>Creativity (0 to 1.5)<input type="number" step="0.1" id="s_temperature"></label>
+  <button id="openModels">Models...</button>
+</div>
+
+<div id="models" class="overlay"></div>
+<div id="welcome" class="overlay"></div>
+
+<div id="modal"><div class="box"><div class="mt" id="mt"></div><input id="mi" type="text"><div class="btns"><button id="mno">Cancel</button><button id="myes" class="pri">OK</button></div></div></div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const hasBridge = typeof Android !== 'undefined';
+
+const DEFAULT_SKILLS = {
+  code:   {id: 'code',   name: 'Code helper',    prompt: 'You are an expert programmer. Give correct, working code in fenced code blocks with the language name, then a short explanation.'},
+  simple: {id: 'simple', name: 'Explain simply', prompt: 'Explain things in plain, simple language with a small example. Avoid jargon.'},
+  review: {id: 'review', name: 'Code reviewer',  prompt: 'When shown code, review it: list bugs first, then improvements, then show the fixed code.'},
+  debug:  {id: 'debug',  name: 'Debug an error', prompt: 'When shown an error message, explain what it means, the most likely cause, and the exact fix.'}
+};
+const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread: 0, temperature: 0.7};
+
+let S = {projects: {}, skills: {}, settings: {}, last: ''};
+let dev = {ramMB: 0, cores: 4, freeMB: 0, engine: true};
+let models = [];
+let dl = {};            // download progress by model id
+let cur = null;         // current project
+let busy = false;       // a reply is being generated
+let genProject = null, genBox = null, genAcc = '', genPrompt = '', genStart = 0, renderQueued = false;
+
+/* ---------- small helpers ---------- */
+function h(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in (props || {})) {
+    const v = props[k];
+    if (k === 'class') e.className = v;
+    else if (k === 'value') e.value = v;
+    else if (k.startsWith('on')) e[k] = v;
+    else e.setAttribute(k, v);
+  }
+  kids.flat().forEach(c => { if (c !== null && c !== undefined && c !== false) e.append(c); });
+  return e;
+}
+function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-3); }
+let toastTimer;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = 'none', 3500);
+}
+function mb(n) { return n >= 1024 ? (n / 1024).toFixed(1) + ' GB' : Math.round(n) + ' MB'; }
+
+/* ---------- own dialogs (the app has no browser pop-ups) ---------- */
+let modalDone = null;
+function openModal(text, withInput, initial, okLabel) {
+  return new Promise(resolve => {
+    $('mt').textContent = text;
+    const mi = $('mi'); mi.style.display = withInput ? 'block' : 'none'; mi.value = initial || '';
+    $('myes').textContent = okLabel || 'OK';
+    $('modal').classList.add('open');
+    if (withInput) setTimeout(() => mi.focus(), 50);
+    modalDone = ok => { $('modal').classList.remove('open'); modalDone = null; resolve(ok ? (withInput ? mi.value : true) : null); };
+  });
+}
+const askText = (t, init) => openModal(t, true, init, 'OK');
+const askConfirm = (t, ok) => openModal(t, false, '', ok || 'OK');
+$('myes').onclick = () => modalDone && modalDone(true);
+$('mno').onclick = () => modalDone && modalDone(false);
+$('mi').onkeydown = e => { if (e.key === 'Enter' && modalDone) modalDone(true); };
+
+/* ---------- saved data ---------- */
+let saveTimer = null;
+function persistNow() {
+  clearTimeout(saveTimer); saveTimer = null;
+  const json = JSON.stringify(S);
+  try { if (hasBridge) Android.saveState(json); else localStorage.setItem('mas_state', json); } catch (e) {}
+}
+function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(persistNow, 300); }
+function loadState() {
+  let raw = '';
+  try { raw = hasBridge ? Android.loadState() : (localStorage.getItem('mas_state') || ''); } catch (e) {}
+  try { S = raw ? JSON.parse(raw) : {}; } catch (e) { S = {}; }
+  S.projects = S.projects || {};
+  S.skills = S.skills && Object.keys(S.skills).length ? S.skills : JSON.parse(JSON.stringify(DEFAULT_SKILLS));
+  S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings || {});
+  S.last = S.last || '';
+}
+function projectList() { return Object.values(S.projects).sort((a, b) => a.created - b.created); }
+function makeProject(name) {
+  const p = {id: uid(), name: (name || 'New project').slice(0, 60), system: 'You are a helpful assistant that is great at coding.',
+             skills: ['code'], files: [], messages: [], created: Date.now()};
+  S.projects[p.id] = p; persist(); return p;
+}
+
+/* ---------- message rendering (only textContent, so nothing can inject HTML) ---------- */
+function copyText(text, btn) {
+  const done = () => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200); };
+  if (hasBridge && Android.copyText) { Android.copyText(text); done(); return; }
+  try { navigator.clipboard.writeText(text).then(done, () => {}); } catch (e) {}
+}
+function codeBlock(el, lang, code) {
+  const text = code.replace(/\n$/, '');
+  const btn = h('button', {onclick: () => copyText(text, btn)}, 'Copy');
+  el.append(h('div', {class: 'cb'}, h('div', {class: 'bar'}, h('span', null, lang || 'code'), btn), h('pre', null, text)));
+}
+function inline(el, s) {
+  if (!s) return;
+  s.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/).forEach(part => {
+    if (!part) return;
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) el.append(h('b', null, part.slice(2, -2)));
+    else if (part.startsWith('`') && part.endsWith('`') && part.length > 2) el.append(h('code', {class: 'ic'}, part.slice(1, -1)));
+    else el.append(part);
+  });
+}
+function renderRich(el, text) {
+  el.textContent = '';
+  const re = /```([\w+#-]*)[ \t]*\n?([\s\S]*?)(```|$)/g;
+  let last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    inline(el, text.slice(last, m.index).replace(/\n$/, ''));
+    codeBlock(el, m[1], m[2]);
+    last = re.lastIndex;
+    if (re.lastIndex >= text.length) break;
+  }
+  inline(el, text.slice(last).replace(/^\n/, ''));
+}
+function scrollDown() { const c = $('chat'); c.scrollTop = c.scrollHeight; }
+function addMsg(role, text) {
+  const d = h('div', {class: 'msg ' + role});
+  renderRich(d, text); $('chat').append(d); scrollDown(); return d;
+}
+function renderMessages() {
+  $('chat').textContent = '';
+  if (!cur.messages.length) {
+    $('chat').append(h('div', {class: 'msg hint'}, 'Ask anything. \u{1F4CE} adds files to this project. ☰ opens projects, skills and models.'));
+  }
+  cur.messages.forEach(m => addMsg(m.role, m.content));
+}
+
+/* ---------- projects ---------- */
+function openProject(id) {
+  cur = S.projects[id]; if (!cur) return;
+  S.last = id; persist();
+  $('title').textContent = cur.name;
+  renderMessages(); renderDrawer();
+}
+async function newProject() {
+  const n = await askText('Project name?', ''); if (!n || !n.trim()) return;
+  const p = makeProject(n.trim()); openProject(p.id); closeDrawer();
+}
+async function renameProject() {
+  const n = await askText('New name?', cur.name); if (!n || !n.trim()) return;
+  cur.name = n.trim().slice(0, 60); persist(); $('title').textContent = cur.name; renderDrawer();
+}
+function toggleSkill(id) {
+  cur.skills = cur.skills.includes(id) ? cur.skills.filter(x => x !== id) : cur.skills.concat([id]);
+  persist(); renderDrawer();
+}
+function delFile(i) { cur.files.splice(i, 1); persist(); renderDrawer(); }
+async function clearChat() {
+  if (busy) { toast('Wait for the reply to finish first.'); return; }
+  if (!await askConfirm('Clear this chat? Project files and instructions stay.', 'Clear')) return;
+  cur.messages = []; persist(); renderMessages(); closeDrawer();
+}
+async function delProject() {
+  if (busy) { toast('Wait for the reply to finish first.'); return; }
+  if (!await askConfirm('Delete "' + cur.name + '" and everything in it?', 'Delete')) return;
+  delete S.projects[cur.id];
+  if (!projectList().length) makeProject('My first project');
+  persist(); openProject(projectList()[0].id); closeDrawer();
+}
+async function newSkill() {
+  const n = await askText('Skill name? (for example: Python tutor)', ''); if (!n || !n.trim()) return;
+  const t = await askText('What should this skill tell the AI to do?', ''); if (!t || !t.trim()) return;
+  const id = uid(); S.skills[id] = {id: id, name: n.trim().slice(0, 40), prompt: t.trim().slice(0, 2000)};
+  persist(); renderDrawer();
+}
+function delSkill(id) {
+  delete S.skills[id];
+  Object.values(S.projects).forEach(p => p.skills = p.skills.filter(x => x !== id));
+  persist(); renderDrawer();
+}
+async function addFileFromPicker(f) {
+  try {
+    if (f.size > 300000) { toast(f.name + ' is too big (max 300 KB)'); return; }
+    const text = await f.text();
+    if (!text.trim()) { toast(f.name + ' is empty'); return; }
+    if (text.indexOf('\u0000') >= 0) { toast(f.name + ' is not a text file'); return; }
+    cur.files.push({name: f.name.slice(0, 120), text: text}); persist(); renderDrawer();
+    toast('Added ' + f.name + ' to this project');
+  } catch (e) { toast('Could not read ' + f.name); }
+}
+$('fileIn').onchange = async e => {
+  for (const f of e.target.files) await addFileFromPicker(f);
+  e.target.value = '';
+};
+
+function renderDrawer() {
+  const d = $('drawer'); d.textContent = '';
+  d.append(h('h3', null, 'Projects'));
+  projectList().forEach(p => d.append(h('div', {class: 'row' + (cur && cur.id === p.id ? ' sel' : ''),
+    onclick: () => { if (busy) { toast('Wait for the reply to finish first.'); return; } openProject(p.id); closeDrawer(); }}, p.name)));
+  d.append(h('button', {class: 'pri', onclick: newProject}, '+ New project'));
+  if (cur) {
+    d.append(h('h3', null, 'This project: ' + cur.name));
+    d.append(h('button', {onclick: renameProject}, 'Rename'));
+    d.append(h('label', null, 'Instructions for the AI'));
+    const ta = h('textarea', {rows: '4', value: cur.system});
+    ta.onchange = () => { cur.system = ta.value.slice(0, 4000); persist(); };
+    d.append(ta);
+    d.append(h('label', null, 'Skills (tap to switch on or off)'));
+    Object.values(S.skills).forEach(sk => {
+      const on = cur.skills.includes(sk.id);
+      d.append(h('button', {class: 'skill' + (on ? ' on' : ''), onclick: () => toggleSkill(sk.id)}, (on ? '✓ ' : '') + sk.name));
+    });
+    d.append(h('label', null, 'Files in this project (' + cur.files.length + '). Use \u{1F4CE} to add more.'));
+    cur.files.forEach((f, i) => d.append(h('div', {class: 'row'}, h('span', null, f.name), h('button', {onclick: () => delFile(i)}, '✕'))));
+    d.append(h('button', {onclick: clearChat}, 'Clear chat'));
+    d.append(h('button', {class: 'danger', onclick: delProject}, 'Delete project'));
+  }
+  d.append(h('h3', null, 'All skills'));
+  Object.values(S.skills).forEach(sk => d.append(h('div', {class: 'row'}, h('span', null, sk.name), h('button', {onclick: () => delSkill(sk.id)}, '✕'))));
+  d.append(h('button', {onclick: newSkill}, '+ New skill'));
+  d.append(h('h3', null, 'AI models'));
+  d.append(h('button', {onclick: () => { closeDrawer(); openModels(); }}, 'Manage models...'));
+}
+function openDrawer() { renderDrawer(); $('drawer').classList.add('open'); $('scrim').classList.add('open'); }
+function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); }
+
+/* ---------- models ---------- */
+function refreshModels() {
+  try { models = hasBridge ? JSON.parse(Android.modelList()) : []; } catch (e) { models = []; }
+  const ready = models.filter(m => m.state === 'ready');
+  if (!ready.some(m => m.id === S.settings.model)) { S.settings.model = ready.length ? ready[0].id : ''; persist(); }
+  const sel = $('model'); sel.textContent = '';
+  if (!ready.length) sel.append(h('option', {value: ''}, 'No model'));
+  ready.forEach(m => sel.append(h('option', {value: m.id}, m.name)));
+  sel.value = S.settings.model;
+  if ($('models').classList.contains('open')) renderModels();
+  renderWelcome();
+}
+$('model').onchange = () => {
+  if (!$('model').value) { openModels(); return; }
+  S.settings.model = $('model').value; persist();
+};
+function ramWarn(m) {
+  if (!dev.ramMB) return '';
+  if (m.sizeMB >= 700 && dev.ramMB < 5000) return 'Heavy for this phone (' + (dev.ramMB / 1024).toFixed(1) + ' GB RAM). It may be slow or the app may close.';
+  return '';
+}
+function startDownload(m) {
+  if (!hasBridge) return;
+  dl[m.id] = {done: (m.partMB || 0) * 1048576, total: m.sizeMB * 1048576, state: 'downloading', msg: ''};
+  Android.downloadModel(m.id); refreshModels();
+}
+async function deleteModel(m) {
+  if (busy) { toast('Wait for the reply to finish first.'); return; }
+  if (!await askConfirm('Delete ' + m.name + ' from this phone? You can download it again later.', 'Delete')) return;
+  Android.deleteModel(m.id);
+}
+function progressBits(m) {
+  const p = dl[m.id] || {done: 0, total: m.sizeMB * 1048576};
+  const pct = p.total ? Math.min(100, Math.floor(p.done * 100 / p.total)) : 0;
+  const fill = h('i'); fill.style.width = pct + '%';
+  return [h('div', {class: 'pbar'}, fill), h('span', {class: 'pct'}, pct + '% of ' + mb(m.sizeMB))];
+}
+function modelRow(m) {
+  const row = h('div', {class: 'mrow' + (S.settings.model === m.id ? ' sel' : '')});
+  row.append(h('div', {class: 'nm'}, m.name + (m.recommended ? ' ★' : '') + '  ·  ' + mb(m.sizeMB)));
+  row.append(h('div', {class: 'nt'}, m.note));
+  const w = m.custom ? '' : ramWarn(m); if (w) row.append(h('div', {class: 'warn'}, w));
+  const e = dl[m.id]; if (e && e.state === 'error' && e.msg) row.append(h('div', {class: 'err'}, e.msg));
+  const acts = h('div', {class: 'acts'});
+  if (m.state === 'ready') {
+    if (S.settings.model === m.id) acts.append(h('span', {class: 'tag'}, '✓ In use'));
+    else acts.append(h('button', {class: 'pri', onclick: () => { S.settings.model = m.id; persist(); refreshModels(); }}, 'Use'));
+    acts.append(h('button', {class: 'danger', onclick: () => deleteModel(m)}, 'Delete'));
+  } else if (m.state === 'downloading') {
+    progressBits(m).forEach(x => acts.append(x));
+    if (!m.custom) acts.append(h('button', {onclick: () => Android.cancelDownload()}, 'Pause'));
+  } else {
+    acts.append(h('button', {class: 'pri', onclick: () => startDownload(m)}, (m.partMB > 0 ? 'Resume' : 'Download')));
+  }
+  row.append(acts);
+  return row;
+}
+function renderModels() {
+  const o = $('models'); o.textContent = '';
+  o.append(h('h2', null, 'AI models'));
+  o.append(h('div', {class: 'sub'}, 'Models are downloaded once, then work with no internet. Use Wi-Fi. Free space: ' + (dev.freeMB ? mb(dev.freeMB) : '?') + '.'));
+  models.forEach(m => o.append(modelRow(m)));
+  o.append(h('button', {style: 'width:100%;margin:4px 0 10px', onclick: () => Android.importModel()}, 'Import a .gguf model file from this phone'));
+  o.append(h('button', {class: 'pri', style: 'width:100%;padding:12px', onclick: closeModels}, 'Done'));
+}
+function openModels() { refreshModels(); renderModels(); $('models').classList.add('open'); $('settings').classList.remove('open'); }
+function closeModels() { $('models').classList.remove('open'); renderWelcome(); }
+$('openModels').onclick = openModels;
+
+function renderWelcome() {
+  const w = $('welcome');
+  const ready = models.some(m => m.state === 'ready');
+  const open = hasBridge && !ready && !$('models').classList.contains('open');
+  w.classList.toggle('open', open);
+  if (!open) return;
+  w.textContent = '';
+  const rec = models.find(m => m.recommended) || models[0];
+  w.append(h('h2', {style: 'margin-top:30px'}, 'Welcome to Mobile AI Studio'));
+  if (!dev.engine) {
+    w.append(h('div', {class: 'card'}, h('p', null, 'This phone cannot run the AI engine. It needs a 64-bit ARM phone (almost every phone made since 2017).')));
+    return;
+  }
+  const card = h('div', {class: 'card'});
+  card.append(h('p', null, 'To start, download an AI model. It is a one-time download of about ' + mb(rec.sizeMB) + '. After that the app works with no internet. Please use Wi-Fi.'));
+  if (rec.state === 'downloading') {
+    const acts = h('div', {class: 'acts', style: 'display:flex;gap:8px;align-items:center'});
+    progressBits(rec).forEach(x => acts.append(x)); card.append(acts);
+    card.append(h('p', {class: 'pct'}, 'Keep the app open while it downloads.'));
+  } else {
+    const e = dl[rec.id]; if (e && e.state === 'error') card.append(h('p', {style: 'color:var(--bad)'}, e.msg));
+    card.append(h('button', {class: 'pri', onclick: () => startDownload(rec)}, (rec.partMB > 0 ? 'Resume' : 'Download') + ' ' + rec.name));
+  }
+  card.append(h('button', {onclick: openModels}, 'Choose a different model'));
+  w.append(card);
+}
+window.__onDownload = json => {
+  let e; try { e = JSON.parse(json); } catch (x) { return; }
+  dl[e.id] = Object.assign(dl[e.id] || {}, e);
+  if (e.state === 'ready') { toast('Model ready'); refreshModels(); return; }
+  if (e.state === 'error') { toast(e.msg || 'Download failed'); refreshModels(); return; }
+  if (e.state === 'cancelled') { refreshModels(); return; }
+  // progress tick: update bars without rebuilding the whole screen too often
+  refreshModels();
+};
+window.__onModelsChanged = () => refreshModels();
+
+/* ---------- settings ---------- */
+function initSettings() {
+  ['num_predict', 'num_ctx', 'num_thread', 'temperature'].forEach(k => {
+    const el = $('s_' + k); el.value = S.settings[k];
+    el.onchange = () => { const v = parseFloat(el.value); if (!isNaN(v) && v >= 0) { S.settings[k] = v; persist(); } };
+  });
+}
+function autoThreads() { return Math.max(2, Math.min(4, Math.floor((dev.cores || 4) / 2))); }
+
+/* ---------- chat ---------- */
+function buildSystem(avail) {
+  const parts = [cur.system];
+  cur.skills.forEach(id => { const s = S.skills[id]; if (s) parts.push(s.prompt); });
+  let budget = Math.floor(avail * 0.45); const blocks = [];
+  for (const f of cur.files) {
+    if (budget <= 200) break;
+    const chunk = f.text.slice(0, budget); budget -= chunk.length;
+    blocks.push('--- File: ' + f.name + ' ---\n' + chunk);
+  }
+  if (blocks.length) parts.push('Project files for reference:\n' + blocks.join('\n\n'));
+  return parts.filter(Boolean).join('\n\n');
+}
+function buildHistory(avail) {
+  let used = 0; const kept = [];
+  for (let i = cur.messages.length - 1; i >= 0; i--) {
+    used += cur.messages[i].content.length;
+    if (used > avail * 0.45 && kept.length) break;
+    kept.push({role: cur.messages[i].role, content: cur.messages[i].content});
+  }
+  return kept.reverse();
+}
+function setStatus(t) { $('status').textContent = t || ''; }
+function autosize() { const t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
+function setBusy(b) { busy = b; $('send').textContent = b ? 'Stop' : 'Send'; }
+
+function send() {
+  if (busy) { if (hasBridge) Android.stopChat(); setStatus('Stopping...'); return; }
+  const text = $('prompt').value.trim();
+  if (!text || !cur) return;
+  if (!hasBridge) { toast('Open this in the app.'); return; }
+  if (!S.settings.model) { openModels(); toast('Download a model first.'); return; }
+  const maxTok = S.settings.num_predict, nCtx = S.settings.num_ctx;
+  const avail = Math.max(1000, (nCtx - maxTok - 64) * 3);
+  const messages = [{role: 'system', content: buildSystem(avail)}].concat(buildHistory(avail), [{role: 'user', content: text}]);
+  const hint = document.querySelector('.msg.hint'); if (hint) hint.remove();
+  addMsg('user', text);
+  $('prompt').value = ''; autosize();
+  genProject = cur; genPrompt = text; genAcc = ''; genStart = Date.now();
+  genBox = addMsg('assistant', '...');
+  setBusy(true); setStatus('Starting...');
+  Android.chat(JSON.stringify({model: S.settings.model, messages: messages, max_tokens: maxTok, n_ctx: nCtx,
+    threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
+}
+function scheduleRender() {
+  if (renderQueued) return; renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; if (genBox) { renderRich(genBox, genAcc); if (genProject === cur) scrollDown(); } });
+}
+window.__onToken = t => { genAcc += t; if (genAcc.length === t.length) setStatus('Writing...'); scheduleRender(); };
+window.__onStatus = s => setStatus(s);
+function finishChat(ok, errText, info) {
+  if (genBox) renderRich(genBox, genAcc + (errText ? '\n[' + errText + ']' : ''));
+  if (genAcc.trim() && genProject) {
+    genProject.messages.push({role: 'user', content: genPrompt}, {role: 'assistant', content: genAcc});
+    genProject.messages = genProject.messages.slice(-200);
+    persistNow();
+  }
+  let st = '';
+  if (ok && info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '');
+  setStatus(st);
+  genBox = null; genProject = null; genAcc = ''; setBusy(false);
+}
+window.__onChatDone = json => { let i = null; try { i = JSON.parse(json); } catch (e) {} finishChat(true, '', i); };
+window.__onChatError = msg => { finishChat(false, msg, null); toast(msg); };
+
+/* ---------- back button ---------- */
+window.__back = () => {
+  if ($('modal').classList.contains('open')) { modalDone && modalDone(false); return true; }
+  if ($('models').classList.contains('open')) { closeModels(); refreshModels(); return true; }
+  if ($('drawer').classList.contains('open')) { closeDrawer(); return true; }
+  if ($('settings').classList.contains('open')) { $('settings').classList.remove('open'); return true; }
+  return false;
+};
+
+$('send').onclick = send;
+$('prompt').oninput = autosize;
+$('menuBtn').onclick = openDrawer;
+$('scrim').onclick = () => { closeDrawer(); $('settings').classList.remove('open'); };
+$('setBtn').onclick = () => $('settings').classList.toggle('open');
+document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
+
+(function init() {
+  loadState();
+  try { if (hasBridge) dev = Object.assign(dev, JSON.parse(Android.deviceInfo())); } catch (e) {}
+  if (!projectList().length) makeProject('My first project');
+  initSettings();
+  openProject(S.projects[S.last] ? S.last : projectList()[0].id);
+  refreshModels();
+})();
+</script>
+</body></html>

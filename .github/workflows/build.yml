@@ -1,0 +1,73 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  LLAMA_CPP_TAG: b12040
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android build tools
+        shell: bash
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-34" "build-tools;34.0.0" "ndk;27.3.13750724" "cmake;3.22.1"
+
+      - name: Get the AI engine (llama.cpp)
+        shell: bash
+        run: git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp app/src/main/cpp/llama.cpp
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build the app
+        shell: bash
+        run: gradle --no-daemon --stacktrace assembleRelease 2>&1 | tee build.log
+
+      - name: Keep the APK as a download on this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobileAIStudio-apk
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish the APK on the Releases page
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk MobileAIStudio.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest MobileAIStudio.apk \
+            --title "Mobile AI Studio (latest build)" \
+            --notes "Download MobileAIStudio.apk below and open it on your phone to install."
+
+      - name: Save the build log so problems can be diagnosed
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p /tmp/log
+          if [ -f build.log ]; then tail -n 4000 build.log > /tmp/log/build.log; else echo "no build log" > /tmp/log/build.log; fi
+          cd /tmp/log
+          git init -q
+          git checkout -q -b build-logs
+          git add build.log
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "build log for ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" build-logs
