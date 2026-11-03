@@ -71,6 +71,27 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
 #modal .mt{margin-bottom:10px;line-height:1.4;font-size:.95rem}
 #modal input{width:100%;background:var(--panel);color:#fff;border:1px solid #444;border-radius:8px;padding:10px;margin-bottom:12px}
 #modal .btns{display:flex;gap:8px;justify-content:flex-end}
+#dlBtn{position:relative}
+#dlBadge{display:none;position:absolute;top:-5px;right:-5px;background:var(--acc);color:#121212;border-radius:9px;font-size:.65rem;font-weight:700;padding:1px 5px;min-width:16px;text-align:center}
+.overlay.z9{z-index:9}
+.topbar{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.topbar h2{flex:1;margin:0}
+.box2{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.box2 h3{margin:0 0 6px;font-size:.92rem;color:var(--acc)}
+.box2 input[type=text],.box2 input[type=search]{width:100%;background:#121212;color:#fff;border:1px solid #444;border-radius:8px;padding:10px;margin-bottom:8px}
+.srow{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:6px 0;font-size:.85rem}
+.stp{display:inline-flex;align-items:center;gap:6px}
+.stp button{padding:2px 10px;min-width:32px}
+.stp b{min-width:20px;text-align:center}
+.drow .nm{font-weight:600;word-break:break-all}
+.drow .meta{font-size:.78rem;color:var(--mute);margin:3px 0 6px;word-break:break-all}
+.drow .meta.bad{color:var(--bad)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chips button{padding:4px 10px;font-size:.8rem;border-radius:14px}
+.fl{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:.85rem}
+.fl .fn{flex:1;min-width:0;word-break:break-all}
+.fl .q{color:var(--acc);font-weight:600}
+.fl .w{font-size:.75rem;color:#ffb74d}
 #toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 14px;border-radius:20px;font-size:.85rem;display:none;z-index:20;max-width:90vw;text-align:center}
 </style></head>
 <body>
@@ -78,6 +99,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <header>
     <button id="menuBtn" aria-label="Menu">&#9776;</button>
     <div id="title">Mobile AI Studio</div>
+    <button id="dlBtn" aria-label="Downloads">&#11015;<b id="dlBadge"></b></button>
     <select id="model" aria-label="Model"></select>
     <button id="setBtn" aria-label="Settings">&#9881;</button>
   </header>
@@ -99,9 +121,12 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label>CPU threads (0 = automatic)<input type="number" id="s_num_thread"></label>
   <label>Creativity (0 to 1.5)<input type="number" step="0.1" id="s_temperature"></label>
   <button id="openModels">Models...</button>
+  <button id="openDl">Downloads...</button>
 </div>
 
 <div id="models" class="overlay"></div>
+<div id="downloads" class="overlay z9"></div>
+<div id="find" class="overlay z9"></div>
 <div id="welcome" class="overlay"></div>
 
 <div id="modal"><div class="box"><div class="mt" id="mt"></div><input id="mi" type="text"><div class="btns"><button id="mno">Cancel</button><button id="myes" class="pri">OK</button></div></div></div>
@@ -122,7 +147,9 @@ const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread
 let S = {projects: {}, skills: {}, settings: {}, last: ''};
 let dev = {ramMB: 0, cores: 4, freeMB: 0, engine: true};
 let models = [];
-let dl = {};            // download progress by model id
+let dl = {};            // progress of file imports by model id
+let dls = [];           // download manager list
+let dlSettings = {max: 2, threads: 4};
 let cur = null;         // current project
 let busy = false;       // a reply is being generated
 let genProject = null, genBox = null, genAcc = '', genPrompt = '', genStart = 0, renderQueued = false;
@@ -348,26 +375,76 @@ function ramWarn(m) {
 }
 function startDownload(m) {
   if (!hasBridge) return;
-  dl[m.id] = {done: (m.partMB || 0) * 1048576, total: m.sizeMB * 1048576, state: 'downloading', msg: ''};
-  Android.downloadModel(m.id); refreshModels();
+  Android.downloadModel(m.id); setTimeout(() => { pullDownloads(); refreshModels(); }, 250);
 }
 async function deleteModel(m) {
   if (busy) { toast('Wait for the reply to finish first.'); return; }
   if (!await askConfirm('Delete ' + m.name + ' from this phone? You can download it again later.', 'Delete')) return;
   Android.deleteModel(m.id);
 }
+function fmtBytes(n) {
+  if (!(n > 0)) return '0 MB';
+  if (n >= 1073741824) return (n / 1073741824).toFixed(2) + ' GB';
+  if (n >= 1048576) return (n / 1048576).toFixed(n >= 104857600 ? 0 : 1) + ' MB';
+  return Math.max(1, Math.round(n / 1024)) + ' KB';
+}
+function fmtSpeed(b) { return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB/s' : Math.round(b / 1024) + ' KB/s'; }
+function fmtEta(sec) {
+  if (!isFinite(sec) || sec <= 0) return '';
+  if (sec < 60) return Math.ceil(sec) + ' s left';
+  if (sec < 3600) return Math.ceil(sec / 60) + ' min left';
+  return Math.floor(sec / 3600) + ' h ' + Math.ceil((sec % 3600) / 60) + ' min left';
+}
+function itemPct(d, fallbackTotal) {
+  const t = d.total > 0 ? d.total : (fallbackTotal || 0);
+  return t > 0 ? Math.min(100, Math.floor(d.done * 100 / t)) : 0;
+}
+function pctText(d, fallbackTotal) {
+  const t = d.total > 0 ? d.total : (fallbackTotal || 0);
+  let x = itemPct(d, fallbackTotal) + '%' + (t > 0 ? ' of ' + fmtBytes(t) : ' · ' + fmtBytes(d.done));
+  if (d.state === 'downloading' && d.speed > 0) {
+    x += ' · ' + fmtSpeed(d.speed);
+    if (t > 0) { const e = fmtEta((t - d.done) / d.speed); if (e) x += ' · ' + e; }
+  }
+  return x;
+}
+function statusText(d) {
+  if (d.state === 'downloading') return (d.ftp ? 'Downloading (FTP) · ' : 'Downloading · ') + d.threads + (d.threads === 1 ? ' connection' : ' connections');
+  if (d.state === 'queued') return 'Waiting for a free slot';
+  if (d.state === 'paused') return 'Paused' + (d.msg ? ' · ' + d.msg : '');
+  if (d.state === 'done') return 'Finished';
+  return d.msg || 'Failed';
+}
+function barFor(d, fallbackTotal) {
+  const fill = h('i'); fill.style.width = itemPct(d, fallbackTotal) + '%';
+  const bar = h('div', {class: 'pbar'}, fill); bar.dataset.dl = d.id; bar.dataset.ft = fallbackTotal || 0;
+  const t = h('span', {class: 'pct'}, pctText(d, fallbackTotal)); t.dataset.dl = d.id; t.dataset.ft = fallbackTotal || 0;
+  return [bar, t];
+}
+/* updates bars and texts in place so buttons are not rebuilt while the person taps them */
+function updateBars() {
+  dls.forEach(d => {
+    document.querySelectorAll('[data-dl="' + d.id + '"]').forEach(el => {
+      const ft = +el.dataset.ft || 0;
+      if (el.classList.contains('pbar')) el.firstChild.style.width = itemPct(d, ft) + '%';
+      else if (el.classList.contains('pct')) el.textContent = pctText(d, ft);
+      else if (el.classList.contains('st')) { el.textContent = statusText(d); el.classList.toggle('bad', d.state === 'error'); }
+    });
+  });
+}
 function progressBits(m) {
+  const d = dls.find(x => x.id === m.dlId);
+  if (d) return barFor(d, m.sizeMB * 1048576);
   const p = dl[m.id] || {done: 0, total: m.sizeMB * 1048576};
-  const pct = p.total ? Math.min(100, Math.floor(p.done * 100 / p.total)) : 0;
-  const fill = h('i'); fill.style.width = pct + '%';
-  return [h('div', {class: 'pbar'}, fill), h('span', {class: 'pct'}, pct + '% of ' + mb(m.sizeMB))];
+  return barFor({id: 'imp:' + m.id, done: p.done, total: p.total, state: 'downloading', speed: 0}, m.sizeMB * 1048576);
 }
 function modelRow(m) {
   const row = h('div', {class: 'mrow' + (S.settings.model === m.id ? ' sel' : '')});
-  row.append(h('div', {class: 'nm'}, m.name + (m.recommended ? ' ★' : '') + '  ·  ' + mb(m.sizeMB)));
+  row.append(h('div', {class: 'nm'}, m.name + (m.recommended ? ' ★' : '') + '  ·  ' + (m.sizeMB ? mb(m.sizeMB) : '? MB')));
   row.append(h('div', {class: 'nt'}, m.note));
   const w = m.custom ? '' : ramWarn(m); if (w) row.append(h('div', {class: 'warn'}, w));
-  const e = dl[m.id]; if (e && e.state === 'error' && e.msg) row.append(h('div', {class: 'err'}, e.msg));
+  const d = dls.find(x => x.id === m.dlId);
+  if (m.state === 'error' && d && d.msg) row.append(h('div', {class: 'err'}, d.msg));
   const acts = h('div', {class: 'acts'});
   if (m.state === 'ready') {
     if (S.settings.model === m.id) acts.append(h('span', {class: 'tag'}, '✓ In use'));
@@ -375,7 +452,14 @@ function modelRow(m) {
     acts.append(h('button', {class: 'danger', onclick: () => deleteModel(m)}, 'Delete'));
   } else if (m.state === 'downloading') {
     progressBits(m).forEach(x => acts.append(x));
-    if (!m.custom) acts.append(h('button', {onclick: () => Android.cancelDownload()}, 'Pause'));
+    if (m.dlId) {
+      acts.append(h('button', {onclick: () => Android.dlPause(m.dlId)}, 'Pause'));
+      acts.append(h('button', {class: 'danger', onclick: () => Android.dlRemove(m.dlId, true)}, 'Cancel'));
+    }
+  } else if (m.state === 'paused' || m.state === 'error') {
+    progressBits(m).forEach(x => acts.append(x));
+    acts.append(h('button', {class: 'pri', onclick: () => Android.dlResume(m.dlId)}, m.state === 'error' ? 'Try again' : 'Resume'));
+    acts.append(h('button', {class: 'danger', onclick: () => Android.dlRemove(m.dlId, true)}, 'Cancel'));
   } else {
     acts.append(h('button', {class: 'pri', onclick: () => startDownload(m)}, (m.partMB > 0 ? 'Resume' : 'Download')));
   }
@@ -387,7 +471,9 @@ function renderModels() {
   o.append(h('h2', null, 'AI models'));
   o.append(h('div', {class: 'sub'}, 'Models are downloaded once, then work with no internet. Use Wi-Fi. Free space: ' + (dev.freeMB ? mb(dev.freeMB) : '?') + '.'));
   models.forEach(m => o.append(modelRow(m)));
-  o.append(h('button', {style: 'width:100%;margin:4px 0 10px', onclick: () => Android.importModel()}, 'Import a .gguf model file from this phone'));
+  o.append(h('button', {class: 'pri', style: 'width:100%;margin:4px 0 8px;padding:12px', onclick: openFind}, 'Find more models online...'));
+  o.append(h('button', {style: 'width:100%;margin:0 0 8px', onclick: openDownloads}, 'Downloads...'));
+  o.append(h('button', {style: 'width:100%;margin:0 0 10px', onclick: () => Android.importModel()}, 'Import a .gguf model file from this phone'));
   o.append(h('button', {class: 'pri', style: 'width:100%;padding:12px', onclick: closeModels}, 'Done'));
 }
 function openModels() { refreshModels(); renderModels(); $('models').classList.add('open'); $('settings').classList.remove('open'); }
@@ -409,27 +495,206 @@ function renderWelcome() {
   }
   const card = h('div', {class: 'card'});
   card.append(h('p', null, 'To start, download an AI model. It is a one-time download of about ' + mb(rec.sizeMB) + '. After that the app works with no internet. Please use Wi-Fi.'));
-  if (rec.state === 'downloading') {
+  if (rec.state === 'downloading' || rec.state === 'paused') {
     const acts = h('div', {class: 'acts', style: 'display:flex;gap:8px;align-items:center'});
     progressBits(rec).forEach(x => acts.append(x)); card.append(acts);
-    card.append(h('p', {class: 'pct'}, 'Keep the app open while it downloads.'));
+    card.append(h('p', {class: 'pct'}, 'You can leave the app. It keeps downloading in the background.'));
   } else {
-    const e = dl[rec.id]; if (e && e.state === 'error') card.append(h('p', {style: 'color:var(--bad)'}, e.msg));
-    card.append(h('button', {class: 'pri', onclick: () => startDownload(rec)}, (rec.partMB > 0 ? 'Resume' : 'Download') + ' ' + rec.name));
+    const e = dls.find(x => x.id === rec.dlId); if (e && e.state === 'error') card.append(h('p', {style: 'color:var(--bad)'}, e.msg));
+    card.append(h('button', {class: 'pri', onclick: () => rec.dlId ? Android.dlResume(rec.dlId) : startDownload(rec)}, (rec.partMB > 0 || rec.dlId ? 'Resume' : 'Download') + ' ' + rec.name));
   }
   card.append(h('button', {onclick: openModels}, 'Choose a different model'));
   w.append(card);
 }
-window.__onDownload = json => {
+window.__onDownload = json => {   // file imports from the phone
   let e; try { e = JSON.parse(json); } catch (x) { return; }
   dl[e.id] = Object.assign(dl[e.id] || {}, e);
   if (e.state === 'ready') { toast('Model ready'); refreshModels(); return; }
-  if (e.state === 'error') { toast(e.msg || 'Download failed'); refreshModels(); return; }
+  if (e.state === 'error') { toast(e.msg || 'Failed'); refreshModels(); return; }
   if (e.state === 'cancelled') { refreshModels(); return; }
-  // progress tick: update bars without rebuilding the whole screen too often
-  refreshModels();
+  updateBars();
+};
+window.__onToast = msg => toast(msg);
+let dlSig = '', modelSig = '';
+function pullDownloads() { try { if (hasBridge) window.__onDownloads(Android.dlList()); } catch (e) {} }
+window.__onDownloads = json => {
+  try { dls = JSON.parse(json); } catch (e) { return; }
+  const active = dls.filter(d => d.state === 'downloading' || d.state === 'queued').length;
+  const badge = $('dlBadge'); badge.textContent = active; badge.style.display = active ? 'block' : 'none';
+  const sig = dls.map(d => d.id + d.state + d.threads + d.name).join('|');
+  const msig = dls.filter(d => d.kind === 'model').map(d => d.id + d.state + d.name).join('|');
+  if (msig !== modelSig) { modelSig = msig; refreshModels(); }
+  if (sig !== dlSig) { dlSig = sig; if ($('downloads').classList.contains('open')) renderDownloads(); if ($('find').classList.contains('open')) markAdded(); }
+  updateBars();
 };
 window.__onModelsChanged = () => refreshModels();
+
+/* ---------- downloads screen ---------- */
+function stepper(value, min, max, onchange) {
+  const b = h('b', null, String(value));
+  const set = v => { v = Math.max(min, Math.min(max, v)); if (v !== value) { value = v; b.textContent = v; onchange(v); } };
+  return h('span', {class: 'stp'}, h('button', {onclick: () => set(value - 1), 'aria-label': 'Less'}, '−'), b, h('button', {onclick: () => set(value + 1), 'aria-label': 'More'}, '+'));
+}
+function loadDlSettings() { try { if (hasBridge) dlSettings = JSON.parse(Android.dlGetSettings()); } catch (e) {} }
+function dlRow(d) {
+  const row = h('div', {class: 'mrow drow'});
+  row.append(h('div', {class: 'nm'}, d.name + (d.kind === 'model' ? '  (model)' : '')));
+  const st = h('div', {class: 'meta st' + (d.state === 'error' ? ' bad' : '')}, statusText(d)); st.dataset.dl = d.id; row.append(st);
+  row.append(h('div', {class: 'meta'}, d.url));
+  if (d.state !== 'done') { const acts = h('div', {class: 'acts', style: 'margin-bottom:8px'}); barFor(d, 0).forEach(x => acts.append(x)); row.append(acts); }
+  else row.append(h('div', {class: 'meta'}, fmtBytes(d.total)));
+  const acts = h('div', {class: 'acts'});
+  if (d.state === 'downloading' || d.state === 'queued') acts.append(h('button', {onclick: () => Android.dlPause(d.id)}, 'Pause'));
+  if (d.state === 'paused' || d.state === 'error') acts.append(h('button', {class: 'pri', onclick: () => Android.dlResume(d.id)}, d.state === 'error' ? 'Try again' : 'Resume'));
+  if (d.state !== 'done' && !d.ftp) {
+    acts.append(h('span', {class: 'pct'}, 'Connections'));
+    acts.append(stepper(d.threads, 1, 16, v => { Android.dlSetThreads(d.id, v); }));
+  }
+  if (d.state === 'done' && d.kind === 'file') acts.append(h('button', {class: 'pri', onclick: () => Android.dlSaveToDownloads(d.id)}, 'Save to Downloads'));
+  if (d.state === 'done') acts.append(h('button', {onclick: () => Android.dlRemove(d.id, false)}, 'Remove from list'));
+  else acts.append(h('button', {class: 'danger', onclick: async () => { if (await askConfirm('Cancel this download and delete what was downloaded so far?', 'Cancel download')) Android.dlRemove(d.id, true); }}, 'Cancel'));
+  row.append(acts);
+  return row;
+}
+function renderDownloads() {
+  const o = $('downloads');
+  const keep = o.querySelector('#dlUrl'); const typed = keep ? keep.value : '';
+  o.textContent = '';
+  o.append(h('div', {class: 'topbar'}, h('h2', null, 'Downloads'), h('button', {onclick: closeDownloads}, 'Close')));
+  const add = h('div', {class: 'box2'});
+  add.append(h('h3', null, 'Add a download'));
+  const inp = h('input', {type: 'text', id: 'dlUrl', placeholder: 'https://..., ftp://... or a magnet link', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false'});
+  inp.value = typed; add.append(inp);
+  let thr = 0;
+  add.append(h('div', {class: 'srow'}, h('span', null, 'Connections for this file (0 = default ' + dlSettings.threads + ')'), stepper(0, 0, 16, v => { thr = v; })));
+  add.append(h('button', {class: 'pri', style: 'width:100%', onclick: () => {
+    const u = inp.value.trim(); if (!u) { toast('Paste an address first.'); return; }
+    let r; try { r = JSON.parse(Android.dlAdd(u, thr)); } catch (e) { r = {ok: false, msg: 'Could not add it.'}; }
+    if (!r.ok) { toast(r.msg); return; }
+    inp.value = ''; toast('Added'); pullDownloads();
+  }}, 'Download'));
+  add.append(h('div', {class: 'meta', style: 'margin-top:8px;font-size:.78rem;color:var(--mute)'}, 'Works with http, https and ftp. Several connections per file make big files faster. Torrent and magnet links are coming in the next update.'));
+  o.append(add);
+  const set = h('div', {class: 'box2'});
+  set.append(h('h3', null, 'Settings'));
+  set.append(h('div', {class: 'srow'}, h('span', null, 'Downloads at the same time'), stepper(dlSettings.max, 1, 8, v => { dlSettings.max = v; Android.dlSetSettings(dlSettings.max, dlSettings.threads); })));
+  set.append(h('div', {class: 'srow'}, h('span', null, 'Connections per download (new ones)'), stepper(dlSettings.threads, 1, 16, v => { dlSettings.threads = v; Android.dlSetSettings(dlSettings.max, dlSettings.threads); })));
+  set.append(h('div', {class: 'meta', style: 'font-size:.78rem;color:var(--mute)'}, 'More connections can be faster, but some servers limit them. Each running download uses its own number of connections.'));
+  o.append(set);
+  if (!dls.length) o.append(h('div', {class: 'sub'}, 'No downloads yet.'));
+  else {
+    if (dls.some(d => d.state === 'downloading' || d.state === 'queued')) o.append(h('button', {style: 'width:100%;margin-bottom:10px', onclick: () => Android.dlPauseAll()}, 'Pause all'));
+    dls.slice().reverse().forEach(d => o.append(dlRow(d)));
+  }
+}
+function openDownloads() { loadDlSettings(); pullDownloads(); renderDownloads(); $('downloads').classList.add('open'); $('settings').classList.remove('open'); }
+function closeDownloads() { $('downloads').classList.remove('open'); }
+$('openDl').onclick = openDownloads;
+$('dlBtn').onclick = openDownloads;
+
+/* ---------- find models online (Hugging Face) ---------- */
+const httpCbs = {};
+window.__onHttp = json => { let r; try { r = JSON.parse(json); } catch (e) { return; } const cb = httpCbs[r.id]; delete httpCbs[r.id]; if (cb) cb(r); };
+function httpGet(url) {
+  return new Promise(resolve => {
+    if (!hasBridge) { resolve({ok: false, msg: 'Not available here.'}); return; }
+    const id = uid(); httpCbs[id] = resolve; Android.httpGet(id, url);
+    setTimeout(() => { if (httpCbs[id]) { delete httpCbs[id]; resolve({ok: false, msg: 'The search took too long.'}); } }, 30000);
+  });
+}
+let findState = {q: '', results: null, busy: false, err: '', open: null, files: null, filesBusy: false, filesErr: ''};
+const added = new Set();
+const HF = 'https://huggingface.co';
+async function searchModels(q) {
+  findState.q = q; findState.busy = true; findState.err = ''; findState.open = null; findState.files = null; renderFind();
+  const url = HF + '/api/models?filter=gguf&sort=downloads&direction=-1&limit=30' + (q ? '&search=' + encodeURIComponent(q) : '');
+  const r = await httpGet(url);
+  findState.busy = false;
+  if (!r.ok) { findState.err = r.status === 0 || !r.status ? (r.msg || 'No internet connection.') : 'The model site answered with an error (' + r.status + ').'; findState.results = null; renderFind(); return; }
+  try { findState.results = JSON.parse(r.body); } catch (e) { findState.results = null; findState.err = 'Could not read the answer from the model site.'; }
+  renderFind();
+}
+function quantOf(name) {
+  const m = name.match(/(IQ\d_[A-Z0-9]+|Q\d_K_[A-Z]|Q\d_K|Q\d_\d|Q\d_[A-Z]+|Q\d|BF16|F16|F32)/i);
+  return m ? m[1].toUpperCase() : '';
+}
+function isSplit(name) { return /-\d{3,5}-of-\d{3,5}\.gguf$/i.test(name); }
+function fileWarn(sizeMB) {
+  if (!dev.ramMB) return '';
+  if (sizeMB > dev.ramMB * 0.55) return 'Too big for this phone (' + (dev.ramMB / 1024).toFixed(1) + ' GB RAM). It will probably not run.';
+  if (sizeMB > dev.ramMB * 0.35) return 'Heavy for this phone. It may be slow or close the app.';
+  return '';
+}
+async function openRepo(id) {
+  if (findState.open === id) { findState.open = null; renderFind(); return; }
+  findState.open = id; findState.files = null; findState.filesErr = ''; findState.filesBusy = true; renderFind();
+  const r = await httpGet(HF + '/api/models/' + id + '/tree/main');
+  if (findState.open !== id) return;
+  findState.filesBusy = false;
+  if (!r.ok) { findState.filesErr = r.status ? 'Could not list the files (' + r.status + ').' : (r.msg || 'No internet connection.'); renderFind(); return; }
+  try {
+    const list = JSON.parse(r.body).filter(f => f.type === 'file' && /\.gguf$/i.test(f.path) && !/mmproj/i.test(f.path));
+    list.sort((a, b) => a.size - b.size);
+    findState.files = list;
+  } catch (e) { findState.filesErr = 'Could not read the file list.'; }
+  renderFind();
+}
+function addModelFile(repo, f) {
+  const url = HF + '/' + repo + '/resolve/main/' + f.path.split('/').map(encodeURIComponent).join('/');
+  let r; try { r = JSON.parse(Android.dlAddModel(url, f.path, 0)); } catch (e) { r = {ok: false, msg: 'Could not add it.'}; }
+  if (!r.ok) { toast(r.msg); return; }
+  added.add(repo + '/' + f.path); toast('Added to Downloads'); pullDownloads(); markAdded();
+}
+function markAdded() { if ($('find').classList.contains('open')) renderFind(); }
+function fileRow(repo, f) {
+  const sizeMB = f.size / 1048576;
+  const name = f.path.split('/').pop();
+  const row = h('div', {class: 'fl'});
+  const info = h('div', {class: 'fn'}, h('span', {class: 'q'}, quantOf(name) || 'GGUF'), '  ·  ' + fmtBytes(f.size));
+  info.append(h('div', {style: 'color:var(--mute);font-size:.72rem'}, name));
+  const w = fileWarn(sizeMB); if (w) info.append(h('div', {class: 'w'}, w));
+  row.append(info);
+  const have = models.some(m => m.id === 'file:' + name.replace(/[^A-Za-z0-9._-]/g, '_') && m.state === 'ready');
+  if (isSplit(name)) row.append(h('span', {class: 'pct'}, 'Split file, not supported yet'));
+  else if (have) row.append(h('span', {class: 'tag'}, '✓ Have it'));
+  else if (added.has(repo + '/' + f.path)) row.append(h('span', {class: 'tag'}, 'Added'));
+  else row.append(h('button', {class: 'pri', onclick: () => addModelFile(repo, f)}, 'Download'));
+  return row;
+}
+function renderFind() {
+  const o = $('find');
+  const keep = o.querySelector('#fq'); const typed = keep ? keep.value : findState.q;
+  o.textContent = '';
+  o.append(h('div', {class: 'topbar'}, h('h2', null, 'Find models online'), h('button', {onclick: closeFind}, 'Close')));
+  o.append(h('div', {class: 'sub'}, 'Searches Hugging Face for GGUF models that run on this phone. Small ones (under 1 GB) are best for ' + (dev.ramMB ? (dev.ramMB / 1024).toFixed(1) + ' GB' : 'small') + ' of RAM.'));
+  const inp = h('input', {type: 'search', id: 'fq', placeholder: 'Search, for example: qwen coder, llama 1b, gemma', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false'});
+  inp.value = typed; inp.onkeydown = e => { if (e.key === 'Enter') searchModels(inp.value.trim()); };
+  o.append(inp);
+  o.append(h('button', {class: 'pri', style: 'width:100%;margin:8px 0', onclick: () => searchModels(inp.value.trim())}, 'Search'));
+  const chips = h('div', {class: 'chips'});
+  ['coder', 'qwen', 'llama', 'gemma', 'phi', 'smollm', '1b', '3b'].forEach(c => chips.append(h('button', {onclick: () => { inp.value = c; searchModels(c); }}, c)));
+  o.append(chips);
+  if (findState.busy) { o.append(h('div', {class: 'sub'}, 'Searching...')); return; }
+  if (findState.err) { o.append(h('div', {class: 'mrow'}, h('div', {class: 'err'}, findState.err), h('button', {onclick: () => searchModels(findState.q)}, 'Try again'))); return; }
+  if (!findState.results) { o.append(h('div', {class: 'sub'}, 'Press Search to see the most downloaded models, or type a name.')); return; }
+  if (!findState.results.length) { o.append(h('div', {class: 'sub'}, 'Nothing found. Try another word.')); return; }
+  findState.results.forEach(r => {
+    const row = h('div', {class: 'mrow'});
+    const head = h('div', {style: 'cursor:pointer', onclick: () => openRepo(r.id)});
+    head.append(h('div', {class: 'nm', style: 'word-break:break-all'}, r.id));
+    head.append(h('div', {class: 'nt'}, (r.downloads || 0).toLocaleString() + ' downloads · ' + (r.likes || 0).toLocaleString() + ' likes · ' + (findState.open === r.id ? 'tap to close' : 'tap to see files')));
+    row.append(head);
+    if (findState.open === r.id) {
+      if (findState.filesBusy) row.append(h('div', {class: 'pct'}, 'Loading files...'));
+      else if (findState.filesErr) row.append(h('div', {class: 'err'}, findState.filesErr));
+      else if (findState.files && !findState.files.length) row.append(h('div', {class: 'pct'}, 'No usable model files in this one.'));
+      else if (findState.files) findState.files.forEach(f => row.append(fileRow(r.id, f)));
+    }
+    o.append(row);
+  });
+}
+function openFind() { renderFind(); $('find').classList.add('open'); $('settings').classList.remove('open'); if (!findState.results && !findState.busy) searchModels(''); }
+function closeFind() { $('find').classList.remove('open'); }
 
 /* ---------- settings ---------- */
 function initSettings() {
@@ -508,6 +773,8 @@ window.__onChatError = msg => { finishChat(false, msg, null); toast(msg); };
 /* ---------- back button ---------- */
 window.__back = () => {
   if ($('modal').classList.contains('open')) { modalDone && modalDone(false); return true; }
+  if ($('find').classList.contains('open')) { closeFind(); return true; }
+  if ($('downloads').classList.contains('open')) { closeDownloads(); return true; }
   if ($('models').classList.contains('open')) { closeModels(); refreshModels(); return true; }
   if ($('drawer').classList.contains('open')) { closeDrawer(); return true; }
   if ($('settings').classList.contains('open')) { $('settings').classList.remove('open'); return true; }
@@ -526,6 +793,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
   try { if (hasBridge) dev = Object.assign(dev, JSON.parse(Android.deviceInfo())); } catch (e) {}
   if (!projectList().length) makeProject('My first project');
   initSettings();
+  loadDlSettings(); pullDownloads();
   openProject(S.projects[S.last] ? S.last : projectList()[0].id);
   refreshModels();
 })();

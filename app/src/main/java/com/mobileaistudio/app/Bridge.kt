@@ -14,6 +14,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import org.json.JSONArray
 import org.json.JSONObject
+import com.mobileaistudio.app.dl.DownloadItem
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
@@ -25,15 +26,31 @@ import java.util.concurrent.Executors
 class Bridge(private val activity: MainActivity, private val web: WebView) {
     private val ui = Handler(Looper.getMainLooper())
     private val modelsDir = File(activity.filesDir, "models").apply { mkdirs() }
+    private val dl: com.mobileaistudio.app.dl.DownloadManager
+    private val pushPending = java.util.concurrent.atomic.AtomicBoolean(false)
     private val stateFile = File(activity.filesDir, "state.json")
     private val worker = Executors.newSingleThreadExecutor()
-    private val downloader = Downloader(modelsDir) { json -> js("__onDownload", json) }
 
     @Volatile
     private var cancelChat = false
     private var handle = 0L
     private var loadedKey = ""
     private var importing: String? = null
+
+    init {
+        DownloadCenter.init(activity)
+        dl = DownloadCenter.manager
+        DownloadCenter.onChange = { schedulePush() }
+    }
+
+    private fun schedulePush() {
+        if (pushPending.compareAndSet(false, true)) {
+            ui.postDelayed({
+                pushPending.set(false)
+                js("__onDownloads", dlList())
+            }, 350)
+        }
+    }
 
     // ---------- helpers ----------
 
@@ -45,7 +62,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     fun shutdown() {
         cancelChat = true
-        downloader.cancel()
+        DownloadCenter.onChange = null
         worker.execute {
             if (handle != 0L) {
                 Native.freeModel(handle)
@@ -112,8 +129,8 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         val known = HashSet<String>()
         for (m in Catalog.all) {
             val f = File(modelsDir, m.file)
-            val part = File(modelsDir, m.file + ".part")
             known.add(m.file)
+            val item = modelItem(m.file)
             val o = JSONObject()
             o.put("id", m.id)
             o.put("name", m.name)
@@ -121,8 +138,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             o.put("note", m.note)
             o.put("recommended", m.recommended)
             o.put("custom", false)
-            o.put("state", if (f.exists()) "ready" else if (downloader.activeId == m.id) "downloading" else "none")
-            o.put("partMB", if (part.exists()) part.length() / 1048576L else 0L)
+            o.put("state", if (f.exists()) "ready" else modelState(item))
+            o.put("partMB", if (item != null) item.done.get() / 1048576L else 0L)
+            o.put("dlId", item?.id ?: "")
             arr.put(o)
         }
         val extra = modelsDir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") && !known.contains(f.name) }
@@ -136,9 +154,38 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             o.put("custom", true)
             o.put("state", "ready")
             o.put("partMB", 0L)
+            o.put("dlId", "")
             arr.put(o)
         }
+        // models still downloading that are not in the catalog (found online)
+        for (it in dl.list()) {
+            if (it.kind == "model" && it.name != null && !known.contains(it.name) &&
+                it.state != DownloadItem.State.DONE && !File(modelsDir, it.name!!).exists()
+            ) {
+                val o = JSONObject()
+                o.put("id", "file:" + it.name)
+                o.put("name", it.name!!.removeSuffix(".gguf"))
+                o.put("sizeMB", if (it.total > 0) it.total / 1048576L else 0L)
+                o.put("note", "Found online.")
+                o.put("recommended", false)
+                o.put("custom", true)
+                o.put("state", modelState(it))
+                o.put("partMB", it.done.get() / 1048576L)
+                o.put("dlId", it.id)
+                arr.put(o)
+            }
+        }
         return arr.toString()
+    }
+
+    private fun modelItem(fileName: String): DownloadItem? =
+        dl.list().firstOrNull { it.kind == "model" && it.name == fileName && it.state != DownloadItem.State.DONE }
+
+    private fun modelState(it: DownloadItem?): String = when (it?.state) {
+        null -> "none"
+        DownloadItem.State.PAUSED -> "paused"
+        DownloadItem.State.ERROR -> "error"
+        else -> "downloading"
     }
 
     @JavascriptInterface
@@ -148,15 +195,188 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             js("__onDownload", JSONObject().put("id", id).put("state", "error").put("msg", "Unknown model.").toString())
             return
         }
-        val err = downloader.start(m)
-        if (err != null) {
-            js("__onDownload", JSONObject().put("id", id).put("state", "error").put("msg", err).toString())
+        val existing = modelItem(m.file)
+        if (existing != null) {
+            dl.resume(existing.id)
+            return
+        }
+        try {
+            ui.post { activity.askNotificationPermission() }
+            dl.add(m.url, "model", m.id, modelsDir, m.file, 0)
+        } catch (e: Exception) {
+            js("__onDownload", JSONObject().put("id", id).put("state", "error").put("msg", e.message ?: "Could not start.").toString())
+        }
+    }
+
+    // ---------- download manager ----------
+
+    private fun itemJson(it: DownloadItem): JSONObject {
+        val o = JSONObject()
+        o.put("id", it.id)
+        o.put("url", it.safeUrl())
+        o.put("kind", it.kind)
+        o.put("tag", it.tag)
+        o.put("name", it.displayName())
+        o.put("state", it.state.name.lowercase())
+        o.put("msg", it.message ?: "")
+        o.put("total", it.total)
+        o.put("done", it.done.get())
+        o.put("threads", it.threads)
+        o.put("speed", it.speed)
+        o.put("ftp", it.url.startsWith("ftp://", ignoreCase = true))
+        return o
+    }
+
+    @JavascriptInterface
+    fun dlList(): String {
+        val arr = JSONArray()
+        for (it in dl.list()) arr.put(itemJson(it))
+        return arr.toString()
+    }
+
+    private fun isTorrent(url: String): Boolean {
+        val u = url.trim().lowercase()
+        return u.startsWith("magnet:") || u.substringBefore('?').endsWith(".torrent")
+    }
+
+    /** Adds any file by address (http, https, ftp). Returns {"ok":true,"id":..} or {"ok":false,"msg":..}. */
+    @JavascriptInterface
+    fun dlAdd(url: String, threads: Int): String {
+        if (isTorrent(url)) {
+            return JSONObject().put("ok", false)
+                .put("msg", "Torrent and magnet downloads are coming in the next update.").toString()
+        }
+        return try {
+            ui.post { activity.askNotificationPermission() }
+            val id = dl.add(url, "file", "", DownloadCenter.filesDir, null, threads)
+            JSONObject().put("ok", true).put("id", id).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("msg", e.message ?: "Could not add it.").toString()
+        }
+    }
+
+    /** Downloads a model found online. The file name must end in .gguf. */
+    @JavascriptInterface
+    fun dlAddModel(url: String, fileName: String, threads: Int): String {
+        val u = url.trim()
+        if (!u.startsWith("https://huggingface.co/")) {
+            return JSONObject().put("ok", false).put("msg", "Only Hugging Face models can be added here.").toString()
+        }
+        val name = fileName.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
+        if (!name.lowercase().endsWith(".gguf") || name.startsWith(".")) {
+            return JSONObject().put("ok", false).put("msg", "That is not a .gguf model file.").toString()
+        }
+        if (File(modelsDir, name).exists()) {
+            return JSONObject().put("ok", false).put("msg", "You already have this model.").toString()
+        }
+        val existing = modelItem(name)
+        if (existing != null) {
+            dl.resume(existing.id)
+            return JSONObject().put("ok", true).put("id", existing.id).toString()
+        }
+        return try {
+            ui.post { activity.askNotificationPermission() }
+            val id = dl.add(u, "model", "", modelsDir, name, threads)
+            JSONObject().put("ok", true).put("id", id).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("msg", e.message ?: "Could not add it.").toString()
         }
     }
 
     @JavascriptInterface
-    fun cancelDownload() {
-        downloader.cancel()
+    fun dlPause(id: String) = dl.pause(id)
+
+    @JavascriptInterface
+    fun dlResume(id: String) = dl.resume(id)
+
+    @JavascriptInterface
+    fun dlPauseAll() = dl.pauseAll()
+
+    @JavascriptInterface
+    fun dlSetThreads(id: String, n: Int) = dl.setThreads(id, n)
+
+    /** Removes the entry. deleteFile also deletes a finished file. */
+    @JavascriptInterface
+    fun dlRemove(id: String, deleteFile: Boolean) {
+        dl.remove(id, deleteFile)
+        js("__onModelsChanged", "")
+    }
+
+    @JavascriptInterface
+    fun dlGetSettings(): String =
+        JSONObject().put("max", dl.getMax()).put("threads", dl.getDefaultThreads()).toString()
+
+    @JavascriptInterface
+    fun dlSetSettings(max: Int, threads: Int) {
+        DownloadCenter.saveSettings(max, threads)
+        schedulePush()
+    }
+
+    /** Copies a finished download into the phone's public Downloads folder. */
+    @JavascriptInterface
+    fun dlSaveToDownloads(id: String) {
+        val it = dl.list().firstOrNull { d -> d.id == id }
+        val src = it?.file()
+        if (it == null || src == null || !src.exists() || it.state != DownloadItem.State.DONE) {
+            js("__onToast", "That file is not ready.")
+            return
+        }
+        if (Build.VERSION.SDK_INT < 29) {
+            js("__onToast", "Saving to Downloads needs Android 10 or newer.")
+            return
+        }
+        Thread {
+            try {
+                val values = android.content.ContentValues()
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, src.name)
+                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/MobileAIStudio")
+                val uri = activity.contentResolver.insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+                ) ?: throw Exception("Could not create the file.")
+                activity.contentResolver.openOutputStream(uri)?.use { out ->
+                    src.inputStream().use { it2 -> it2.copyTo(out, 64 * 1024) }
+                } ?: throw Exception("Could not write the file.")
+                js("__onToast", "Saved to Downloads/MobileAIStudio/${src.name}")
+            } catch (e: Exception) {
+                js("__onToast", "Could not save: ${e.message}")
+            }
+        }.start()
+    }
+
+    private val httpPool = Executors.newFixedThreadPool(2)
+
+    /** Reads a page from huggingface.co (for searching models). The answer arrives in __onHttp. */
+    @JavascriptInterface
+    fun httpGet(reqId: String, url: String) {
+        httpPool.execute {
+            val o = JSONObject().put("id", reqId)
+            try {
+                val u = java.net.URL(url)
+                if (u.protocol != "https" || u.host != "huggingface.co") throw Exception("Not allowed.")
+                val c = u.openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 15000
+                c.readTimeout = 20000
+                c.setRequestProperty("User-Agent", "MobileAIStudio/0.2")
+                c.setRequestProperty("Accept", "application/json")
+                val code = c.responseCode
+                val stream = if (code in 200..299) c.inputStream else c.errorStream
+                val bytes = java.io.ByteArrayOutputStream()
+                stream?.use { ins ->
+                    val buf = ByteArray(16384)
+                    while (true) {
+                        val n = ins.read(buf)
+                        if (n < 0) break
+                        bytes.write(buf, 0, n)
+                        if (bytes.size() > 6_000_000) throw Exception("The answer was too large.")
+                    }
+                }
+                o.put("ok", code in 200..299).put("status", code).put("body", bytes.toString("UTF-8"))
+                c.disconnect()
+            } catch (e: Exception) {
+                o.put("ok", false).put("status", 0).put("body", "").put("msg", e.message ?: "Network problem.")
+            }
+            js("__onHttp", o.toString())
+        }
     }
 
     @JavascriptInterface
@@ -167,6 +387,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 Native.freeModel(handle)
                 handle = 0L
                 loadedKey = ""
+            }
+            for (d in dl.list()) {
+                if (d.kind == "model" && d.name == f.name) dl.remove(d.id, true)
             }
             f.delete()
             File(f.path + ".part").delete()
