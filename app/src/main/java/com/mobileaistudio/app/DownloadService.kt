@@ -20,7 +20,10 @@ class DownloadService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         DownloadCenter.init(this)
-        if (intent?.action == ACTION_PAUSE_ALL) DownloadCenter.manager.pauseAll()
+        if (intent?.action == ACTION_PAUSE_ALL) {
+            DownloadCenter.manager.pauseAll()
+            TorrentCenter.pauseAll()
+        }
         val n = build()
         try {
             if (Build.VERSION.SDK_INT >= 29) {
@@ -42,7 +45,8 @@ class DownloadService : Service() {
             nm.createNotificationChannel(ch)
         }
         val (run, speed, pct) = DownloadCenter.summary()
-        val queued = DownloadCenter.manager.list().count { it.state == DownloadItem.State.QUEUED }
+        val queued = DownloadCenter.manager.list().count { it.state == DownloadItem.State.QUEUED } +
+            TorrentCenter.list().count { it.state == "queued" }
         val title = when {
             run == 0 && queued > 0 -> "Starting downloads"
             run == 1 -> "Downloading 1 file"

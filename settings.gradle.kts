@@ -10,6 +10,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            setUrl("https://dl.frostwire.com/maven")
+            content { includeGroup("com.frostwire") }
+        }
     }
 }
 rootProject.name = "MobileAIStudio"

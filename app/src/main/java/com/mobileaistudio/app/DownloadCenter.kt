@@ -28,6 +28,12 @@ object DownloadCenter {
     var active = false
         private set
 
+    @Volatile
+    private var managerActive = false
+
+    @Volatile
+    private var torrentActive = false
+
     @Synchronized
     fun init(context: Context) {
         if (::manager.isInitialized) return
@@ -44,16 +50,31 @@ object DownloadCenter {
                 }
 
                 override fun onActive(active: Boolean) {
-                    this@DownloadCenter.active = active
-                    if (active) startService() else app.stopService(Intent(app, DownloadService::class.java))
+                    managerActive = active
+                    syncService()
                 }
             },
             DownloadManager.Check { item, file ->
                 if (item.kind == "model" && !Catalog.looksLikeGguf(file)) "That file is not a valid .gguf model." else null
             }
         )
+        TorrentCenter.init(app)
+        TorrentCenter.onChange = { onChange?.invoke() ; if (active) DownloadService.refresh(app) }
         manager.setMax(prefs.getInt("max", 2))
         manager.setDefaultThreads(prefs.getInt("threads", 4))
+    }
+
+    fun setTorrentActive(a: Boolean) {
+        torrentActive = a
+        syncService()
+    }
+
+    @Synchronized
+    private fun syncService() {
+        val a = managerActive || torrentActive
+        if (a == active) return
+        active = a
+        if (a) startService() else app.stopService(Intent(app, DownloadService::class.java))
     }
 
     private fun startService() {
@@ -68,6 +89,7 @@ object DownloadCenter {
     fun saveSettings(max: Int, threads: Int) {
         manager.setMax(max)
         manager.setDefaultThreads(threads)
+        TorrentCenter.setMax(manager.getMax())
         prefs.edit().putInt("max", manager.getMax()).putInt("threads", manager.getDefaultThreads()).apply()
     }
 
@@ -84,6 +106,13 @@ object DownloadCenter {
                 done += d.done.get()
                 if (d.total > 0) total += d.total else total += d.done.get()
             }
+        }
+        val t = TorrentCenter.summary()
+        run += t.first
+        speed += t.second
+        for (e in TorrentCenter.list()) if (e.state == "downloading") {
+            done += e.done
+            total += if (e.total > 0) e.total else e.done
         }
         val pct = if (total > 0) (done * 100 / total).toInt() else 0
         return Triple(run, speed, pct)

@@ -231,6 +231,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     fun dlList(): String {
         val arr = JSONArray()
         for (it in dl.list()) arr.put(itemJson(it))
+        for (t in TorrentCenter.list()) arr.put(TorrentCenter.json(t))
         return arr.toString()
     }
 
@@ -243,8 +244,12 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun dlAdd(url: String, threads: Int): String {
         if (isTorrent(url)) {
-            return JSONObject().put("ok", false)
-                .put("msg", "Torrent and magnet downloads are coming in the next update.").toString()
+            return try {
+                ui.post { activity.askNotificationPermission() }
+                JSONObject().put("ok", true).put("id", TorrentCenter.add(url)).toString()
+            } catch (e: Exception) {
+                JSONObject().put("ok", false).put("msg", e.message ?: "Could not add it.").toString()
+            }
         }
         return try {
             ui.post { activity.askNotificationPermission() }
@@ -284,13 +289,16 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     @JavascriptInterface
-    fun dlPause(id: String) = dl.pause(id)
+    fun dlPause(id: String) = if (TorrentCenter.isTorrentId(id)) TorrentCenter.pause(id) else dl.pause(id)
 
     @JavascriptInterface
-    fun dlResume(id: String) = dl.resume(id)
+    fun dlResume(id: String) = if (TorrentCenter.isTorrentId(id)) TorrentCenter.resume(id) else dl.resume(id)
 
     @JavascriptInterface
-    fun dlPauseAll() = dl.pauseAll()
+    fun dlPauseAll() {
+        dl.pauseAll()
+        TorrentCenter.pauseAll()
+    }
 
     @JavascriptInterface
     fun dlSetThreads(id: String, n: Int) = dl.setThreads(id, n)
@@ -298,7 +306,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     /** Removes the entry. deleteFile also deletes a finished file. */
     @JavascriptInterface
     fun dlRemove(id: String, deleteFile: Boolean) {
-        dl.remove(id, deleteFile)
+        if (TorrentCenter.isTorrentId(id)) TorrentCenter.remove(id, deleteFile) else dl.remove(id, deleteFile)
         js("__onModelsChanged", "")
     }
 
@@ -315,6 +323,10 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     /** Copies a finished download into the phone's public Downloads folder. */
     @JavascriptInterface
     fun dlSaveToDownloads(id: String) {
+        if (TorrentCenter.isTorrentId(id)) {
+            saveTorrentFiles(id)
+            return
+        }
         val it = dl.list().firstOrNull { d -> d.id == id }
         val src = it?.file()
         if (it == null || src == null || !src.exists() || it.state != DownloadItem.State.DONE) {
@@ -337,6 +349,40 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                     src.inputStream().use { it2 -> it2.copyTo(out, 64 * 1024) }
                 } ?: throw Exception("Could not write the file.")
                 js("__onToast", "Saved to Downloads/MobileAIStudio/${src.name}")
+            } catch (e: Exception) {
+                js("__onToast", "Could not save: ${e.message}")
+            }
+        }.start()
+    }
+
+    private fun saveTorrentFiles(id: String) {
+        val files = TorrentCenter.filesOf(id)
+        if (files.isEmpty()) {
+            js("__onToast", "That file is not ready.")
+            return
+        }
+        if (Build.VERSION.SDK_INT < 29) {
+            js("__onToast", "Saving to Downloads needs Android 10 or newer.")
+            return
+        }
+        Thread {
+            try {
+                for ((src, rel) in files) {
+                    val values = android.content.ContentValues()
+                    values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, rel.substringAfterLast('/'))
+                    val sub = rel.substringBeforeLast('/', "")
+                    values.put(
+                        android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                        "Download/MobileAIStudio" + (if (sub.isNotEmpty()) "/$sub" else "")
+                    )
+                    val uri = activity.contentResolver.insert(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+                    ) ?: throw Exception("Could not create the file.")
+                    activity.contentResolver.openOutputStream(uri)?.use { out ->
+                        src.inputStream().use { it2 -> it2.copyTo(out, 64 * 1024) }
+                    } ?: throw Exception("Could not write the file.")
+                }
+                js("__onToast", "Saved ${files.size} file(s) to Downloads/MobileAIStudio")
             } catch (e: Exception) {
                 js("__onToast", "Could not save: ${e.message}")
             }

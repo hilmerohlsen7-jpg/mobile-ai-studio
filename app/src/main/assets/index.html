@@ -409,6 +409,7 @@ function pctText(d, fallbackTotal) {
   return x;
 }
 function statusText(d) {
+  if (d.state === 'downloading' && d.torrent) return d.msg || ('Torrent · ' + (d.peers || 0) + (d.peers === 1 ? ' peer' : ' peers'));
   if (d.state === 'downloading') return (d.ftp ? 'Downloading (FTP) · ' : 'Downloading · ') + d.threads + (d.threads === 1 ? ' connection' : ' connections');
   if (d.state === 'queued') return 'Waiting for a free slot';
   if (d.state === 'paused') return 'Paused' + (d.msg ? ' · ' + d.msg : '');
@@ -546,7 +547,7 @@ function dlRow(d) {
   const acts = h('div', {class: 'acts'});
   if (d.state === 'downloading' || d.state === 'queued') acts.append(h('button', {onclick: () => Android.dlPause(d.id)}, 'Pause'));
   if (d.state === 'paused' || d.state === 'error') acts.append(h('button', {class: 'pri', onclick: () => Android.dlResume(d.id)}, d.state === 'error' ? 'Try again' : 'Resume'));
-  if (d.state !== 'done' && !d.ftp) {
+  if (d.state !== 'done' && !d.ftp && !d.torrent) {
     acts.append(h('span', {class: 'pct'}, 'Connections'));
     acts.append(stepper(d.threads, 1, 16, v => { Android.dlSetThreads(d.id, v); }));
   }
@@ -573,7 +574,7 @@ function renderDownloads() {
     if (!r.ok) { toast(r.msg); return; }
     inp.value = ''; toast('Added'); pullDownloads();
   }}, 'Download'));
-  add.append(h('div', {class: 'meta', style: 'margin-top:8px;font-size:.78rem;color:var(--mute)'}, 'Works with http, https and ftp. Several connections per file make big files faster. Torrent and magnet links are coming in the next update.'));
+  add.append(h('div', {class: 'meta', style: 'margin-top:8px;font-size:.78rem;color:var(--mute)'}, 'Works with http, https and ftp. Several connections per file make big files faster. Torrents work too: paste a magnet link or the address of a .torrent file.'));
   o.append(add);
   const set = h('div', {class: 'box2'});
   set.append(h('h3', null, 'Settings'));
