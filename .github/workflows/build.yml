@@ -34,6 +34,17 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp app/src/main/cpp/llama.cpp
 
+      - name: Probe library versions
+        shell: bash
+        continue-on-error: true
+        run: |
+          for u in https://repo1.maven.org/maven2/com/frostwire/jlibtorrent/maven-metadata.xml \
+                   https://repo1.maven.org/maven2/com/frostwire/jlibtorrent-android-arm64/maven-metadata.xml \
+                   https://dl.frostwire.com/maven/com/frostwire/jlibtorrent/maven-metadata.xml \
+                   https://repo1.maven.org/maven2/org/libtorrent4j/libtorrent4j/maven-metadata.xml; do
+            echo "== $u"; curl -sSL "$u" | tr -d '\n' | grep -o '<version>[^<]*</version>' | tail -8 | tr '\n' ' '; echo
+          done 2>&1 | tee probe.log
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
@@ -65,9 +76,11 @@ jobs:
         run: |
           mkdir -p /tmp/log
           if [ -f build.log ]; then tail -n 4000 build.log > /tmp/log/build.log; else echo "no build log" > /tmp/log/build.log; fi
+          if [ -f probe.log ]; then cp probe.log /tmp/log/probe.log; fi
           cd /tmp/log
           git init -q
           git checkout -q -b build-logs
           git add build.log
+          if [ -f probe.log ]; then git add probe.log; fi
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "build log for ${GITHUB_SHA}"
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" build-logs
