@@ -34,17 +34,6 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp app/src/main/cpp/llama.cpp
 
-      - name: Probe library versions
-        shell: bash
-        continue-on-error: true
-        run: |
-          for u in https://repo1.maven.org/maven2/com/frostwire/jlibtorrent/maven-metadata.xml \
-                   https://repo1.maven.org/maven2/com/frostwire/jlibtorrent-android-arm64/maven-metadata.xml \
-                   https://dl.frostwire.com/maven/com/frostwire/jlibtorrent/maven-metadata.xml \
-                   https://repo1.maven.org/maven2/org/libtorrent4j/libtorrent4j/maven-metadata.xml; do
-            echo "== $u"; curl -sSL "$u" | tr -d '\n' | grep -o '<version>[^<]*</version>' | tail -8 | tr '\n' ' '; echo
-          done 2>&1 | tee probe.log
-
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
@@ -52,20 +41,6 @@ jobs:
       - name: Build the app
         shell: bash
         run: gradle --no-daemon --stacktrace assembleRelease 2>&1 | tee build.log
-
-      - name: Probe library API
-        if: always()
-        shell: bash
-        continue-on-error: true
-        run: |
-          J=$(find ~/.gradle -name 'jlibtorrent-2.0.15.3.jar' | head -1)
-          echo "jar: $J" > probe.log
-          for c in TorrentInfo InfoHash TorrentHandle; do
-            echo "== $c" >> probe.log
-            javap -cp "$J" com.frostwire.jlibtorrent.$c 2>&1 | grep -i -E "hash|find|class" >> probe.log
-          done
-          echo "== SessionManager" >> probe.log
-          javap -cp "$J" com.frostwire.jlibtorrent.SessionManager 2>&1 | grep -E "find|download|fetchMagnet|remove|applySettings" >> probe.log
 
       - name: Keep the APK as a download on this run
         uses: actions/upload-artifact@v4

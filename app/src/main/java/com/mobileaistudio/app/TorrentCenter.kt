@@ -227,7 +227,7 @@ object TorrentCenter {
     private fun handleOf(e: Entry): TorrentHandle? {
         val ti = e.info ?: return null
         val s = session ?: return null
-        return try { s.find(ti.infoHash()) } catch (t: Throwable) { null }
+        return try { s.find(ti) } catch (t: Throwable) { null }
     }
 
     fun pause(id: String) {
