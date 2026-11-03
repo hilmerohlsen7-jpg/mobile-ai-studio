@@ -68,6 +68,6 @@ android {
 }
 
 dependencies {
-    implementation("com.frostwire:jlibtorrent:2.0.13.6")
-    implementation("com.frostwire:jlibtorrent-android-arm64:2.0.13.6")
+    implementation("com.frostwire:jlibtorrent:2.0.15.3")
+    implementation("com.frostwire:jlibtorrent-android-arm64:2.0.15.3")
 }
