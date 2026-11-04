@@ -7,11 +7,11 @@ import java.net.URLEncoder;
 import java.util.Locale;
 import java.util.Set;
 
-final class Util {
+public final class Util {
     private Util() {
     }
 
-    static String enc(String s) {
+    public static String enc(String s) {
         try {
             return URLEncoder.encode(s == null ? "" : s, "UTF-8");
         } catch (UnsupportedEncodingException e) {
@@ -19,7 +19,7 @@ final class Util {
         }
     }
 
-    static String dec(String s) {
+    public static String dec(String s) {
         try {
             return URLDecoder.decode(s, "UTF-8");
         } catch (Exception e) {

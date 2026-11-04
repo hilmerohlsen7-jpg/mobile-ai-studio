@@ -15,6 +15,7 @@ import android.webkit.WebView
 import org.json.JSONArray
 import org.json.JSONObject
 import com.mobileaistudio.app.dl.DownloadItem
+import com.mobileaistudio.app.fs.FileOps
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
@@ -70,6 +71,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             }
         }
         worker.shutdown()
+        fsPool.shutdown()
     }
 
     // ---------- saved data ----------
@@ -390,6 +392,126 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 js("__onToast", "Could not save: ${e.message}")
             }
         }.start()
+    }
+
+    // ---------- files on the phone ----------
+
+    private val fsPool = Executors.newSingleThreadExecutor()
+    private val fsOps: FileOps by lazy {
+        val root = android.os.Environment.getExternalStorageDirectory()
+        FileOps(root, File(root, ".MobileAIStudio-Trash"), File(activity.filesDir, "fs-history.txt"))
+    }
+
+    @JavascriptInterface
+    fun fsAccess(): Boolean = activity.hasFilesAccess()
+
+    @JavascriptInterface
+    fun fsRequestAccess() {
+        ui.post { activity.requestFilesAccess() }
+    }
+
+    @JavascriptInterface
+    fun fsRoot(): String = fsOps.root().path
+
+    private fun fsNoAccess() = JSONObject().put("ok", false).put("code", "access")
+        .put("msg", "Allow access to all files first.")
+
+    @JavascriptInterface
+    fun fsList(path: String): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        return try {
+            val arr = JSONArray()
+            for (i in fsOps.list(path)) {
+                arr.put(JSONObject().put("name", i.name).put("dir", i.dir).put("size", i.size).put("mtime", i.mtime))
+            }
+            JSONObject().put("ok", true).put("path", fsOps.resolve(path).path).put("items", arr).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("msg", e.message ?: "Could not open it.").toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fsRead(path: String): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        return try {
+            val t = fsOps.read(path)
+            JSONObject().put("ok", true).put("text", t.text).put("truncated", t.truncated).put("size", t.size).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("msg", e.message ?: "Could not read it.").toString()
+        }
+    }
+
+    private fun entryJson(e: FileOps.Entry): JSONObject = JSONObject()
+        .put("id", e.id).put("time", e.time).put("op", e.op).put("path", e.path).put("from", e.from)
+        .put("reason", e.reason).put("undone", e.undone).put("purged", e.purged).put("size", e.size)
+
+    @JavascriptInterface
+    fun fsHistory(): String {
+        val arr = JSONArray()
+        for (e in fsOps.history()) arr.put(entryJson(e))
+        return arr.toString()
+    }
+
+    @JavascriptInterface
+    fun fsTrash(): String {
+        val arr = JSONArray()
+        for (e in fsOps.trashEntries()) arr.put(entryJson(e))
+        return arr.toString()
+    }
+
+    private fun fsReply(reqId: String, r: FileOps.Result?, extra: JSONObject? = null) {
+        val o = extra ?: JSONObject()
+        o.put("id", reqId)
+        if (r != null) {
+            o.put("ok", r.ok).put("msg", r.msg).put("code", r.code).put("path", r.path)
+            o.put("entryId", r.entry?.id ?: "")
+        }
+        js("__onFs", o.toString())
+    }
+
+    /** Runs one change that the person has already approved in the app. The answer arrives in __onFs. */
+    @JavascriptInterface
+    fun fsOp(reqId: String, opJson: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) {
+                fsReply(reqId, null, fsNoAccess())
+                return@execute
+            }
+            try {
+                val o = JSONObject(opJson)
+                val reason = o.optString("reason", "")
+                val r = when (o.getString("type")) {
+                    "write" -> fsOps.write(o.getString("path"), o.optString("text", ""), o.optBoolean("asCopy", false), reason)
+                    "mkdir" -> fsOps.mkdir(o.getString("path"), reason)
+                    "rename" -> fsOps.rename(o.getString("path"), o.getString("newName"), reason)
+                    "copy" -> fsOps.copy(o.getString("path"), o.getString("destDir"), reason)
+                    "delete" -> fsOps.delete(o.getString("path"), reason)
+                    else -> null
+                }
+                if (r == null) fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Unknown action."))
+                else fsReply(reqId, r)
+            } catch (e: Exception) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Something went wrong."))
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun fsUndo(reqId: String, id: String, force: Boolean) {
+        fsPool.execute { fsReply(reqId, fsOps.undo(id, force)) }
+    }
+
+    @JavascriptInterface
+    fun fsPurge(reqId: String, id: String) {
+        fsPool.execute { fsReply(reqId, fsOps.purge(id)) }
+    }
+
+    @JavascriptInterface
+    fun fsPurgeAll(reqId: String) {
+        fsPool.execute {
+            val n = fsOps.purgeAllTrash()
+            fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Deleted $n item(s) for good."))
+        }
     }
 
     private val httpPool = Executors.newFixedThreadPool(2)

@@ -70,6 +70,49 @@ class MainActivity : Activity() {
         }
     }
 
+    fun hasFilesAccess(): Boolean =
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            android.os.Environment.isExternalStorageManager()
+        } else {
+            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+    /** Opens the Android screen where the person allows access to all files (or asks, on older phones). */
+    fun requestFilesAccess() {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            try {
+                startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            } catch (e: Exception) {
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                } catch (e2: Exception) {
+                }
+            }
+        } else {
+            requestPermissions(
+                arrayOf(
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                ), 4
+            )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::web.isInitialized) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 4) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
+    }
+
     fun pickModelFile() {
         val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
         i.addCategory(Intent.CATEGORY_OPENABLE)

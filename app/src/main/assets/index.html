@@ -93,6 +93,33 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
 .fl .q{color:var(--acc);font-weight:600}
 .fl .w{font-size:.75rem;color:#ffb74d}
 #toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 14px;border-radius:20px;font-size:.85rem;display:none;z-index:20;max-width:90vw;text-align:center}
+.crumbs{font-size:.8rem;color:var(--mute);margin:2px 0 8px;word-break:break-all}
+.frow{display:flex;gap:6px;align-items:center;border-top:1px solid var(--line);padding:6px 0}
+.frow .fmain{flex:1;min-width:0;cursor:pointer}
+.frow .nm{font-size:.92rem;word-break:break-all}
+.frow .meta{font-size:.74rem;color:var(--mute)}
+.fedit{width:100%;min-height:50vh;background:#0d0d0d;color:#00ffcc;border:1px solid #333;border-radius:8px;padding:10px;font-family:monospace;font-size:.8rem;white-space:pre}
+#approve{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:13;overflow-y:auto;padding:12px}
+#approve.open{display:block}
+.acard{background:#202020;border:1px solid var(--acc);border-radius:12px;padding:14px;max-width:560px;margin:0 auto}
+.acard .at{font-size:1.05rem;font-weight:700;color:var(--acc);margin-bottom:8px}
+.acard .al{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);margin-top:10px}
+.acard .av{font-size:.9rem;word-break:break-all}
+.acard .av.path{font-family:monospace;font-size:.82rem;color:#fff}
+.acard .an{font-size:.78rem;color:#ffb74d;margin-top:10px}
+.acard pre.prev{background:#0d0d0d;border:1px solid #333;border-radius:8px;padding:8px;font-size:.78rem;max-height:30vh;overflow:auto;white-space:pre-wrap;margin:4px 0 0}
+.diff{background:#0d0d0d;border:1px solid #333;border-radius:8px;padding:6px 8px;font-family:monospace;font-size:.76rem;max-height:36vh;overflow:auto;margin-top:4px}
+.diff .dh{color:var(--mute);margin-bottom:4px;font-family:sans-serif}
+.diff div{white-space:pre-wrap;word-break:break-all}
+.diff .dc{color:#888}.diff .dr{background:#3a1a1a;color:#ff8a80}.diff .da{background:#17301c;color:#9be39e}.diff .dm{color:var(--mute);font-style:italic}
+.abtns{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.abtns button{padding:12px;font-size:.92rem}
+.abtns button.big{font-size:1rem;padding:14px;box-shadow:0 0 0 2px rgba(187,134,252,.5)}
+#sheet{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:12;align-items:flex-end;justify-content:center}
+#sheet.open{display:flex}
+#sheet .sbox{background:#222;border-radius:14px 14px 0 0;padding:14px;width:min(100vw,480px);display:flex;flex-direction:column;gap:8px}
+#sheet .mt{font-weight:600;word-break:break-all}
+#undobar{display:none;position:fixed;bottom:12px;left:12px;right:12px;max-width:520px;margin:0 auto;background:#333;border:1px solid var(--acc);border-radius:12px;padding:10px 12px;z-index:14;align-items:center;justify-content:space-between;gap:10px;font-size:.88rem}
 </style></head>
 <body>
 <div id="app">
@@ -122,12 +149,17 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label>Creativity (0 to 1.5)<input type="number" step="0.1" id="s_temperature"></label>
   <button id="openModels">Models...</button>
   <button id="openDl">Downloads...</button>
+  <button id="openFiles">Files on this phone...</button>
 </div>
 
 <div id="models" class="overlay"></div>
 <div id="downloads" class="overlay z9"></div>
 <div id="find" class="overlay z9"></div>
 <div id="welcome" class="overlay"></div>
+<div id="files" class="overlay z9"></div>
+<div id="approve"></div>
+<div id="sheet"></div>
+<div id="undobar"></div>
 
 <div id="modal"><div class="box"><div class="mt" id="mt"></div><input id="mi" type="text"><div class="btns"><button id="mno">Cancel</button><button id="myes" class="pri">OK</button></div></div></div>
 <div id="toast"></div>
@@ -226,7 +258,8 @@ function copyText(text, btn) {
 function codeBlock(el, lang, code) {
   const text = code.replace(/\n$/, '');
   const btn = h('button', {onclick: () => copyText(text, btn)}, 'Copy');
-  el.append(h('div', {class: 'cb'}, h('div', {class: 'bar'}, h('span', null, lang || 'code'), btn), h('pre', null, text)));
+  const save = hasBridge && Android.fsAccess !== undefined ? h('button', {onclick: () => saveCodeBlock(text, lang)}, 'Save') : null;
+  el.append(h('div', {class: 'cb'}, h('div', {class: 'bar'}, h('span', null, lang || 'code'), h('span', {style: 'display:flex;gap:6px'}, save, btn)), h('pre', null, text)));
 }
 function inline(el, s) {
   if (!s) return;
@@ -592,6 +625,7 @@ function renderDownloads() {
 function openDownloads() { loadDlSettings(); pullDownloads(); renderDownloads(); $('downloads').classList.add('open'); $('settings').classList.remove('open'); }
 function closeDownloads() { $('downloads').classList.remove('open'); }
 $('openDl').onclick = openDownloads;
+$('openFiles').onclick = () => openFiles();
 $('dlBtn').onclick = openDownloads;
 
 /* ---------- find models online (Hugging Face) ---------- */
@@ -698,6 +732,308 @@ function renderFind() {
 function openFind() { renderFind(); $('find').classList.add('open'); $('settings').classList.remove('open'); if (!findState.results && !findState.busy) searchModels(''); }
 function closeFind() { $('find').classList.remove('open'); }
 
+/* ---------- files on this phone ---------- */
+const fsCbs = {};
+window.__onFs = json => { let r; try { r = JSON.parse(json); } catch (e) { return; } const cb = fsCbs[r.id]; delete fsCbs[r.id]; if (cb) cb(r); };
+function fsCall(fn, ...args) {
+  return new Promise(resolve => {
+    if (!hasBridge || !Android[fn]) { resolve({ok: false, msg: 'Not available here.'}); return; }
+    const id = uid(); fsCbs[id] = resolve;
+    try { Android[fn](id, ...args); } catch (e) { delete fsCbs[id]; resolve({ok: false, msg: 'Something went wrong.'}); }
+    setTimeout(() => { if (fsCbs[id]) { delete fsCbs[id]; resolve({ok: false, msg: 'That took too long.'}); } }, 120000);
+  });
+}
+function fsJson(fn, ...args) { try { return JSON.parse(Android[fn](...args)); } catch (e) { return {ok: false, msg: 'Not available here.'}; } }
+const fsOp = op => fsCall('fsOp', JSON.stringify(op));
+let FS = {root: '', path: '', view: 'list', file: null, access: null, items: []};
+const baseName = p => p.split('/').filter(Boolean).pop() || p;
+const parentOf = p => p.replace(/\/[^\/]*\/?$/, '') || '/';
+const joinPath = (a, b) => a.replace(/\/$/, '') + '/' + b;
+function fmtDate(t) { const d = new Date(t); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
+function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B'; }
+
+/* the question asked before any change */
+function lineDiff(a, b) {
+  const A = a.split('\n'), B = b.split('\n');
+  let s = 0; while (s < A.length && s < B.length && A[s] === B[s]) s++;
+  let ea = A.length, eb = B.length;
+  while (ea > s && eb > s && A[ea - 1] === B[eb - 1]) { ea--; eb--; }
+  return {before: A.slice(Math.max(0, s - 3), s), removed: A.slice(s, ea), added: B.slice(s, eb), after: A.slice(ea, ea + 3), line: s + 1};
+}
+function diffBox(oldText, newText) {
+  const d = lineDiff(oldText, newText);
+  const box = h('div', {class: 'diff'});
+  const add = (cls, sign, lines, max) => {
+    lines.slice(0, max).forEach(l => box.append(h('div', {class: cls}, sign + ' ' + l)));
+    if (lines.length > max) box.append(h('div', {class: 'dm'}, '... ' + (lines.length - max) + ' more lines'));
+  };
+  box.append(h('div', {class: 'dh'}, d.removed.length + ' line(s) removed, ' + d.added.length + ' line(s) added, starting at line ' + d.line));
+  add('dc', ' ', d.before, 3); add('dr', '−', d.removed, 40); add('da', '+', d.added, 40); add('dc', ' ', d.after, 3);
+  if (!d.removed.length && !d.added.length) box.append(h('div', {class: 'dm'}, 'No difference.'));
+  return box;
+}
+/* req: {title, path, reason, rows:[[label,value]], diff:[old,new], preview, primary:{label,value}, others:[{label,value,danger}]} -> value or 'deny' */
+function askApproval(req) {
+  return new Promise(resolve => {
+    const o = $('approve'); o.textContent = '';
+    const card = h('div', {class: 'acard'});
+    card.append(h('div', {class: 'at'}, req.title));
+    card.append(h('div', {class: 'al'}, 'Where'));
+    card.append(h('div', {class: 'av path'}, req.path));
+    (req.rows || []).forEach(r => { card.append(h('div', {class: 'al'}, r[0])); card.append(h('div', {class: 'av'}, r[1])); });
+    card.append(h('div', {class: 'al'}, 'Why'));
+    card.append(h('div', {class: 'av'}, req.reason));
+    if (req.diff) { card.append(h('div', {class: 'al'}, 'What changes')); card.append(diffBox(req.diff[0], req.diff[1])); }
+    if (req.preview) { card.append(h('div', {class: 'al'}, 'Content')); card.append(h('pre', {class: 'prev'}, req.preview.slice(0, 3000) + (req.preview.length > 3000 ? '\n...' : ''))); }
+    if (req.note) card.append(h('div', {class: 'an'}, req.note));
+    const done = v => { o.classList.remove('open'); approveDone = null; resolve(v); };
+    approveDone = done;
+    const btns = h('div', {class: 'abtns'});
+    btns.append(h('button', {class: 'pri big', onclick: () => done(req.primary.value)}, req.primary.label));
+    (req.others || []).forEach(b => btns.append(h('button', {class: b.danger ? 'danger' : '', onclick: () => done(b.value)}, b.label)));
+    btns.append(h('button', {onclick: () => done('deny')}, 'Deny'));
+    card.append(btns);
+    o.append(card); o.classList.add('open'); o.scrollTop = 0;
+  });
+}
+let approveDone = null;
+
+/* undo bar */
+let undoTimer = null;
+function showUndo(msg, entryId) {
+  const b = $('undobar'); b.textContent = '';
+  b.append(h('span', null, msg));
+  if (entryId) b.append(h('button', {class: 'pri', onclick: () => { hideUndo(); doUndo(entryId); }}, 'Undo'));
+  b.style.display = 'flex'; clearTimeout(undoTimer); undoTimer = setTimeout(hideUndo, 12000);
+}
+function hideUndo() { $('undobar').style.display = 'none'; clearTimeout(undoTimer); }
+async function doUndo(id) {
+  let r = await fsCall('fsUndo', id, false);
+  if (!r.ok && r.code === 'changed') {
+    if (!await askConfirm(r.msg + ' Do it anyway?', 'Undo anyway')) return;
+    r = await fsCall('fsUndo', id, true);
+  }
+  toast(r.msg || (r.ok ? 'Undone' : 'Could not undo'));
+  fsRefresh();
+}
+async function runOp(op) {
+  const r = await fsOp(op);
+  if (!r.ok) { toast(r.msg || 'That did not work.'); return r; }
+  showUndo(r.msg, r.entryId); fsRefresh();
+  return r;
+}
+
+/* the actions, each one asks first */
+async function fsSaveText(path, newText, reason) {
+  const info = fsJson('fsRead', path);
+  const exists = info.ok;
+  if (!exists && info.code === 'access') { openFiles(); return false; }
+  if (!exists && info.msg !== 'That does not exist.') { toast(info.msg || 'Could not open that path.'); return false; }
+  if (exists && info.truncated) { toast('This file is too large to change from here.'); return false; }
+  let choice;
+  if (exists) {
+    if (info.text === newText) { toast('Nothing to change.'); return false; }
+    choice = await askApproval({title: 'Change an existing file', path: path, reason: reason, diff: [info.text, newText],
+      primary: {label: 'Save as copy (keeps the original)', value: 'copy'},
+      others: [{label: 'Approve: replace the original', value: 'replace'}],
+      note: 'If you replace it, the old version is kept in the Trash and you can undo.'});
+  } else {
+    choice = await askApproval({title: 'Create a new file', path: path, reason: reason, preview: newText,
+      rows: [['Size', fmtSize(new Blob([newText]).size)]], primary: {label: 'Approve: create the file', value: 'create'}});
+  }
+  if (choice === 'deny') { toast('Denied. Nothing was changed.'); return false; }
+  const r = await runOp({type: 'write', path: path, text: newText, asCopy: choice === 'copy', reason: reason});
+  return r.ok;
+}
+async function fsDelete(item, path) {
+  const c = await askApproval({title: 'Delete ' + (item.dir ? 'a folder' : 'a file'), path: path, reason: 'You chose Delete in the file browser.',
+    rows: [['Kind', item.dir ? 'Folder (everything inside goes too)' : 'File, ' + fmtSize(item.size)]],
+    primary: {label: 'Move to Trash', value: 'ok'}, note: 'Nothing is erased for good. You can restore it from the Trash or with Undo.'});
+  if (c === 'deny') return;
+  await runOp({type: 'delete', path: path, reason: 'You chose Delete in the file browser.'});
+}
+async function fsRename(item, path) {
+  const n = await askText('New name for ' + item.name, item.name); if (!n || n === item.name) return;
+  const c = await askApproval({title: 'Rename', path: path, reason: 'You chose Rename in the file browser.', rows: [['New name', n]],
+    primary: {label: 'Approve: rename', value: 'ok'}});
+  if (c === 'deny') return;
+  await runOp({type: 'rename', path: path, newName: n, reason: 'You chose Rename in the file browser.'});
+}
+async function fsCopyHere(item, path) {
+  const c = await askApproval({title: 'Copy ' + (item.dir ? 'a folder' : 'a file'), path: path, reason: 'You chose Make a copy in the file browser.',
+    rows: [['Copy goes to', FS.path]], primary: {label: 'Approve: make a copy', value: 'ok'}});
+  if (c === 'deny') return;
+  await runOp({type: 'copy', path: path, destDir: FS.path, reason: 'You chose Make a copy in the file browser.'});
+}
+async function fsNewFolder() {
+  const n = await askText('Name of the new folder', ''); if (!n) return;
+  const p = joinPath(FS.path, n);
+  const c = await askApproval({title: 'Create a folder', path: p, reason: 'You chose + Folder in the file browser.', primary: {label: 'Approve: create folder', value: 'ok'}});
+  if (c === 'deny') return;
+  await runOp({type: 'mkdir', path: p, reason: 'You chose + Folder in the file browser.'});
+}
+async function fsNewFile() {
+  const n = await askText('Name of the new file (for example notes.txt)', ''); if (!n) return;
+  await fsSaveText(joinPath(FS.path, n), '', 'You chose + File in the file browser.').catch(() => {});
+}
+/* "Save" under a code block in the chat */
+async function saveCodeBlock(text, lang) {
+  if (!hasBridge) { toast('Saving files is only possible in the app.'); return; }
+  if (!Android.fsAccess()) { toast('Allow access to your files first.'); openFiles(); return; }
+  const ext = {python: 'py', py: 'py', javascript: 'js', js: 'js', html: 'html', css: 'css', json: 'json', bash: 'sh', sh: 'sh', kotlin: 'kt', java: 'java', c: 'c', cpp: 'cpp', typescript: 'ts', ts: 'ts'}[(lang || '').toLowerCase()] || 'txt';
+  if (!FS.root) FS.root = Android.fsRoot();
+  const p = await askText('Save this code as (full path on your phone)', joinPath(FS.root, 'Download/code.' + ext)); if (!p) return;
+  await fsSaveText(p.trim(), text, 'You tapped Save under a code block the AI wrote in the chat.');
+}
+
+/* screens */
+function fsRefresh() { if ($('files').classList.contains('open')) renderFiles(); }
+function fsBack() {
+  if (!$('files').classList.contains('open')) return false;
+  if (FS.view !== 'list') { FS.view = 'list'; renderFiles(); return true; }
+  if (FS.access && FS.root && FS.path !== FS.root) { FS.path = parentOf(FS.path); renderFiles(); return true; }
+  closeFiles(); return true;
+}
+function openFiles() {
+  $('settings').classList.remove('open'); $('drawer').classList.remove('open'); $('scrim').classList.remove('open');
+  FS.view = 'list'; FS.access = hasBridge ? !!Android.fsAccess() : false;
+  if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; }
+  renderFiles(); $('files').classList.add('open');
+}
+function closeFiles() { $('files').classList.remove('open'); }
+window.__onResume = () => { if ($('files').classList.contains('open')) { FS.access = !!Android.fsAccess(); if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); } };
+function topbar(title, back) { return h('div', {class: 'topbar'}, h('h2', null, title), back ? h('button', {onclick: back}, 'Back') : null, h('button', {onclick: closeFiles}, 'Close')); }
+function renderFiles() {
+  const o = $('files'); o.textContent = '';
+  if (!hasBridge) { o.append(topbar('Files on this phone')); o.append(h('div', {class: 'sub'}, 'The file browser only works in the app.')); return; }
+  if (!FS.access) {
+    o.append(topbar('Files on this phone'));
+    o.append(h('div', {class: 'box2'}, h('h3', null, 'Allow access to your files'),
+      h('div', {class: 'meta', style: 'font-size:.85rem;line-height:1.5'}, 'To see and change files, Android needs your permission ("All files access"). Tap the button, switch it on for Mobile AI Studio, then come back here.'),
+      h('div', {style: 'height:8px'}),
+      h('button', {class: 'pri', style: 'width:100%', onclick: () => Android.fsRequestAccess()}, 'Open the Android setting'),
+      h('div', {class: 'meta', style: 'font-size:.78rem;color:var(--mute);margin-top:10px'}, 'The app only changes a file after you approve it in a prompt that shows exactly what will happen. Deleted and replaced files go to a Trash folder, and every change can be undone.')));
+    o.append(h('button', {style: 'width:100%', onclick: () => { FS.access = !!Android.fsAccess(); if (FS.access) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); }}, 'I allowed it, continue'));
+    return;
+  }
+  if (FS.view === 'history') return renderHistory(o);
+  if (FS.view === 'trash') return renderTrash(o);
+  if (FS.view === 'file') return renderFileView(o);
+  const res = fsJson('fsList', FS.path);
+  o.append(topbar('Files on this phone'));
+  const rel = FS.path === FS.root ? 'Phone storage' : 'Phone storage' + FS.path.slice(FS.root.length);
+  const bar = h('div', {class: 'crumbs'}, rel);
+  o.append(bar);
+  const tools = h('div', {class: 'chips'});
+  if (FS.path !== FS.root) tools.append(h('button', {onclick: () => { FS.path = parentOf(FS.path); renderFiles(); }}, '↑ Up'));
+  tools.append(h('button', {onclick: fsNewFolder}, '+ Folder'), h('button', {onclick: fsNewFile}, '+ File'),
+    h('button', {onclick: () => { FS.view = 'history'; renderFiles(); }}, 'History'), h('button', {onclick: () => { FS.view = 'trash'; renderFiles(); }}, 'Trash'));
+  o.append(tools);
+  if (!res.ok) { o.append(h('div', {class: 'err'}, res.msg || 'Could not open this folder.')); return; }
+  FS.items = res.items;
+  if (!res.items.length) o.append(h('div', {class: 'sub'}, 'This folder is empty.'));
+  res.items.forEach(it => {
+    const p = joinPath(FS.path, it.name);
+    const row = h('div', {class: 'frow'});
+    const main = h('div', {class: 'fmain', onclick: () => it.dir ? (FS.path = p, renderFiles(), o.scrollTop = 0) : openFileView(it, p)},
+      h('div', {class: 'nm'}, (it.dir ? '📁 ' : '📄 ') + it.name),
+      h('div', {class: 'meta'}, (it.dir ? 'Folder' : fmtSize(it.size)) + ' · ' + fmtDate(it.mtime)));
+    row.append(main, h('button', {'aria-label': 'Actions', onclick: () => fileActions(it, p)}, '⋯'));
+    o.append(row);
+  });
+}
+async function fileActions(it, p) {
+  const opts = [];
+  if (!it.dir) { opts.push({label: 'Open / edit', value: 'open'}, {label: 'Add to this project', value: 'add'}); }
+  opts.push({label: 'Rename', value: 'rename'}, {label: 'Make a copy here', value: 'copy'}, {label: 'Delete (to Trash)', value: 'delete', danger: true});
+  const v = await choose(it.name, opts);
+  if (v === 'open') openFileView(it, p);
+  else if (v === 'add') addFsFileToProject(p, it.name);
+  else if (v === 'rename') fsRename(it, p);
+  else if (v === 'copy') fsCopyHere(it, p);
+  else if (v === 'delete') fsDelete(it, p);
+}
+function choose(title, opts) {
+  return new Promise(resolve => {
+    const o = $('sheet'); o.textContent = '';
+    const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, title));
+    const done = v => { o.classList.remove('open'); sheetDone = null; resolve(v); };
+    sheetDone = done;
+    opts.forEach(x => box.append(h('button', {class: x.danger ? 'danger' : '', onclick: () => done(x.value)}, x.label)));
+    box.append(h('button', {onclick: () => done(null)}, 'Cancel'));
+    o.append(box); o.classList.add('open');
+  });
+}
+let sheetDone = null;
+function addFsFileToProject(p, name) {
+  const r = fsJson('fsRead', p);
+  if (!r.ok) { toast(r.msg || 'Could not read it.'); return; }
+  if (!cur) { toast('Open a project first.'); return; }
+  if (r.truncated || r.size > 300000) { toast(name + ' is too big (max 300 KB)'); return; }
+  if (!r.text.trim()) { toast(name + ' is empty'); return; }
+  cur.files.push({name: name.slice(0, 120), text: r.text}); persist(); renderDrawer();
+  toast('Added ' + name + ' to this project');
+}
+function openFileView(it, p) {
+  const r = fsJson('fsRead', p);
+  if (!r.ok) { toast(r.msg || 'Could not open it.'); return; }
+  FS.view = 'file'; FS.file = {name: it.name, path: p, text: r.text, truncated: r.truncated, size: r.size, item: it}; renderFiles(); $('files').scrollTop = 0;
+}
+function renderFileView(o) {
+  const f = FS.file;
+  o.append(topbar(f.name, () => { FS.view = 'list'; renderFiles(); }));
+  o.append(h('div', {class: 'crumbs'}, f.path));
+  if (f.truncated) o.append(h('div', {class: 'err'}, 'This file is large (' + fmtSize(f.size) + '). Only the start is shown, so it can only be read here, not changed.'));
+  const ta = h('textarea', {class: 'fedit', spellcheck: 'false', id: 'fedit'}); ta.value = f.text; if (f.truncated) ta.readOnly = true;
+  o.append(ta);
+  const acts = h('div', {class: 'acts', style: 'margin-top:8px'});
+  if (!f.truncated) acts.append(h('button', {class: 'pri', onclick: async () => {
+    const ok = await fsSaveText(f.path, ta.value, 'You edited this file in the file browser and pressed Save.');
+    if (ok) { FS.view = 'list'; renderFiles(); }
+  }}, 'Save changes...'));
+  acts.append(h('button', {onclick: () => addFsFileToProject(f.path, f.name)}, 'Add to this project'));
+  o.append(acts);
+}
+const OPNAME = {create: 'Created file', replace: 'Replaced file', copy_write: 'Saved a copy', mkdir: 'Created folder', rename: 'Renamed', copy: 'Copied', delete: 'Moved to Trash'};
+function renderHistory(o) {
+  o.append(topbar('History of changes', () => { FS.view = 'list'; renderFiles(); }));
+  o.append(h('div', {class: 'sub'}, 'Everything the app changed on your phone. Undo puts things back.'));
+  const list = fsJson('fsHistory'); if (!Array.isArray(list) || !list.length) { o.append(h('div', {class: 'sub'}, 'Nothing yet.')); return; }
+  list.forEach(e => {
+    const row = h('div', {class: 'mrow drow'});
+    row.append(h('div', {class: 'nm'}, (OPNAME[e.op] || e.op) + ': ' + baseName(e.path)));
+    row.append(h('div', {class: 'meta'}, fmtDate(e.time) + (e.from && e.op === 'rename' ? ' · was ' + baseName(e.from) : '')));
+    row.append(h('div', {class: 'meta'}, e.path));
+    row.append(h('div', {class: 'meta'}, 'Why: ' + (e.reason || '-')));
+    const acts = h('div', {class: 'acts'});
+    if (e.undone) acts.append(h('span', {class: 'tag'}, 'Undone'));
+    else if (e.purged) acts.append(h('span', {class: 'pct'}, 'Saved copy deleted, cannot undo'));
+    else acts.append(h('button', {onclick: () => doUndo(e.id)}, 'Undo'));
+    row.append(acts); o.append(row);
+  });
+}
+function renderTrash(o) {
+  o.append(topbar('Trash', () => { FS.view = 'list'; renderFiles(); }));
+  o.append(h('div', {class: 'sub'}, 'Deleted items wait here until you delete them for good.'));
+  const list = fsJson('fsTrash'); if (!Array.isArray(list) || !list.length) { o.append(h('div', {class: 'sub'}, 'The Trash is empty.')); return; }
+  o.append(h('button', {class: 'danger', style: 'width:100%;margin-bottom:10px', onclick: async () => {
+    if (!await askConfirm('Delete everything in the Trash for good? This cannot be undone.', 'Delete for good')) return;
+    const r = await fsCall('fsPurgeAll'); toast(r.msg || 'Done'); renderFiles();
+  }}, 'Empty the Trash'));
+  list.forEach(e => {
+    const row = h('div', {class: 'mrow drow'});
+    row.append(h('div', {class: 'nm'}, baseName(e.path)));
+    row.append(h('div', {class: 'meta'}, 'Deleted ' + fmtDate(e.time) + ' from ' + parentOf(e.path)));
+    const acts = h('div', {class: 'acts'});
+    acts.append(h('button', {class: 'pri', onclick: () => doUndo(e.id)}, 'Restore'));
+    acts.append(h('button', {class: 'danger', onclick: async () => {
+      if (!await askConfirm('Delete ' + baseName(e.path) + ' for good?', 'Delete for good')) return;
+      const r = await fsCall('fsPurge', e.id); toast(r.msg || 'Done'); renderFiles();
+    }}, 'Delete for good'));
+    row.append(acts); o.append(row);
+  });
+}
+
 /* ---------- settings ---------- */
 function initSettings() {
   ['num_predict', 'num_ctx', 'num_thread', 'temperature'].forEach(k => {
@@ -775,6 +1111,9 @@ window.__onChatError = msg => { finishChat(false, msg, null); toast(msg); };
 /* ---------- back button ---------- */
 window.__back = () => {
   if ($('modal').classList.contains('open')) { modalDone && modalDone(false); return true; }
+  if ($('approve').classList.contains('open')) { approveDone && approveDone('deny'); return true; }
+  if ($('sheet').classList.contains('open')) { sheetDone && sheetDone(null); return true; }
+  if (fsBack()) return true;
   if ($('find').classList.contains('open')) { closeFind(); return true; }
   if ($('downloads').classList.contains('open')) { closeDownloads(); return true; }
   if ($('models').classList.contains('open')) { closeModels(); refreshModels(); return true; }
