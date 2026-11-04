@@ -259,7 +259,7 @@ object TorrentCenter {
         if (e.applied == e.connections) return
         val h = handleOf(e) ?: return
         try {
-            h.setMaxConnections(e.connections)
+            h.swig().set_max_connections(e.connections)
             e.applied = e.connections
         } catch (t: Throwable) {
         }
