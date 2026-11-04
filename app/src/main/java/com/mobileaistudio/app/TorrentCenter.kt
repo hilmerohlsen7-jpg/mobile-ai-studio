@@ -28,6 +28,8 @@ object TorrentCenter {
         @Volatile var peers: Int = 0
         @Volatile var info: TorrentInfo? = null
         @Volatile var busy: Boolean = false // fetching the torrent details
+        @Volatile var connections: Int = 60 // most peers this torrent talks to at once
+        @Volatile var applied: Int = -1
     }
 
     private lateinit var app: Context
@@ -111,7 +113,10 @@ object TorrentCenter {
         o.put("msg", e.msg)
         o.put("total", e.total)
         o.put("done", e.done)
-        o.put("threads", 0)
+        o.put("threads", e.connections)
+        o.put("minT", 10)
+        o.put("maxT", 200)
+        o.put("step", 10)
         o.put("speed", e.speed)
         o.put("ftp", false)
         o.put("torrent", true)
@@ -241,6 +246,25 @@ object TorrentCenter {
         }
     }
 
+    fun setConnections(id: String, n: Int) {
+        val e = find(id) ?: return
+        e.connections = n.coerceIn(10, 200)
+        e.applied = -1
+        applyConnections(e)
+        save()
+        changed()
+    }
+
+    private fun applyConnections(e: Entry) {
+        if (e.applied == e.connections) return
+        val h = handleOf(e) ?: return
+        try {
+            h.setMaxConnections(e.connections)
+            e.applied = e.connections
+        } catch (t: Throwable) {
+        }
+    }
+
     fun pauseAll() {
         for (e in list()) pause(e.id)
     }
@@ -295,6 +319,7 @@ object TorrentCenter {
             if (e.state != "downloading" || e.busy) continue
             any = true
             val h = handleOf(e) ?: continue
+            applyConnections(e)
             val st = h.status()
             e.done = st.totalWantedDone()
             e.total = st.totalWanted()
@@ -338,7 +363,7 @@ object TorrentCenter {
             for (e in entries) {
                 if (e.state == "removed") continue
                 arr.put(JSONObject().put("id", e.id).put("src", e.source).put("name", e.name).put("state", e.state)
-                    .put("total", e.total).put("done", e.done).put("created", e.createdAt))
+                    .put("total", e.total).put("done", e.done).put("created", e.createdAt).put("conn", e.connections))
             }
             val tmp = File(listFile.path + ".tmp")
             tmp.writeText(arr.toString())
@@ -358,6 +383,7 @@ object TorrentCenter {
                 e.name = o.optString("name")
                 e.total = o.optLong("total", -1)
                 e.done = o.optLong("done")
+                e.connections = o.optInt("conn", 60)
                 var st = o.optString("state", "paused")
                 if (st == "downloading" || st == "queued") { st = "paused"; e.msg = "Paused when the app closed." }
                 e.state = st

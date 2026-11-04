@@ -168,10 +168,19 @@ final class FtpFetch {
             } else {
                 it.total = -1; // some servers cannot report the size
             }
+            // Several connections need the server to start a file from any position (REST).
+            boolean rest = false;
+            if (it.total > 0) {
+                try {
+                    Reply rr = s.cmd("REST 1");
+                    rest = rr.code == 350;
+                } catch (IOException ignored) {
+                }
+            }
+            it.rangeOk = rest;
         } finally {
             s.close();
         }
-        it.rangeOk = false; // FTP is resumed as one stream, not in chunks
         it.suggestedName = Util.lastSegment(it.url);
         it.resolvedUrl = null;
     }
@@ -191,6 +200,56 @@ final class FtpFetch {
             if (m.find()) return Integer.parseInt(m.group(1));
         }
         throw new IOException("The FTP server would not open a data connection.");
+    }
+
+    /** One data connection reading a file from a position. Closing it stops the transfer. */
+    static final class Range implements Closeable {
+        final InputStream in;
+        private final Session session;
+        private final Socket data;
+
+        Range(InputStream in, Session session, Socket data) {
+            this.in = in;
+            this.session = session;
+            this.data = data;
+        }
+
+        @Override
+        public void close() {
+            try {
+                data.close();
+            } catch (Exception ignored) {
+            }
+            session.close();
+        }
+    }
+
+    static Range openRange(DownloadItem it, long from) throws IOException {
+        String path = pathOf(it);
+        Session s = connect(it);
+        Socket data = null;
+        try {
+            int port = passivePort(s);
+            if (from > 0) {
+                Reply r = s.cmd("REST " + from);
+                if (r.code != 350) throw new IOException("The FTP server cannot continue from the middle of a file.");
+            }
+            data = new Socket();
+            data.connect(new InetSocketAddress(s.host, port), 20000);
+            data.setSoTimeout(30000);
+            Reply r = s.cmd("RETR " + path);
+            if (r.code != 150 && r.code != 125) throw new IOException(friendly(r));
+            return new Range(data.getInputStream(), s, data);
+        } catch (IOException e) {
+            if (data != null) {
+                try {
+                    data.close();
+                } catch (Exception ignored) {
+                }
+            }
+            s.close();
+            throw e;
+        }
     }
 
     /** Downloads into part, continuing at offset when the server allows it. */

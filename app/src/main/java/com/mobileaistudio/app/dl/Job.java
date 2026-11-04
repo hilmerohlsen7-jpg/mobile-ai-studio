@@ -101,7 +101,9 @@ final class Job implements Runnable {
             throw new IOException("Not enough free storage. About " + Util.mb(remaining + MIN_FREE_BYTES - it.dir.getUsableSpace()) + " more is needed.");
         }
 
-        if (ftp) {
+        if (ftp && it.rangeOk && it.total > 0) {
+            chunked(part);
+        } else if (ftp) {
             long off = part.exists() ? part.length() : 0;
             if (it.total > 0 && off > it.total) off = 0;
             if (off == 0 && part.exists()) part.delete();
@@ -175,7 +177,11 @@ final class Job implements Runnable {
         }
     }
 
-    private static int pickChunkSize(long total) {
+    private int pickChunkSize(long total) {
+        if (it.url.regionMatches(true, 0, "ftp://", 0, 6)) {
+            // every part needs a new login, so use bigger parts
+            return (int) Math.max(1048576L, Math.min(16L * 1048576L, total / 8 + 1));
+        }
         if (total <= 8L * 1048576L) return (int) Math.max(262144L, total / 8 + 1);
         return 4 * 1048576;
     }
@@ -268,6 +274,7 @@ final class Job implements Runnable {
     }
 
     private void fetchChunk(int c, int cs, FileChannel ch) throws IOException {
+        final boolean ftpMode = it.url.regionMatches(true, 0, "ftp://", 0, 6);
         long start = (long) c * cs;
         long end = Math.min(it.total, start + cs) - 1;
         long pos = start;      // next byte to fetch; bytes before it are already on disk
@@ -283,18 +290,25 @@ final class Job implements Runnable {
                 throw s;
             }
             HttpURLConnection conn = null;
+            FtpFetch.Range fr = null;
             boolean clean = false;
             long before = pos;
             try {
-                HttpFetch.Opened op = HttpFetch.open(it, pos, end);
-                conn = op.conn;
-                if (!op.finalUrl.equals(it.url)) it.resolvedUrl = op.finalUrl;
-                if (op.code != 206) throw new HttpFetch.HttpError(416, "The server stopped supporting partial downloads.");
-                String cr = conn.getHeaderField("Content-Range");
-                if (cr == null || !cr.contains("bytes " + pos + "-")) {
-                    throw new IOException("The server sent the wrong part of the file.");
+                InputStream in;
+                if (ftpMode) {
+                    fr = FtpFetch.openRange(it, pos);
+                    in = fr.in;
+                } else {
+                    HttpFetch.Opened op = HttpFetch.open(it, pos, end);
+                    conn = op.conn;
+                    if (!op.finalUrl.equals(it.url)) it.resolvedUrl = op.finalUrl;
+                    if (op.code != 206) throw new HttpFetch.HttpError(416, "The server stopped supporting partial downloads.");
+                    String cr = conn.getHeaderField("Content-Range");
+                    if (cr == null || !cr.contains("bytes " + pos + "-")) {
+                        throw new IOException("The server sent the wrong part of the file.");
+                    }
+                    in = conn.getInputStream();
                 }
-                InputStream in = conn.getInputStream();
                 byte[] buf = new byte[32768];
                 while (pos <= end) {
                     checkStop();
@@ -313,7 +327,7 @@ final class Job implements Runnable {
                     it.chunkDone[c] = true;
                 }
                 release(c);
-                in.close(); // fully read: lets the connection be reused
+                if (!ftpMode) in.close(); // fully read: lets the connection be reused
                 return;
             } catch (Stopped s) {
                 it.done.addAndGet(-got);
@@ -330,6 +344,7 @@ final class Job implements Runnable {
                 last = e;
             } finally {
                 if (!clean && conn != null) conn.disconnect();
+                if (fr != null) fr.close();
             }
             if (pos > before) failures = 0; // it made progress before breaking, so keep trying
             else failures++;

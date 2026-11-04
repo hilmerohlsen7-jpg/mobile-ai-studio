@@ -222,6 +222,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         o.put("total", it.total)
         o.put("done", it.done.get())
         o.put("threads", it.threads)
+        o.put("minT", 1)
+        o.put("maxT", 16)
+        o.put("step", 1)
         o.put("speed", it.speed)
         o.put("ftp", it.url.startsWith("ftp://", ignoreCase = true))
         return o
@@ -301,7 +304,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     @JavascriptInterface
-    fun dlSetThreads(id: String, n: Int) = dl.setThreads(id, n)
+    fun dlSetThreads(id: String, n: Int) = if (TorrentCenter.isTorrentId(id)) TorrentCenter.setConnections(id, n) else dl.setThreads(id, n)
 
     /** Removes the entry. deleteFile also deletes a finished file. */
     @JavascriptInterface

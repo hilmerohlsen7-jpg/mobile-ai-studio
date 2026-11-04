@@ -531,10 +531,11 @@ window.__onDownloads = json => {
 window.__onModelsChanged = () => refreshModels();
 
 /* ---------- downloads screen ---------- */
-function stepper(value, min, max, onchange) {
+function stepper(value, min, max, onchange, step) {
+  step = step || 1;
   const b = h('b', null, String(value));
   const set = v => { v = Math.max(min, Math.min(max, v)); if (v !== value) { value = v; b.textContent = v; onchange(v); } };
-  return h('span', {class: 'stp'}, h('button', {onclick: () => set(value - 1), 'aria-label': 'Less'}, '−'), b, h('button', {onclick: () => set(value + 1), 'aria-label': 'More'}, '+'));
+  return h('span', {class: 'stp'}, h('button', {onclick: () => set(value - step), 'aria-label': 'Less'}, '−'), b, h('button', {onclick: () => set(value + step), 'aria-label': 'More'}, '+'));
 }
 function loadDlSettings() { try { if (hasBridge) dlSettings = JSON.parse(Android.dlGetSettings()); } catch (e) {} }
 function dlRow(d) {
@@ -547,9 +548,9 @@ function dlRow(d) {
   const acts = h('div', {class: 'acts'});
   if (d.state === 'downloading' || d.state === 'queued') acts.append(h('button', {onclick: () => Android.dlPause(d.id)}, 'Pause'));
   if (d.state === 'paused' || d.state === 'error') acts.append(h('button', {class: 'pri', onclick: () => Android.dlResume(d.id)}, d.state === 'error' ? 'Try again' : 'Resume'));
-  if (d.state !== 'done' && !d.ftp && !d.torrent) {
-    acts.append(h('span', {class: 'pct'}, 'Connections'));
-    acts.append(stepper(d.threads, 1, 16, v => { Android.dlSetThreads(d.id, v); }));
+  if (d.state !== 'done') {
+    acts.append(h('span', {class: 'pct'}, d.torrent ? 'Peers' : 'Connections'));
+    acts.append(stepper(d.threads, d.minT || 1, d.maxT || 16, v => { Android.dlSetThreads(d.id, v); }, d.step || 1));
   }
   if (d.state === 'done' && d.kind === 'file') acts.append(h('button', {class: 'pri', onclick: () => Android.dlSaveToDownloads(d.id)}, 'Save to Downloads'));
   if (d.state === 'done') acts.append(h('button', {onclick: () => Android.dlRemove(d.id, false)}, 'Remove from list'));
