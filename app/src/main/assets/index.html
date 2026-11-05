@@ -120,6 +120,18 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
 #sheet .sbox{background:#222;border-radius:14px 14px 0 0;padding:14px;width:min(100vw,480px);display:flex;flex-direction:column;gap:8px}
 #sheet .mt{font-weight:600;word-break:break-all}
 #undobar{display:none;position:fixed;bottom:12px;left:12px;right:12px;max-width:520px;margin:0 auto;background:#333;border:1px solid var(--acc);border-radius:12px;padding:10px 12px;z-index:14;align-items:center;justify-content:space-between;gap:10px;font-size:.88rem}
+.tchips{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.tchips:not(:empty){margin-bottom:6px}
+.tchip{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.78rem;color:var(--mute);background:#1c1c1c;border:1px solid #333;border-radius:14px;padding:3px 10px;white-space:normal}
+.tchip button{padding:2px 8px;font-size:.75rem}
+#settings .chk{display:flex;align-items:center;gap:6px;font-size:.82rem;margin-top:8px}
+#settings .chk input{width:auto;margin:0}
+.dlist{max-height:40vh;overflow:auto;border:1px solid #333;border-radius:8px;margin:4px 0}
+.drow2{display:flex;gap:10px;align-items:flex-start;padding:8px;border-bottom:1px solid #2a2a2a}
+.drow2 input{width:22px;height:22px;flex-shrink:0;margin-top:2px}
+.drow2 .dn{display:flex;flex-direction:column;min-width:0;font-size:.86rem;word-break:break-all}
+.drow2 .dp{color:var(--mute);font-size:.72rem}
+.abtns button:disabled{opacity:.45}
 </style></head>
 <body>
 <div id="app">
@@ -147,6 +159,9 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label>Memory size / context (tokens)<input type="number" id="s_num_ctx"></label>
   <label>CPU threads (0 = automatic)<input type="number" id="s_num_thread"></label>
   <label>Creativity (0 to 1.5)<input type="number" step="0.1" id="s_temperature"></label>
+  <label class="chk"><input type="checkbox" id="s_aiFiles"> The AI can look at my files</label>
+  <label class="chk"><input type="checkbox" id="s_aiWeb"> The AI can search the web</label>
+  <label class="chk"><input type="checkbox" id="s_aiAuto"> Use them on its own when a question needs it</label>
   <button id="openModels">Models...</button>
   <button id="openDl">Downloads...</button>
   <button id="openFiles">Files on this phone...</button>
@@ -174,7 +189,7 @@ const DEFAULT_SKILLS = {
   review: {id: 'review', name: 'Code reviewer',  prompt: 'When shown code, review it: list bugs first, then improvements, then show the fixed code.'},
   debug:  {id: 'debug',  name: 'Debug an error', prompt: 'When shown an error message, explain what it means, the most likely cause, and the exact fix.'}
 };
-const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread: 0, temperature: 0.7};
+const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread: 0, temperature: 0.7, aiFiles: true, aiWeb: true, aiAuto: true};
 
 let S = {projects: {}, skills: {}, settings: {}, last: ''};
 let dev = {ramMB: 0, cores: 4, freeMB: 0, engine: true};
@@ -283,16 +298,19 @@ function renderRich(el, text) {
   inline(el, text.slice(last).replace(/^\n/, ''));
 }
 function scrollDown() { const c = $('chat'); c.scrollTop = c.scrollHeight; }
-function addMsg(role, text) {
+function addMsg(role, text, tools) {
   const d = h('div', {class: 'msg ' + role});
-  renderRich(d, text); $('chat').append(d); scrollDown(); return d;
+  d._chips = h('div', {class: 'tchips'}); d._body = h('div', {class: 'mbody'});
+  d.append(d._chips, d._body);
+  (tools || []).forEach(c => addChip(d, c));
+  renderRich(d._body, text); $('chat').append(d); scrollDown(); return d;
 }
 function renderMessages() {
   $('chat').textContent = '';
   if (!cur.messages.length) {
     $('chat').append(h('div', {class: 'msg hint'}, 'Ask anything. \u{1F4CE} adds files to this project. ☰ opens projects, skills and models.'));
   }
-  cur.messages.forEach(m => addMsg(m.role, m.content));
+  cur.messages.forEach(m => addMsg(m.role, m.content, m.tools));
 }
 
 /* ---------- projects ---------- */
@@ -750,7 +768,7 @@ const baseName = p => p.split('/').filter(Boolean).pop() || p;
 const parentOf = p => p.replace(/\/[^\/]*\/?$/, '') || '/';
 const joinPath = (a, b) => a.replace(/\/$/, '') + '/' + b;
 function fmtDate(t) { const d = new Date(t); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
-function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B'; }
+function fmtSize(n) { return n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B'; }
 
 /* the question asked before any change */
 function lineDiff(a, b) {
@@ -803,17 +821,21 @@ let undoTimer = null;
 function showUndo(msg, entryId) {
   const b = $('undobar'); b.textContent = '';
   b.append(h('span', null, msg));
-  if (entryId) b.append(h('button', {class: 'pri', onclick: () => { hideUndo(); doUndo(entryId); }}, 'Undo'));
+  if (entryId && entryId.length) b.append(h('button', {class: 'pri', onclick: () => { hideUndo(); doUndo(entryId); }}, 'Undo'));
   b.style.display = 'flex'; clearTimeout(undoTimer); undoTimer = setTimeout(hideUndo, 12000);
 }
 function hideUndo() { $('undobar').style.display = 'none'; clearTimeout(undoTimer); }
-async function doUndo(id) {
-  let r = await fsCall('fsUndo', id, false);
-  if (!r.ok && r.code === 'changed') {
-    if (!await askConfirm(r.msg + ' Do it anyway?', 'Undo anyway')) return;
-    r = await fsCall('fsUndo', id, true);
+async function doUndo(idOrIds) {
+  const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds]; let okCount = 0, last = null;
+  for (const id of ids) {
+    let r = await fsCall('fsUndo', id, false);
+    if (!r.ok && r.code === 'changed') {
+      if (!await askConfirm(r.msg + ' Do it anyway?', 'Undo anyway')) continue;
+      r = await fsCall('fsUndo', id, true);
+    }
+    last = r; if (r.ok) okCount++;
   }
-  toast(r.msg || (r.ok ? 'Undone' : 'Could not undo'));
+  toast(ids.length > 1 ? 'Undid ' + okCount + ' of ' + ids.length + ' changes.' : ((last && last.msg) || 'Could not undo'));
   fsRefresh();
 }
 async function runOp(op) {
@@ -1034,8 +1056,197 @@ function renderTrash(o) {
   });
 }
 
+/* ---------- tools the AI can use (files and the web) ---------- */
+const settingOn = k => S.settings[k] !== false;
+function toolsAvailable() {
+  const t = [];
+  if (hasBridge && typeof Android.fsAccess === 'function' && settingOn('aiFiles')) t.push('files');
+  if (hasBridge && typeof Android.httpGet === 'function' && settingOn('aiWeb')) t.push('web');
+  return t;
+}
+function toolsPrompt() {
+  const t = toolsAvailable(); if (!t.length) return '';
+  const L = ['You can use tools. When you need one, reply with ONLY a tool call in exactly this form and nothing else:', '<tool_call>', '{"name": "TOOL_NAME", "arguments": {...}}', '</tool_call>',
+    'You then get the result and can answer the person in plain words. Use one tool call at a time. Never say you did something unless a tool result says it was done.', 'Tools:'];
+  if (t.includes('web')) L.push('- search_web {"query": "words to search"}: search the internet. Use it for facts, dates, news or anything you are not sure about.');
+  if (t.includes('files')) L.push('- list_files {"path": "/storage/emulated/0/Download"}: list a folder on the phone.',
+    '- find_big_files {"path": "/storage/emulated/0", "min_mb": 50}: find the biggest files that take up space.',
+    '- read_file {"path": "..."}: read a text file.',
+    '- write_file {"path": "...", "content": "..."}: create or change a text file. The person must approve it first.',
+    '- delete_files {"paths": ["...", "..."], "reason": "..."}: move files or folders to the Trash. The person must approve it first.',
+    'The phone storage starts at /storage/emulated/0. You can look at files freely, but you cannot change or delete anything unless the person approves it.');
+  return L.join('\n');
+}
+function parseToolCall(text) {
+  let raw = null;
+  const m = text.match(/<tool_call>\s*([\s\S]*?)\s*(<\/tool_call>|$)/);
+  if (m) raw = m[1];
+  else { const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim(); if (/^\{[\s\S]*"name"\s*:/.test(t)) raw = t; }
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw); const name = o.name; const args = o.arguments || o.args || o.parameters || {};
+    if (!['search_web', 'list_files', 'find_big_files', 'read_file', 'write_file', 'delete_files'].includes(name)) return null;
+    return {name, args: typeof args === 'object' && args ? args : {}};
+  } catch (e) { return null; }
+}
+const visibleText = t => t.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '').replace(/<\/?tool_response>/g, '').trim();
+function storageIntent(t) { return /\b(big|large|huge|biggest|largest)\b.{0,25}\bfiles?\b|taking up (the |my )?(space|storage)|free up (some |more )?(space|storage)|clean ?up (my )?(storage|phone)|using (up )?(my )?(space|storage)|storage is full|running out of (space|storage)/i.test(t); }
+function webIntent(t) {
+  if (t.length > 220 || /```/.test(t) || /\bmy (code|project|file|app)\b/i.test(t)) return false;
+  if (/^\s*(\/web|search:)/i.test(t)) return true;
+  if (/\b(today|tonight|tomorrow|yesterday|currently|latest|newest|news|weather|price of|score|release date|released|born|birthday|died|death|how old|population|president|prime minister|ceo of|net worth|stock|exchange rate|who won|when (is|was|did|does|will)|who (is|was|are|were)|where (is|was)|capital of)\b/i.test(t)) return true;
+  return /\?\s*$/.test(t) && /\s[A-Z][a-z]+ [A-Z][a-z]+/.test(t); // a question that names a person or place
+}
+const cleanQuery = t => t.replace(/^\s*(\/web|search:)\s*/i, '').replace(/\?+\s*$/, '').trim().slice(0, 200);
+
+function htmlText(s) { return new DOMParser().parseFromString(s, 'text/html'); }
+async function webSearch(q) {
+  const enc = encodeURIComponent(q);
+  const [wiki, ddg] = await Promise.all([
+    httpGet('https://en.wikipedia.org/w/api.php?action=query&format=json&generator=search&gsrsearch=' + enc + '&gsrlimit=3&prop=extracts&exintro=1&explaintext=1&exchars=700&redirects=1'),
+    httpGet('https://html.duckduckgo.com/html/?q=' + enc)]);
+  const parts = []; let n = 0;
+  if (wiki.ok) {
+    try {
+      const pages = Object.values(JSON.parse(wiki.body).query.pages).sort((a, b) => a.index - b.index);
+      pages.slice(0, 2).forEach(p => { if (p.extract) { parts.push('[Wikipedia] ' + p.title + ': ' + p.extract.replace(/\s+/g, ' ').trim()); n++; } });
+    } catch (e) {}
+  }
+  if (ddg.ok) {
+    try {
+      const doc = htmlText(ddg.body); let k = 0;
+      doc.querySelectorAll('.result').forEach(r => {
+        if (k >= 4 || r.classList.contains('result--ad')) return;
+        const t = r.querySelector('.result__a'), sn = r.querySelector('.result__snippet');
+        if (t && sn) { parts.push('[Web] ' + t.textContent.trim() + ': ' + sn.textContent.replace(/\s+/g, ' ').trim()); k++; n++; }
+      });
+    } catch (e) {}
+  }
+  if (!n) return {ok: false, text: (!wiki.ok && !ddg.ok) ? 'Error: no internet connection, or the search sites could not be reached.' : 'No results found for that search.', n: 0};
+  return {ok: true, text: parts.join('\n').slice(0, 2800), n: n};
+}
+async function statPaths(paths) {
+  const out = [], cache = {};
+  for (const p of paths) {
+    const par = parentOf(p); if (!(par in cache)) cache[par] = fsJson('fsList', par);
+    const l = cache[par]; const it = l.ok ? l.items.find(x => x.name === baseName(p)) : null;
+    if (it) out.push({path: p, name: it.name, dir: it.dir, size: it.size, mtime: it.mtime});
+  }
+  return out;
+}
+/* a list with check boxes: the person picks what goes to the Trash. Returns the chosen paths or null. */
+function askDeleteChoose(items, reason) {
+  return new Promise(resolve => {
+    const o = $('approve'); o.textContent = '';
+    const card = h('div', {class: 'acard'});
+    card.append(h('div', {class: 'at'}, 'Move files to the Trash?'));
+    card.append(h('div', {class: 'al'}, 'Why'));
+    card.append(h('div', {class: 'av'}, reason || 'You asked to free up space.'));
+    card.append(h('div', {class: 'al'}, 'Tick what should go. Nothing is erased for good.'));
+    const list = h('div', {class: 'dlist'}); const boxes = [];
+    const sum = h('div', {class: 'an', style: 'color:#fff'});
+    const goBtn = h('button', {class: 'pri big'}, '');
+    const upd = () => {
+      const sel = items.filter((x, i) => boxes[i].checked); const total = sel.reduce((a, x) => a + (x.dir ? 0 : x.size), 0);
+      sum.textContent = sel.length + ' selected' + (total ? ' · ' + fmtSize(total) + ' freed' : '');
+      goBtn.textContent = sel.length ? 'Move ' + sel.length + ' to the Trash' : 'Tick something first'; goBtn.disabled = !sel.length;
+    };
+    items.forEach(x => {
+      const cb = h('input', {type: 'checkbox'}); cb.onchange = upd; boxes.push(cb);
+      list.append(h('label', {class: 'drow2'}, cb, h('span', {class: 'dn'}, h('b', null, x.name + (x.dir ? '  (folder)' : '')), h('span', {class: 'dp'}, x.path), h('span', {class: 'dp'}, (x.dir ? 'Folder' : fmtSize(x.size)) + (x.mtime ? ' · ' + new Date(x.mtime).toLocaleDateString() : '')))));
+    });
+    card.append(list, sum);
+    const done = v => { o.classList.remove('open'); approveDone = null; resolve(v); };
+    approveDone = () => done(null);
+    goBtn.onclick = () => done(items.filter((x, i) => boxes[i].checked).map(x => x.path));
+    const btns = h('div', {class: 'abtns'}, goBtn,
+      h('button', {onclick: () => { boxes.forEach(b => b.checked = true); upd(); }}, 'Tick all'),
+      h('button', {onclick: () => done(null)}, 'Deny'));
+    card.append(btns); upd(); o.append(card); o.classList.add('open'); o.scrollTop = 0;
+  });
+}
+async function deleteWithChoice(paths, reason) {
+  const items = await statPaths(paths);
+  if (!items.length) return {moved: 0, text: 'None of those paths exist.'};
+  const chosen = await askDeleteChoose(items, reason);
+  if (!chosen || !chosen.length) return {moved: 0, text: 'The person did not approve deleting anything. Nothing was changed.'};
+  const ids = []; let failed = 0;
+  for (const p of chosen) {
+    const r = await fsOp({type: 'delete', path: p, reason: reason || 'You approved deleting this.'});
+    if (r.ok && r.entryId) ids.push(r.entryId); else failed++;
+  }
+  if (ids.length) showUndo('Moved ' + ids.length + ' item(s) to the Trash.', ids);
+  fsRefresh();
+  return {moved: ids.length, text: 'The person approved. ' + ids.length + ' item(s) were moved to the Trash (they can be restored).' + (failed ? ' ' + failed + ' could not be moved.' : '')};
+}
+function bigFilesText(res, minMb) {
+  if (!res.files.length) return 'No files bigger than ' + minMb + ' MB were found.';
+  return res.files.map((f, i) => (i + 1) + '. ' + fmtSize(f.size) + '  ' + f.path + '  (modified ' + new Date(f.mtime).toISOString().slice(0, 10) + ')').join('\n') + (res.partial ? '\n(The scan was stopped early, there may be more.)' : '');
+}
+const noAccess = () => ({text: 'Error: the app does not have permission to see files yet. Tell the person to open Settings > Files on this phone and allow access.', chip: {icon: '🔒', label: 'Needs permission to see your files', action: () => openFiles()}});
+/* runs one tool, returns {text for the AI, chip for the person, note for the history} */
+async function runTool(name, args) {
+  const filesTool = name !== 'search_web';
+  if (filesTool) {
+    if (!settingOn('aiFiles') || typeof Android.fsAccess !== 'function') return {text: 'Error: file tools are switched off.', chip: {icon: '⚠️', label: 'File tools are off'}};
+    if (!Android.fsAccess()) return noAccess();
+  } else if (!settingOn('aiWeb')) return {text: 'Error: web search is switched off.', chip: {icon: '⚠️', label: 'Web search is off'}};
+  const root = Android.fsRoot ? Android.fsRoot() : '/storage/emulated/0';
+  try {
+    if (name === 'search_web') {
+      const q = String(args.query || '').trim().slice(0, 200); if (!q) return {text: 'Error: no query given.', chip: {icon: '⚠️', label: 'Empty search'}};
+      setStatus('Searching the web...');
+      const r = await webSearch(q);
+      return {text: r.text, chip: {icon: '🔎', label: r.ok ? 'Searched the web: "' + q + '"' : 'Web search failed: "' + q + '"'}, note: r.ok ? 'Web search for "' + q + '":\n' + r.text.slice(0, 700) : ''};
+    }
+    if (name === 'list_files') {
+      const p = String(args.path || root); const r = fsJson('fsList', p);
+      if (!r.ok) return {text: 'Error: ' + (r.msg || 'could not open that folder.'), chip: {icon: '📂', label: 'Could not open ' + p}};
+      const lines = r.items.slice(0, 80).map(x => (x.dir ? '[folder] ' : '') + x.name + (x.dir ? '' : ' (' + fmtSize(x.size) + ')'));
+      return {text: p + ' has ' + r.items.length + ' items:\n' + lines.join('\n') + (r.items.length > 80 ? '\n...' : ''), chip: {icon: '📂', label: 'Looked in ' + baseName(p)}};
+    }
+    if (name === 'find_big_files') {
+      let mb = Math.max(1, parseInt(args.min_mb) || 50); const p = String(args.path || root);
+      setStatus('Looking for big files...');
+      let r = await fsCall('fsLargest', p, mb, 25);
+      if (r.ok && !r.files.length && mb > 10) { mb = 10; r = await fsCall('fsLargest', p, mb, 25); }
+      if (!r.ok) return {text: 'Error: ' + (r.msg || 'the scan failed.'), chip: {icon: '⚠️', label: 'Could not scan for big files'}};
+      const txt = bigFilesText(r, mb);
+      const paths = r.files.map(f => f.path);
+      return {text: txt, note: 'Big files found:\n' + txt.split('\n').slice(0, 12).join('\n'),
+        chip: {icon: '🗂️', label: 'Scanned for big files (' + r.files.length + ' found)', button: r.files.length ? {label: 'Review and delete...', action: () => deleteWithChoice(paths, 'These are the biggest files on your phone.')} : null}};
+    }
+    if (name === 'read_file') {
+      const p = String(args.path || ''); const r = fsJson('fsRead', p);
+      if (!r.ok) return {text: 'Error: ' + (r.msg || 'could not read it.'), chip: {icon: '📄', label: 'Could not read ' + baseName(p)}};
+      return {text: r.text.slice(0, 4000) + (r.text.length > 4000 || r.truncated ? '\n[cut off]' : ''), chip: {icon: '📄', label: 'Read ' + baseName(p)}};
+    }
+    if (name === 'write_file') {
+      const p = String(args.path || ''); const ok = await fsSaveText(p, String(args.content == null ? '' : args.content), 'The AI asked to ' + 'write this file.');
+      return {text: ok ? 'The person approved and the file was saved.' : 'The file was not saved (the person denied it, or it failed).', chip: {icon: '✏️', label: ok ? 'Saved ' + baseName(p) : 'Did not save ' + baseName(p)}};
+    }
+    if (name === 'delete_files') {
+      const paths = (Array.isArray(args.paths) ? args.paths : [args.path]).filter(x => typeof x === 'string').slice(0, 60);
+      if (!paths.length) return {text: 'Error: no paths given.', chip: {icon: '⚠️', label: 'Nothing to delete'}};
+      const r = await deleteWithChoice(paths, String(args.reason || 'The AI suggested deleting these.'));
+      return {text: r.text, chip: {icon: '🗑️', label: r.moved ? 'Moved ' + r.moved + ' item(s) to the Trash' : 'Nothing deleted'}};
+    }
+  } catch (e) { return {text: 'Error: ' + (e.message || 'the tool failed.'), chip: {icon: '⚠️', label: 'The tool failed'}}; }
+  return {text: 'Error: unknown tool.', chip: {icon: '⚠️', label: 'Unknown tool'}};
+}
+function addChip(box, c) {
+  const el = h('div', {class: 'tchip'}, h('span', null, c.icon + ' ' + c.label));
+  if (c.action && !c.button) { el.style.cursor = 'pointer'; el.onclick = c.action; }
+  if (c.button) el.append(h('button', {onclick: c.button.action}, c.button.label));
+  box._chips.append(el);
+}
+
 /* ---------- settings ---------- */
 function initSettings() {
+  ['aiFiles', 'aiWeb', 'aiAuto'].forEach(k => {
+    const el = $('s_' + k); el.checked = S.settings[k] !== false;
+    el.onchange = () => { S.settings[k] = el.checked; persist(); };
+  });
   ['num_predict', 'num_ctx', 'num_thread', 'temperature'].forEach(k => {
     const el = $('s_' + k); el.value = S.settings[k];
     el.onchange = () => { const v = parseFloat(el.value); if (!isNaN(v) && v >= 0) { S.settings[k] = v; persist(); } };
@@ -1054,6 +1265,7 @@ function buildSystem(avail) {
     blocks.push('--- File: ' + f.name + ' ---\n' + chunk);
   }
   if (blocks.length) parts.push('Project files for reference:\n' + blocks.join('\n\n'));
+  parts.push(toolsPrompt());
   return parts.filter(Boolean).join('\n\n');
 }
 function buildHistory(avail) {
@@ -1061,7 +1273,8 @@ function buildHistory(avail) {
   for (let i = cur.messages.length - 1; i >= 0; i--) {
     used += cur.messages[i].content.length;
     if (used > avail * 0.45 && kept.length) break;
-    kept.push({role: cur.messages[i].role, content: cur.messages[i].content});
+    const mm = cur.messages[i];
+    kept.push({role: mm.role, content: (mm.note ? mm.note + '\n\n' : '') + mm.content});
   }
   return kept.reverse();
 }
@@ -1069,44 +1282,90 @@ function setStatus(t) { $('status').textContent = t || ''; }
 function autosize() { const t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
 function setBusy(b) { busy = b; $('send').textContent = b ? 'Stop' : 'Send'; }
 
-function send() {
-  if (busy) { if (hasBridge) Android.stopChat(); setStatus('Stopping...'); return; }
+let genResolve = null, turnStop = false;
+function generate(messages) {
+  return new Promise(resolve => {
+    genAcc = ''; genResolve = resolve;
+    Android.chat(JSON.stringify({model: S.settings.model, messages: messages, max_tokens: S.settings.num_predict, n_ctx: S.settings.num_ctx,
+      threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
+  });
+}
+async function send() {
+  if (busy) { turnStop = true; if (hasBridge) Android.stopChat(); setStatus('Stopping...'); return; }
   const text = $('prompt').value.trim();
   if (!text || !cur) return;
   if (!hasBridge) { toast('Open this in the app.'); return; }
   if (!S.settings.model) { openModels(); toast('Download a model first.'); return; }
   const maxTok = S.settings.num_predict, nCtx = S.settings.num_ctx;
   const avail = Math.max(1000, (nCtx - maxTok - 64) * 3);
-  const messages = [{role: 'system', content: buildSystem(avail)}].concat(buildHistory(avail), [{role: 'user', content: text}]);
+  const msgs = [{role: 'system', content: buildSystem(avail)}].concat(buildHistory(avail), [{role: 'user', content: text}]);
   const hint = document.querySelector('.msg.hint'); if (hint) hint.remove();
   addMsg('user', text);
   $('prompt').value = ''; autosize();
-  genProject = cur; genPrompt = text; genAcc = ''; genStart = Date.now();
+  genProject = cur; genPrompt = text; genAcc = ''; genStart = Date.now(); turnStop = false;
   genBox = addMsg('assistant', '...');
   setBusy(true); setStatus('Starting...');
-  Android.chat(JSON.stringify({model: S.settings.model, messages: messages, max_tokens: maxTok, n_ctx: nCtx,
-    threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
-}
-function scheduleRender() {
-  if (renderQueued) return; renderQueued = true;
-  requestAnimationFrame(() => { renderQueued = false; if (genBox) { renderRich(genBox, genAcc); if (genProject === cur) scrollDown(); } });
-}
-window.__onToken = t => { genAcc += t; if (genAcc.length === t.length) setStatus('Writing...'); scheduleRender(); };
-window.__onStatus = s => setStatus(s);
-function finishChat(ok, errText, info) {
-  if (genBox) renderRich(genBox, genAcc + (errText ? '\n[' + errText + ']' : ''));
-  if (genAcc.trim() && genProject) {
-    genProject.messages.push({role: 'user', content: genPrompt}, {role: 'assistant', content: genAcc});
+  const tools = toolsAvailable(); const chips = [], notes = [];
+  const use = async (name, args, shown) => {
+    const r = await runTool(name, args);
+    if (r.chip) { addChip(genBox, r.chip); chips.push({icon: r.chip.icon, label: r.chip.label}); }
+    if (r.note) notes.push(r.note);
+    scrollDown();
+    return r;
+  };
+  let final = '', err = '', info = null;
+  try {
+    // obvious requests: do the lookup first so even a small model has the facts
+    if (settingOn('aiAuto') && tools.length) {
+      let pre = null;
+      if (tools.includes('files') && storageIntent(text) && Android.fsAccess()) pre = ['find_big_files', {path: Android.fsRoot(), min_mb: 50}];
+      else if (tools.includes('web') && webIntent(text) && navigator.onLine !== false) pre = ['search_web', {query: cleanQuery(text)}];
+      if (pre) {
+        const r = await use(pre[0], pre[1]);
+        msgs.push({role: 'assistant', content: '<tool_call>\n' + JSON.stringify({name: pre[0], arguments: pre[1]}) + '\n</tool_call>'},
+                  {role: 'user', content: '<tool_response>\n' + r.text + '\n</tool_response>\nNow answer the person using this result.'});
+      }
+    }
+    for (let step = 0; step < 4 && !turnStop; step++) {
+      const r = await generate(msgs);
+      info = r.info; err = r.err;
+      final = r.text;
+      const call = (tools.length && step < 3 && r.ok && !turnStop) ? parseToolCall(r.text) : null;
+      if (!call) break;
+      msgs.push({role: 'assistant', content: r.text.trim()});
+      genAcc = ''; renderRich(genBox._body, '...');
+      const tr = await use(call.name, call.args);
+      msgs.push({role: 'user', content: '<tool_response>\n' + tr.text + '\n</tool_response>'});
+      final = '';
+    }
+  } catch (e) { err = e.message || 'Something went wrong.'; }
+  const shownText = tools.length ? visibleText(final) : final;
+  renderRich(genBox._body, shownText + (err ? '\n[' + err + ']' : ''));
+  if ((shownText.trim() || chips.length) && genProject) {
+    genProject.messages.push({role: 'user', content: genPrompt},
+      Object.assign({role: 'assistant', content: shownText.trim() || '(no answer)'}, chips.length ? {tools: chips} : {}, notes.length ? {note: notes.join('\n').slice(0, 900)} : {}));
     genProject.messages = genProject.messages.slice(-200);
     persistNow();
   }
+  persistNow();
   let st = '';
-  if (ok && info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '');
+  if (info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '');
   setStatus(st);
+  if (err) toast(err);
   genBox = null; genProject = null; genAcc = ''; setBusy(false);
 }
+function scheduleRender() {
+  if (renderQueued) return; renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; if (genBox) {
+    const t = toolsAvailable().length ? visibleText(genAcc) : genAcc;
+    renderRich(genBox._body, t || (genAcc.indexOf('<tool_call>') >= 0 ? 'Using a tool...' : '...'));
+    if (genProject === cur) scrollDown(); } });
+}
+window.__onToken = t => { genAcc += t; if (genAcc.length === t.length) setStatus('Writing...'); scheduleRender(); };
+window.__onStatus = s => setStatus(s);
+function finishChat(ok, errText, info) { const r = genResolve; genResolve = null; if (r) r({ok: ok, text: genAcc, err: errText, info: info}); }
 window.__onChatDone = json => { let i = null; try { i = JSON.parse(json); } catch (e) {} finishChat(true, '', i); };
-window.__onChatError = msg => { finishChat(false, msg, null); toast(msg); };
+window.__onChatError = msg => { finishChat(false, msg, null); };
 
 /* ---------- back button ---------- */
 window.__back = () => {

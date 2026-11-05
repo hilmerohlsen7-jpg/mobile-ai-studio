@@ -399,7 +399,18 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     private val fsPool = Executors.newSingleThreadExecutor()
     private val fsOps: FileOps by lazy {
         val root = android.os.Environment.getExternalStorageDirectory()
-        FileOps(root, File(root, ".MobileAIStudio-Trash"), File(activity.filesDir, "fs-history.txt"))
+        val trash = File(root, ".MobileAIStudio-Trash")
+        // The history lives next to the Trash, so it survives restarts, updates and even a reinstall.
+        val hist = File(trash, "history.txt")
+        val old = File(activity.filesDir, "fs-history.txt")
+        try {
+            if (old.exists() && !hist.exists() && activity.hasFilesAccess()) {
+                trash.mkdirs()
+                old.copyTo(hist)
+            }
+        } catch (e: Exception) {
+        }
+        FileOps(root, trash, hist)
     }
 
     @JavascriptInterface
@@ -496,6 +507,28 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    /** Finds the biggest files under a folder. The answer arrives in __onFs with "files". */
+    @JavascriptInterface
+    fun fsLargest(reqId: String, path: String, minMB: Int, limit: Int) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) {
+                fsReply(reqId, null, fsNoAccess())
+                return@execute
+            }
+            try {
+                val sc = fsOps.largest(path, minMB.toLong().coerceAtLeast(1) * 1048576L, limit.coerceIn(1, 60), 60000)
+                val arr = JSONArray()
+                for (b in sc.files) arr.put(JSONObject().put("path", b.path).put("size", b.size).put("mtime", b.mtime))
+                fsReply(
+                    reqId, null,
+                    JSONObject().put("ok", true).put("files", arr).put("partial", sc.partial).put("scanned", sc.scanned)
+                )
+            } catch (e: Exception) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not scan."))
+            }
+        }
+    }
+
     @JavascriptInterface
     fun fsUndo(reqId: String, id: String, force: Boolean) {
         fsPool.execute { fsReply(reqId, fsOps.undo(id, force)) }
@@ -523,12 +556,12 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             val o = JSONObject().put("id", reqId)
             try {
                 val u = java.net.URL(url)
-                if (u.protocol != "https" || u.host != "huggingface.co") throw Exception("Not allowed.")
+                if (u.protocol != "https" || u.host !in setOf("huggingface.co", "en.wikipedia.org", "html.duckduckgo.com")) throw Exception("Not allowed.")
                 val c = u.openConnection() as java.net.HttpURLConnection
                 c.connectTimeout = 15000
                 c.readTimeout = 20000
                 c.setRequestProperty("User-Agent", "MobileAIStudio/0.2")
-                c.setRequestProperty("Accept", "application/json")
+                c.setRequestProperty("Accept", if (u.host == "html.duckduckgo.com") "text/html" else "application/json")
                 val code = c.responseCode
                 val stream = if (code in 200..299) c.inputStream else c.errorStream
                 val bytes = java.io.ByteArrayOutputStream()

@@ -27,7 +27,7 @@ public final class FileOps {
     private static final Charset UTF8 = Charset.forName("UTF-8");
     private static final int MAX_READ = 200 * 1024;
     private static final int MAX_WRITE = 5 * 1024 * 1024;
-    private static final int MAX_HISTORY = 400;
+    private static final int MAX_HISTORY = 1000;
 
     public static final class Item {
         public String name;
@@ -173,6 +173,82 @@ public final class FileOps {
             throw new IOException("Android keeps this folder private.");
         }
         return f;
+    }
+
+    // ---------- finding space hogs ----------
+
+    public static final class Big {
+        public String path;
+        public long size;
+        public long mtime;
+    }
+
+    public static final class Scan {
+        public List<Big> files = new ArrayList<>();
+        public boolean partial;
+        public long scanned;
+    }
+
+    /** The biggest files under a folder (at least minBytes), largest first. Stops after maxMillis. */
+    public Scan largest(String startPath, long minBytes, int limit, long maxMillis) throws IOException {
+        File start = resolve(startPath);
+        if (!start.exists()) throw new IOException("That does not exist.");
+        final java.util.PriorityQueue<Big> heap = new java.util.PriorityQueue<>(limit + 1, new Comparator<Big>() {
+            @Override
+            public int compare(Big a, Big b) {
+                return Long.compare(a.size, b.size);
+            }
+        });
+        Scan scan = new Scan();
+        String rp = root.getCanonicalPath();
+        String tp = trash.getCanonicalPath();
+        long deadline = System.currentTimeMillis() + maxMillis;
+        java.util.ArrayDeque<File> stack = new java.util.ArrayDeque<>();
+        stack.push(start);
+        while (!stack.isEmpty()) {
+            if (System.currentTimeMillis() > deadline || scan.scanned > 600000) {
+                scan.partial = true;
+                break;
+            }
+            File d = stack.pop();
+            if (d.isFile()) {
+                consider(d, minBytes, limit, heap, scan);
+                continue;
+            }
+            File[] kids = d.listFiles();
+            if (kids == null) continue;
+            for (File k : kids) {
+                String kp = k.getPath();
+                if (k.isDirectory()) {
+                    if (isLink(k)) continue;
+                    if (kp.equals(tp) || kp.equals(rp + "/Android/data") || kp.equals(rp + "/Android/obb")) continue;
+                    stack.push(k);
+                } else if (k.isFile()) {
+                    consider(k, minBytes, limit, heap, scan);
+                }
+            }
+        }
+        scan.files.addAll(heap);
+        Collections.sort(scan.files, new Comparator<Big>() {
+            @Override
+            public int compare(Big a, Big b) {
+                return Long.compare(b.size, a.size);
+            }
+        });
+        return scan;
+    }
+
+    private static void consider(File f, long minBytes, int limit, java.util.PriorityQueue<Big> heap, Scan scan) {
+        scan.scanned++;
+        long len = f.length();
+        if (len < minBytes) return;
+        if (heap.size() >= limit && len <= heap.peek().size) return;
+        Big b = new Big();
+        b.path = f.getPath();
+        b.size = len;
+        b.mtime = f.lastModified();
+        heap.add(b);
+        if (heap.size() > limit) heap.poll();
     }
 
     // ---------- reading ----------
