@@ -98,7 +98,7 @@ class MainActivity : Activity() {
                 arrayOf(
                     android.Manifest.permission.READ_EXTERNAL_STORAGE,
                     android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ), 4
+                ), 7
             )
         }
     }
@@ -110,7 +110,34 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 4) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
+        if (requestCode == 7) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
+    }
+
+    private var cameraFile: java.io.File? = null
+
+    /** mode is "camera" (take a photo with the phone's camera app) or "gallery" (pick a picture). */
+    fun pickImage(mode: String) {
+        try {
+            if (mode == "camera") {
+                val dir = java.io.File(cacheDir, "camera")
+                dir.mkdirs()
+                val f = java.io.File(dir, "photo_" + System.currentTimeMillis() + ".jpg")
+                cameraFile = f
+                val uri = Uri.parse("content://com.mobileaistudio.app.photos/" + f.name)
+                val i = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+                i.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, uri)
+                i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                i.clipData = android.content.ClipData.newRawUri("", uri)
+                startActivityForResult(i, REQ_CAMERA)
+            } else {
+                val i = Intent(Intent.ACTION_GET_CONTENT)
+                i.addCategory(Intent.CATEGORY_OPENABLE)
+                i.type = "image/*"
+                startActivityForResult(Intent.createChooser(i, "Choose a picture"), REQ_IMAGE)
+            }
+        } catch (e: Exception) {
+            bridge.onImageFailed(if (mode == "camera") "No camera app was found on this phone." else "Could not open the picture picker.")
+        }
     }
 
     fun pickModelFile() {
@@ -140,6 +167,20 @@ class MainActivity : Activity() {
                 val uri = data?.data
                 if (resultCode == RESULT_OK && uri != null) bridge.onModelPicked(uri)
             }
+            REQ_IMAGE -> {
+                val uri = data?.data
+                if (resultCode == RESULT_OK && uri != null) bridge.onImagePicked(uri, false) else bridge.onImageCancelled()
+            }
+            REQ_CAMERA -> {
+                val f = cameraFile
+                cameraFile = null
+                if (resultCode == RESULT_OK && f != null && f.exists() && f.length() > 0) {
+                    bridge.onImagePicked(Uri.fromFile(f), true)
+                } else {
+                    f?.delete()
+                    bridge.onImageCancelled()
+                }
+            }
         }
     }
 
@@ -159,5 +200,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_FILE = 1
         private const val REQ_MODEL = 2
+        private const val REQ_IMAGE = 3
+        private const val REQ_CAMERA = 4
     }
 }

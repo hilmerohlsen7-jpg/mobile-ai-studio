@@ -48,4 +48,23 @@ object Native {
         temperature: Float,
         sink: TokenSink
     ): Int
+
+    /** Loads the image reader (the "mmproj" file) for a loaded model. True if the model can now see pictures. */
+    external fun loadVision(handle: Long, path: String, nThreads: Int): Boolean
+
+    external fun hasVision(handle: Long): Boolean
+
+    /**
+     * Like generate, but the text contains "<__media__>" once for each picture, in order.
+     * images are encoded JPEG or PNG bytes. Extra errors: -5 model cannot see, -6 picture unreadable.
+     */
+    external fun generateWithImages(
+        handle: Long,
+        roles: Array<String>,
+        contents: Array<ByteArray>,
+        images: Array<ByteArray>,
+        maxTokens: Int,
+        temperature: Float,
+        sink: TokenSink
+    ): Int
 }

@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "llama.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -27,6 +29,7 @@ struct Engine {
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     const llama_vocab *vocab = nullptr;
+    mtmd_context *mm = nullptr;  // image reader, only for models loaded with a vision file
 };
 
 // Error codes returned to Kotlin
@@ -121,6 +124,64 @@ bool tokenize(Engine *e, const std::string &text, std::vector<llama_token> &out)
     return true;
 }
 
+// Samples and streams tokens after the prompt has been read. Returns the number of tokens made.
+jint run_loop(JNIEnv *env, Engine *e, llama_sampler *smpl, jobject sink, jmethodID on_token, int32_t budget) {
+    jint result = 0;
+    std::string pending;
+    std::vector<char> piece(256);
+    bool stop = false;
+    while (!stop && result < budget) {
+        llama_token tok = llama_sampler_sample(smpl, e->ctx, -1);
+        if (llama_vocab_is_eog(e->vocab, tok)) break;
+
+        int32_t n = llama_token_to_piece(e->vocab, tok, piece.data(), static_cast<int32_t>(piece.size()), 0, false);
+        if (n < 0) {
+            piece.resize(static_cast<size_t>(-n));
+            n = llama_token_to_piece(e->vocab, tok, piece.data(), static_cast<int32_t>(piece.size()), 0, false);
+        }
+        if (n > 0) pending.append(piece.data(), static_cast<size_t>(n));
+
+        const size_t ok = utf8_complete_prefix(pending);
+        if (ok > 0) {
+            jbyteArray arr = env->NewByteArray(static_cast<jsize>(ok));
+            env->SetByteArrayRegion(arr, 0, static_cast<jsize>(ok), reinterpret_cast<const jbyte *>(pending.data()));
+            const jboolean go = env->CallBooleanMethod(sink, on_token, arr);
+            env->DeleteLocalRef(arr);
+            pending.erase(0, ok);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                stop = true;
+            } else if (!go) {
+                stop = true;
+            }
+        }
+        result++;
+        if (stop) break;
+
+        llama_batch batch = llama_batch_get_one(&tok, 1);
+        if (llama_decode(e->ctx, batch) != 0) {
+            result = result > 0 ? result : ERR_DECODE;
+            break;
+        }
+    }
+
+    return result;
+}
+
+llama_sampler *make_sampler(Engine *e, float temperature) {
+    llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(e->vocab), 64, 1.1f, 0.0f, 0.0f));
+    if (temperature <= 0.01f) {
+        llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+    } else {
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    }
+    return smpl;
+}
+
 }  // namespace
 
 extern "C" {
@@ -164,6 +225,7 @@ JNIEXPORT jlong JNICALL Java_com_mobileaistudio_app_Native_loadModel(JNIEnv *env
 JNIEXPORT void JNICALL Java_com_mobileaistudio_app_Native_freeModel(JNIEnv *, jobject, jlong handle) {
     Engine *e = reinterpret_cast<Engine *>(handle);
     if (e == nullptr) return;
+    if (e->mm) mtmd_free(e->mm);
     if (e->ctx) llama_free(e->ctx);
     if (e->model) llama_model_free(e->model);
     delete e;
@@ -209,16 +271,7 @@ JNIEXPORT jint JNICALL Java_com_mobileaistudio_app_Native_generate(JNIEnv *env, 
 
     llama_memory_clear(llama_get_memory(e->ctx), true);
 
-    llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(e->vocab), 64, 1.1f, 0.0f, 0.0f));
-    if (temperature <= 0.01f) {
-        llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
-    } else {
-        llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
-        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
-        llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
-        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-    }
+    llama_sampler *smpl = make_sampler(e, temperature);
 
     jint result = 0;
 
@@ -237,44 +290,116 @@ JNIEXPORT jint JNICALL Java_com_mobileaistudio_app_Native_generate(JNIEnv *env, 
         }
     }
 
-    std::string pending;
-    std::vector<char> piece(256);
-    bool stop = false;
-    while (!stop && result < budget) {
-        llama_token tok = llama_sampler_sample(smpl, e->ctx, -1);
-        if (llama_vocab_is_eog(e->vocab, tok)) break;
+    result = run_loop(env, e, smpl, sink, on_token, budget);
+    llama_sampler_free(smpl);
+    return result;
+}
 
-        int32_t n = llama_token_to_piece(e->vocab, tok, piece.data(), static_cast<int32_t>(piece.size()), 0, false);
-        if (n < 0) {
-            piece.resize(static_cast<size_t>(-n));
-            n = llama_token_to_piece(e->vocab, tok, piece.data(), static_cast<int32_t>(piece.size()), 0, false);
-        }
-        if (n > 0) pending.append(piece.data(), static_cast<size_t>(n));
+// Loads the image reader (the "mmproj" file) that belongs to the loaded model.
+JNIEXPORT jboolean JNICALL Java_com_mobileaistudio_app_Native_loadVision(JNIEnv *env, jobject, jlong handle, jstring jpath, jint n_threads) {
+    Engine *e = reinterpret_cast<Engine *>(handle);
+    if (e == nullptr) return JNI_FALSE;
+    if (e->mm) {
+        mtmd_free(e->mm);
+        e->mm = nullptr;
+    }
+    const char *path = env->GetStringUTFChars(jpath, nullptr);
+    mtmd_context_params mp = mtmd_context_params_default();
+    mp.use_gpu = false;
+    mp.n_threads = n_threads;
+    mp.print_timings = false;
+    mp.warmup = false;
+    e->mm = mtmd_init_from_file(path, e->model, mp);
+    env->ReleaseStringUTFChars(jpath, path);
+    if (e->mm == nullptr || !mtmd_support_vision(e->mm)) {
+        LOGE("could not load the vision file");
+        if (e->mm) mtmd_free(e->mm);
+        e->mm = nullptr;
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
 
-        const size_t ok = utf8_complete_prefix(pending);
-        if (ok > 0) {
-            jbyteArray arr = env->NewByteArray(static_cast<jsize>(ok));
-            env->SetByteArrayRegion(arr, 0, static_cast<jsize>(ok), reinterpret_cast<const jbyte *>(pending.data()));
-            const jboolean go = env->CallBooleanMethod(sink, on_token, arr);
-            env->DeleteLocalRef(arr);
-            pending.erase(0, ok);
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-                stop = true;
-            } else if (!go) {
-                stop = true;
-            }
-        }
-        result++;
-        if (stop) break;
+JNIEXPORT jboolean JNICALL Java_com_mobileaistudio_app_Native_hasVision(JNIEnv *, jobject, jlong handle) {
+    Engine *e = reinterpret_cast<Engine *>(handle);
+    return (e != nullptr && e->mm != nullptr) ? JNI_TRUE : JNI_FALSE;
+}
 
-        llama_batch batch = llama_batch_get_one(&tok, 1);
-        if (llama_decode(e->ctx, batch) != 0) {
-            result = result > 0 ? result : ERR_DECODE;
-            break;
+constexpr jint ERR_NO_VISION = -5;
+constexpr jint ERR_IMAGE = -6;
+
+// Like generate, but the prompt contains the marker mtmd_default_marker() once per image, in order.
+// images is an array of encoded pictures (JPEG or PNG bytes).
+JNIEXPORT jint JNICALL Java_com_mobileaistudio_app_Native_generateWithImages(JNIEnv *env, jobject, jlong handle, jobjectArray roles,
+                                                                              jobjectArray contents, jobjectArray images, jint max_tokens,
+                                                                              jfloat temperature, jobject sink) {
+    Engine *e = reinterpret_cast<Engine *>(handle);
+    if (e == nullptr) return ERR_NO_ENGINE;
+    if (e->mm == nullptr) return ERR_NO_VISION;
+
+    jclass sink_cls = env->GetObjectClass(sink);
+    jmethodID on_token = env->GetMethodID(sink_cls, "onToken", "([B)Z");
+    jmethodID is_cancelled = env->GetMethodID(sink_cls, "isCancelled", "()Z");
+    if (on_token == nullptr || is_cancelled == nullptr) return ERR_PROMPT;
+
+    std::string prompt;
+    if (!build_prompt(env, e, roles, contents, prompt)) return ERR_PROMPT;
+
+    std::vector<mtmd_bitmap *> bitmaps;
+    const jsize n_img = images == nullptr ? 0 : env->GetArrayLength(images);
+    const mtmd_helper_init_opt opt = mtmd_helper_init_opt_default();
+    for (jsize i = 0; i < n_img; i++) {
+        jbyteArray arr = static_cast<jbyteArray>(env->GetObjectArrayElement(images, i));
+        const std::string data = bytes_to_string(env, arr);
+        env->DeleteLocalRef(arr);
+        mtmd_helper_bitmap_wrapper w = mtmd_helper_bitmap_init_from_buf(e->mm, reinterpret_cast<const unsigned char *>(data.data()), data.size(), false, opt);
+        if (w.video_ctx) mtmd_helper_video_free(w.video_ctx);
+        if (w.bitmap == nullptr) {
+            for (mtmd_bitmap *b : bitmaps) mtmd_bitmap_free(b);
+            return ERR_IMAGE;
         }
+        bitmaps.push_back(w.bitmap);
     }
 
+    mtmd_input_text txt;
+    txt.text = prompt.c_str();
+    txt.text_len = prompt.size();
+    txt.add_special = true;
+    txt.parse_special = true;
+    mtmd_input_chunks *chunks = mtmd_input_chunks_init();
+    std::vector<const mtmd_bitmap *> bm(bitmaps.begin(), bitmaps.end());
+    const int32_t tr = mtmd_tokenize(e->mm, chunks, &txt, bm.data(), bm.size());
+    for (mtmd_bitmap *b : bitmaps) mtmd_bitmap_free(b);
+    if (tr != 0) {
+        mtmd_input_chunks_free(chunks);
+        return tr == 2 ? ERR_IMAGE : ERR_PROMPT;
+    }
+
+    const int32_t n_ctx = static_cast<int32_t>(llama_n_ctx(e->ctx));
+    const int32_t n_prompt = static_cast<int32_t>(mtmd_helper_get_n_tokens(chunks));
+    if (n_prompt + 8 > n_ctx) {
+        mtmd_input_chunks_free(chunks);
+        return ERR_TOO_LONG;
+    }
+    const int32_t budget = std::min<int32_t>(max_tokens, n_ctx - n_prompt);
+
+    llama_memory_clear(llama_get_memory(e->ctx), true);
+    if (env->CallBooleanMethod(sink, is_cancelled)) {
+        mtmd_input_chunks_free(chunks);
+        return 0;
+    }
+
+    llama_pos new_past = 0;
+    const int32_t er = mtmd_helper_eval_chunks(e->mm, e->ctx, chunks, 0, 0, static_cast<int32_t>(llama_n_batch(e->ctx)), true, &new_past);
+    mtmd_input_chunks_free(chunks);
+    if (er != 0) {
+        LOGE("image evaluation failed: %d", er);
+        return ERR_DECODE;
+    }
+    if (env->CallBooleanMethod(sink, is_cancelled)) return 0;
+
+    llama_sampler *smpl = make_sampler(e, temperature);
+    const jint result = run_loop(env, e, smpl, sink, on_token, budget);
     llama_sampler_free(smpl);
     return result;
 }

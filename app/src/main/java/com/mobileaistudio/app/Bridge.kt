@@ -143,15 +143,17 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             o.put("state", if (f.exists()) "ready" else modelState(item))
             o.put("partMB", if (item != null) item.done.get() / 1048576L else 0L)
             o.put("dlId", item?.id ?: "")
+            o.put("vision", mmprojFor(m.file).exists())
             arr.put(o)
         }
-        val extra = modelsDir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") && !known.contains(f.name) }
+        val extra = modelsDir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") && !f.name.endsWith(".mmproj.gguf") && !known.contains(f.name) }
         for (f in extra ?: emptyArray()) {
             val o = JSONObject()
             o.put("id", "file:" + f.name)
             o.put("name", f.name.removeSuffix(".gguf"))
             o.put("sizeMB", f.length() / 1048576L)
             o.put("note", "Imported from your phone.")
+            o.put("vision", mmprojFor(f.name).exists())
             o.put("recommended", false)
             o.put("custom", true)
             o.put("state", "ready")
@@ -161,7 +163,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
         // models still downloading that are not in the catalog (found online)
         for (it in dl.list()) {
-            if (it.kind == "model" && it.name != null && !known.contains(it.name) &&
+            if (it.kind == "model" && it.name != null && !known.contains(it.name) && !it.name!!.endsWith(".mmproj.gguf") &&
                 it.state != DownloadItem.State.DONE && !File(modelsDir, it.name!!).exists()
             ) {
                 val o = JSONObject()
@@ -595,8 +597,14 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             for (d in dl.list()) {
                 if (d.kind == "model" && d.name == f.name) dl.remove(d.id, true)
             }
+            val mm = mmprojFor(f.name)
+            for (d in dl.list()) {
+                if (d.kind == "model" && d.name == mm.name) dl.remove(d.id, true)
+            }
             f.delete()
             File(f.path + ".part").delete()
+            mm.delete()
+            File(mm.path + ".part").delete()
             js("__onModelsChanged", "")
         }
     }
@@ -721,15 +729,40 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 return
             }
             loadedKey = key
+            val mm = mmprojFor(file.name)
+            if (mm.exists()) {
+                js("__onStatus", "Loading the picture reader...")
+                try {
+                    Native.loadVision(handle, mm.absolutePath, threads)
+                } catch (e: Throwable) {
+                }
+            }
         }
+        val canSee = Native.hasVision(handle)
 
         val msgs = req.getJSONArray("messages")
         val roles = ArrayList<String>()
         val contents = ArrayList<ByteArray>()
+        val imageIds = ArrayList<List<String>>()
         for (i in 0 until msgs.length()) {
             val m = msgs.getJSONObject(i)
+            val ids = ArrayList<String>()
+            val ia = m.optJSONArray("images")
+            if (ia != null) for (k in 0 until ia.length()) {
+                val iid = ia.getString(k)
+                if (iid.matches(Regex("[A-Za-z0-9_-]{1,64}")) && File(imagesDir, "$iid.jpg").exists()) ids.add(iid)
+            }
+            var text = m.getString("content")
+            if (ids.isNotEmpty()) {
+                if (!canSee) {
+                    chatError("This model cannot look at pictures. Open Models, tap Find models online, and download a model marked with an eye (for example SmolVLM).")
+                    return
+                }
+                text = "<__media__>\n".repeat(ids.size) + text
+            }
             roles.add(m.getString("role"))
-            contents.add(m.getString("content").toByteArray(Charsets.UTF_8))
+            contents.add(text.toByteArray(Charsets.UTF_8))
+            imageIds.add(ids)
         }
         if (roles.isEmpty()) {
             chatError("Nothing to send.")
@@ -737,11 +770,15 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
 
         // Keep the prompt inside the memory size: drop the oldest chat messages first.
-        val limit = nCtx - maxTok - 16
+        fun imgCount() = imageIds.sumOf { it.size }
+        fun reserve() = imgCount() * 450
+        var limit = nCtx - maxTok - 16 - reserve()
         var count = Native.countTokens(handle, roles.toTypedArray(), contents.toTypedArray())
         while (count > limit && roles.size > 2) {
             roles.removeAt(1)
             contents.removeAt(1)
+            imageIds.removeAt(1)
+            limit = nCtx - maxTok - 16 - reserve()
             count = Native.countTokens(handle, roles.toTypedArray(), contents.toTypedArray())
         }
         if (count < 0) {
@@ -749,7 +786,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             return
         }
         if (count > limit) {
-            val room = nCtx - count - 16
+            val room = nCtx - count - 16 - reserve()
             if (room < 32) {
                 chatError("This is too long for the memory size. Remove some project files, shorten the message, or raise Memory size in Settings.")
                 return
@@ -779,10 +816,19 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
             override fun isCancelled(): Boolean = cancelChat
         }
-        val n = Native.generate(handle, roles.toTypedArray(), contents.toTypedArray(), maxTok, temp, sink)
+        val n: Int
+        if (imgCount() > 0) {
+            val all = ArrayList<ByteArray>()
+            for (ids in imageIds) for (iid in ids) all.add(File(imagesDir, "$iid.jpg").readBytes())
+            n = Native.generateWithImages(handle, roles.toTypedArray(), contents.toTypedArray(), all.toTypedArray(), maxTok, temp, sink)
+        } else {
+            n = Native.generate(handle, roles.toTypedArray(), contents.toTypedArray(), maxTok, temp, sink)
+        }
         sink.flush()
 
         when {
+            n == -5 -> chatError("This model cannot look at pictures. Download a model marked with an eye in Find models online.")
+            n == -6 -> chatError("The picture could not be read. Try another one.")
             n == -2 -> chatError("This is too long for the memory size. Raise Memory size in Settings or shorten the chat.")
             n < 0 -> chatError("The AI engine stopped unexpectedly. Try again, or pick a smaller model.")
             else -> {
@@ -794,4 +840,96 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             }
         }
     }
+
+    // ---------- pictures ----------
+
+    private val imagesDir: File by lazy { File(activity.filesDir, "images").also { it.mkdirs() } }
+
+    private fun mmprojFor(modelFile: String) = File(modelsDir, modelFile.removeSuffix(".gguf") + ".mmproj.gguf")
+
+    /** mode: "camera" or "gallery" */
+    @JavascriptInterface
+    fun pickImage(mode: String) {
+        ui.post { activity.pickImage(mode) }
+    }
+
+    fun onImageCancelled() {
+        js("__onImage", JSONObject().put("ok", false).put("cancelled", true).toString())
+    }
+
+    fun onImageFailed(msg: String) {
+        js("__onImage", JSONObject().put("ok", false).put("msg", msg).toString())
+    }
+
+    /** Shrinks the picture (so the AI can read it quickly), fixes its rotation, saves it, and tells the page. */
+    fun onImagePicked(uri: Uri, fromCamera: Boolean) {
+        Thread {
+            try {
+                val maxSide = activity.getSharedPreferences("mai", Context.MODE_PRIVATE).getInt("imgSide", 512).coerceIn(256, 1024)
+                fun open() = if (uri.scheme == "file") java.io.FileInputStream(File(uri.path!!)) else activity.contentResolver.openInputStream(uri)!!
+                val bo = android.graphics.BitmapFactory.Options()
+                bo.inJustDecodeBounds = true
+                open().use { android.graphics.BitmapFactory.decodeStream(it, null, bo) }
+                if (bo.outWidth <= 0 || bo.outHeight <= 0) throw IllegalStateException("bad")
+                var sample = 1
+                while (bo.outWidth / (sample * 2) >= maxSide && bo.outHeight / (sample * 2) >= maxSide) sample *= 2
+                val o2 = android.graphics.BitmapFactory.Options()
+                o2.inSampleSize = sample
+                var bmp = open().use { android.graphics.BitmapFactory.decodeStream(it, null, o2) } ?: throw IllegalStateException("bad")
+
+                var rot = 0
+                try {
+                    val exif = open().use { android.media.ExifInterface(it) }
+                    rot = when (exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                        6 -> 90
+                        3 -> 180
+                        8 -> 270
+                        else -> 0
+                    }
+                } catch (e: Exception) {
+                }
+                val scale = Math.min(1f, maxSide.toFloat() / Math.max(bmp.width, bmp.height))
+                if (rot != 0 || scale < 1f) {
+                    val mx = android.graphics.Matrix()
+                    if (rot != 0) mx.postRotate(rot.toFloat())
+                    if (scale < 1f) mx.postScale(scale, scale)
+                    val nb = android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, mx, true)
+                    if (nb !== bmp) bmp.recycle()
+                    bmp = nb
+                }
+                val id = "i" + System.currentTimeMillis().toString(36) + (Math.random() * 1000).toInt()
+                FileOutputStream(File(imagesDir, "$id.jpg")).use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }
+
+                val ts = Math.min(1f, 160f / Math.max(bmp.width, bmp.height))
+                val tb = android.graphics.Bitmap.createScaledBitmap(bmp, Math.max(1, (bmp.width * ts).toInt()), Math.max(1, (bmp.height * ts).toInt()), true)
+                val bo2 = java.io.ByteArrayOutputStream()
+                tb.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, bo2)
+                val thumb = "data:image/jpeg;base64," + android.util.Base64.encodeToString(bo2.toByteArray(), android.util.Base64.NO_WRAP)
+                if (fromCamera && uri.scheme == "file") File(uri.path!!).delete()
+                cleanOldImages()
+                js("__onImage", JSONObject().put("ok", true).put("id", id).put("w", bmp.width).put("h", bmp.height).put("thumb", thumb).toString())
+            } catch (e: Throwable) {
+                onImageFailed("That picture could not be opened.")
+            }
+        }.start()
+    }
+
+    /** Keeps the newest 60 pictures. */
+    private fun cleanOldImages() {
+        val fs = imagesDir.listFiles() ?: return
+        if (fs.size <= 60) return
+        fs.sortedBy { it.lastModified() }.take(fs.size - 60).forEach { it.delete() }
+    }
+
+    @JavascriptInterface
+    fun getImageSide(): Int = activity.getSharedPreferences("mai", Context.MODE_PRIVATE).getInt("imgSide", 512)
+
+    @JavascriptInterface
+    fun setImageSide(v: Int) {
+        activity.getSharedPreferences("mai", Context.MODE_PRIVATE).edit().putInt("imgSide", if (v >= 1024) 1024 else 512).apply()
+    }
+
+    /** Thumbnail data URL for a stored picture, so old chats can still show it. */
+    @JavascriptInterface
+    fun imageExists(id: String): Boolean = id.matches(Regex("[A-Za-z0-9_-]{1,64}")) && File(imagesDir, "$id.jpg").exists()
 }

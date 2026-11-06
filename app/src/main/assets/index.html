@@ -29,6 +29,14 @@ button.danger{color:var(--bad)}
 code.ic{background:#111;padding:1px 5px;border-radius:4px;color:#00ffcc;font-family:monospace}
 footer{display:flex;gap:6px;align-items:flex-end;padding:8px;border-top:1px solid var(--line)}
 footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(--panel);color:#fff;border:1px solid #444;border-radius:8px;padding:10px}
+.pics{display:flex;gap:6px;flex-wrap:wrap}
+.pics img{max-width:120px;max-height:120px;border-radius:8px;display:block}
+.msg .pics{margin-bottom:6px}
+#attach{display:none;gap:8px;padding:6px 10px 0;flex-wrap:wrap}
+#attach.has{display:flex}
+#attach .th{position:relative}
+#attach .th img{height:56px;border-radius:8px;display:block}
+#attach .th button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:11px;line-height:1}
 .ib{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer}
 #scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:4}
 #scrim.open{display:block}
@@ -144,7 +152,9 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   </header>
   <div id="status"></div>
   <div id="chat"></div>
+  <div id="attach"></div>
   <footer>
+    <button class="ib" id="camBtn" title="Take or add a picture" aria-label="Picture">&#128247;</button>
     <label class="ib" title="Add a file to this project">&#128206;<input type="file" id="fileIn" multiple hidden></label>
     <textarea id="prompt" rows="1" placeholder="Message..."></textarea>
     <button id="send" class="pri">Send</button>
@@ -162,6 +172,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label class="chk"><input type="checkbox" id="s_aiFiles"> The AI can look at my files</label>
   <label class="chk"><input type="checkbox" id="s_aiWeb"> The AI can search the web</label>
   <label class="chk"><input type="checkbox" id="s_aiAuto"> Use them on its own when a question needs it</label>
+  <label class="chk"><input type="checkbox" id="s_imgDetail"> Look at pictures in more detail (slower)</label>
   <button id="openModels">Models...</button>
   <button id="openDl">Downloads...</button>
   <button id="openFiles">Files on this phone...</button>
@@ -298,9 +309,15 @@ function renderRich(el, text) {
   inline(el, text.slice(last).replace(/^\n/, ''));
 }
 function scrollDown() { const c = $('chat'); c.scrollTop = c.scrollHeight; }
-function addMsg(role, text, tools) {
+function picsRow(images) {
+  const r = h('div', {class: 'pics'});
+  (images || []).forEach(im => { if (im.thumb) r.append(h('img', {src: im.thumb, alt: 'Picture'})); });
+  return r;
+}
+function addMsg(role, text, tools, images) {
   const d = h('div', {class: 'msg ' + role});
   d._chips = h('div', {class: 'tchips'}); d._body = h('div', {class: 'mbody'});
+  if (images && images.length) d.append(picsRow(images));
   d.append(d._chips, d._body);
   (tools || []).forEach(c => addChip(d, c));
   renderRich(d._body, text); $('chat').append(d); scrollDown(); return d;
@@ -310,7 +327,7 @@ function renderMessages() {
   if (!cur.messages.length) {
     $('chat').append(h('div', {class: 'msg hint'}, 'Ask anything. \u{1F4CE} adds files to this project. ☰ opens projects, skills and models.'));
   }
-  cur.messages.forEach(m => addMsg(m.role, m.content, m.tools));
+  cur.messages.forEach(m => addMsg(m.role, m.content, m.tools, m.images));
 }
 
 /* ---------- projects ---------- */
@@ -492,8 +509,8 @@ function progressBits(m) {
 }
 function modelRow(m) {
   const row = h('div', {class: 'mrow' + (S.settings.model === m.id ? ' sel' : '')});
-  row.append(h('div', {class: 'nm'}, m.name + (m.recommended ? ' ★' : '') + '  ·  ' + (m.sizeMB ? mb(m.sizeMB) : '? MB')));
-  row.append(h('div', {class: 'nt'}, m.note));
+  row.append(h('div', {class: 'nm'}, (m.vision ? '\u{1F441} ' : '') + m.name + (m.recommended ? ' ★' : '') + '  ·  ' + (m.sizeMB ? mb(m.sizeMB) : '? MB')));
+  row.append(h('div', {class: 'nt'}, m.note + (m.vision ? ' Can look at pictures.' : '')));
   const w = m.custom ? '' : ramWarn(m); if (w) row.append(h('div', {class: 'warn'}, w));
   const d = dls.find(x => x.id === m.dlId);
   if (m.state === 'error' && d && d.msg) row.append(h('div', {class: 'err'}, d.msg));
@@ -681,22 +698,37 @@ function fileWarn(sizeMB) {
 }
 async function openRepo(id) {
   if (findState.open === id) { findState.open = null; renderFind(); return; }
-  findState.open = id; findState.files = null; findState.filesErr = ''; findState.filesBusy = true; renderFind();
+  findState.open = id; findState.mm = null; findState.files = null; findState.filesErr = ''; findState.filesBusy = true; renderFind();
   const r = await httpGet(HF + '/api/models/' + id + '/tree/main');
   if (findState.open !== id) return;
   findState.filesBusy = false;
   if (!r.ok) { findState.filesErr = r.status ? 'Could not list the files (' + r.status + ').' : (r.msg || 'No internet connection.'); renderFind(); return; }
   try {
-    const list = JSON.parse(r.body).filter(f => f.type === 'file' && /\.gguf$/i.test(f.path) && !/mmproj/i.test(f.path));
+    const all = JSON.parse(r.body).filter(f => f.type === 'file' && /\.gguf$/i.test(f.path));
+    findState.mm = pickMmproj(all.filter(f => /mmproj/i.test(f.path)));
+    const list = all.filter(f => !/mmproj/i.test(f.path));
     list.sort((a, b) => a.size - b.size);
     findState.files = list;
   } catch (e) { findState.filesErr = 'Could not read the file list.'; }
   renderFind();
 }
-function addModelFile(repo, f) {
+function pickMmproj(list) {
+  if (!list.length) return null;
+  const rank = f => /q8_0/i.test(f.path) ? 0 : /f16/i.test(f.path) ? 1 : 2;
+  return list.slice().sort((a, b) => rank(a) - rank(b) || a.size - b.size)[0];
+}
+const cleanName = n => n.replace(/[^A-Za-z0-9._-]/g, '_');
+function addModelFile(repo, f, withVision) {
   const url = HF + '/' + repo + '/resolve/main/' + f.path.split('/').map(encodeURIComponent).join('/');
+  const mm = withVision ? findState.mm : null;
   let r; try { r = JSON.parse(Android.dlAddModel(url, f.path, 0)); } catch (e) { r = {ok: false, msg: 'Could not add it.'}; }
   if (!r.ok) { toast(r.msg); return; }
+  if (mm) {
+    const murl = HF + '/' + repo + '/resolve/main/' + mm.path.split('/').map(encodeURIComponent).join('/');
+    const mname = cleanName(f.path.split('/').pop()).replace(/\.gguf$/i, '') + '.mmproj.gguf';
+    let r2; try { r2 = JSON.parse(Android.dlAddModel(murl, mname, 0)); } catch (e) { r2 = {ok: false, msg: 'Could not add the picture reader.'}; }
+    if (!r2.ok) toast(r2.msg);
+  }
   added.add(repo + '/' + f.path); toast('Added to Downloads'); pullDownloads(); markAdded();
 }
 function markAdded() { if ($('find').classList.contains('open')) renderFind(); }
@@ -712,7 +744,8 @@ function fileRow(repo, f) {
   if (isSplit(name)) row.append(h('span', {class: 'pct'}, 'Split file, not supported yet'));
   else if (have) row.append(h('span', {class: 'tag'}, '✓ Have it'));
   else if (added.has(repo + '/' + f.path)) row.append(h('span', {class: 'tag'}, 'Added'));
-  else row.append(h('button', {class: 'pri', onclick: () => addModelFile(repo, f)}, 'Download'));
+  else if (findState.mm) row.append(h('button', {class: 'pri', onclick: () => addModelFile(repo, f, true)}, 'Download + pictures'), h('button', {onclick: () => addModelFile(repo, f, false)}, 'Text only'));
+  else row.append(h('button', {class: 'pri', onclick: () => addModelFile(repo, f, false)}, 'Download'));
   return row;
 }
 function renderFind() {
@@ -726,7 +759,7 @@ function renderFind() {
   o.append(inp);
   o.append(h('button', {class: 'pri', style: 'width:100%;margin:8px 0', onclick: () => searchModels(inp.value.trim())}, 'Search'));
   const chips = h('div', {class: 'chips'});
-  ['coder', 'qwen', 'llama', 'gemma', 'phi', 'smollm', '1b', '3b'].forEach(c => chips.append(h('button', {onclick: () => { inp.value = c; searchModels(c); }}, c)));
+  ['smolvlm', 'qwen2-vl', 'moondream', 'coder', 'qwen', 'llama', 'gemma', 'phi', 'smollm', '1b', '3b'].forEach(c => chips.append(h('button', {onclick: () => { inp.value = c; searchModels(c); }}, c)));
   o.append(chips);
   if (findState.busy) { o.append(h('div', {class: 'sub'}, 'Searching...')); return; }
   if (findState.err) { o.append(h('div', {class: 'mrow'}, h('div', {class: 'err'}, findState.err), h('button', {onclick: () => searchModels(findState.q)}, 'Try again'))); return; }
@@ -1247,6 +1280,9 @@ function initSettings() {
     const el = $('s_' + k); el.checked = S.settings[k] !== false;
     el.onchange = () => { S.settings[k] = el.checked; persist(); };
   });
+  const det = $('s_imgDetail');
+  try { det.checked = hasBridge && Android.getImageSide() >= 1024; } catch (e) {}
+  det.onchange = () => { try { Android.setImageSide(det.checked ? 1024 : 512); } catch (e) {} };
   ['num_predict', 'num_ctx', 'num_thread', 'temperature'].forEach(k => {
     const el = $('s_' + k); el.value = S.settings[k];
     el.onchange = () => { const v = parseFloat(el.value); if (!isNaN(v) && v >= 0) { S.settings[k] = v; persist(); } };
@@ -1278,31 +1314,63 @@ function buildHistory(avail) {
   }
   return kept.reverse();
 }
+let pending = [];
+const curModel = () => models.find(m => m.id === S.settings.model);
+function renderAttach() {
+  const a = $('attach'); a.textContent = '';
+  pending.forEach((im, i) => a.append(h('div', {class: 'th'}, h('img', {src: im.thumb, alt: 'Picture'}), h('button', {onclick: () => { pending.splice(i, 1); renderAttach(); }}, '×'))));
+  a.classList.toggle('has', pending.length > 0);
+}
+window.__onImage = json => {
+  let r; try { r = JSON.parse(json); } catch (e) { return; }
+  if (!r.ok) { if (!r.cancelled) toast(r.msg || 'Could not add the picture.'); return; }
+  pending = [{id: r.id, thumb: r.thumb}]; renderAttach();
+  const m = curModel(); if (m && !m.vision) toast('This model cannot look at pictures. Pick one marked \u{1F441} or download one in Find models online (try "smolvlm").');
+};
+$('camBtn').onclick = async () => {
+  if (!hasBridge) { toast('Open this in the app.'); return; }
+  const v = await choose('Add a picture', [{label: '\u{1F4F7} Take a photo', value: 'camera'}, {label: '\u{1F5BC} Choose from gallery', value: 'gallery'}]);
+  if (v) Android.pickImage(v);
+};
 function setStatus(t) { $('status').textContent = t || ''; }
 function autosize() { const t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
 function setBusy(b) { busy = b; $('send').textContent = b ? 'Stop' : 'Send'; }
 
-let genResolve = null, turnStop = false;
+let genResolve = null, turnStop = false, genImgs = [];
 function generate(messages) {
   return new Promise(resolve => {
     genAcc = ''; genResolve = resolve;
-    Android.chat(JSON.stringify({model: S.settings.model, messages: messages, max_tokens: S.settings.num_predict, n_ctx: S.settings.num_ctx,
+    Android.chat(JSON.stringify({model: S.settings.model, messages: messages, max_tokens: S.settings.num_predict, n_ctx: (curModel() && curModel().vision) ? Math.max(4096, S.settings.num_ctx) : S.settings.num_ctx,
       threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
   });
 }
 async function send() {
   if (busy) { turnStop = true; if (hasBridge) Android.stopChat(); setStatus('Stopping...'); return; }
-  const text = $('prompt').value.trim();
+  let text = $('prompt').value.trim();
+  if (!text && pending.length) text = 'What is in this picture?';
   if (!text || !cur) return;
   if (!hasBridge) { toast('Open this in the app.'); return; }
   if (!S.settings.model) { openModels(); toast('Download a model first.'); return; }
   const maxTok = S.settings.num_predict, nCtx = S.settings.num_ctx;
   const avail = Math.max(1000, (nCtx - maxTok - 64) * 3);
-  const msgs = [{role: 'system', content: buildSystem(avail)}].concat(buildHistory(avail), [{role: 'user', content: text}]);
+  let imgs = pending; pending = []; renderAttach();
+  const vm = curModel();
+  if (!imgs.length && vm && vm.vision && cur.messages.length >= 2) {
+    // a follow-up question about the picture just discussed
+    const prev = cur.messages[cur.messages.length - 2];
+    if (prev && prev.role === 'user' && prev.images && prev.images.length && prev.images.every(im => Android.imageExists(im.id))) imgs = prev.images;
+  }
+  if (imgs.length && !(vm && vm.vision)) {
+    toast('This model cannot look at pictures. Pick one marked \u{1F441}, or download one in Find models online (try "smolvlm").');
+    $('prompt').value = text; return;
+  }
+  const userMsg = {role: 'user', content: text};
+  if (imgs.length) userMsg.images = imgs.map(im => im.id);
+  const msgs = [{role: 'system', content: buildSystem(avail)}].concat(buildHistory(avail), [userMsg]);
   const hint = document.querySelector('.msg.hint'); if (hint) hint.remove();
-  addMsg('user', text);
+  addMsg('user', text, [], imgs);
   $('prompt').value = ''; autosize();
-  genProject = cur; genPrompt = text; genAcc = ''; genStart = Date.now(); turnStop = false;
+  genProject = cur; genPrompt = text; genImgs = imgs.map(im => ({id: im.id, thumb: im.thumb})); genAcc = ''; genStart = Date.now(); turnStop = false;
   genBox = addMsg('assistant', '...');
   setBusy(true); setStatus('Starting...');
   const tools = toolsAvailable(); const chips = [], notes = [];
@@ -1342,7 +1410,7 @@ async function send() {
   const shownText = tools.length ? visibleText(final) : final;
   renderRich(genBox._body, shownText + (err ? '\n[' + err + ']' : ''));
   if ((shownText.trim() || chips.length) && genProject) {
-    genProject.messages.push({role: 'user', content: genPrompt},
+    genProject.messages.push(Object.assign({role: 'user', content: genPrompt}, genImgs.length ? {images: genImgs} : {}),
       Object.assign({role: 'assistant', content: shownText.trim() || '(no answer)'}, chips.length ? {tools: chips} : {}, notes.length ? {note: notes.join('\n').slice(0, 900)} : {}));
     genProject.messages = genProject.messages.slice(-200);
     persistNow();

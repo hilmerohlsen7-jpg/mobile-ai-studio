@@ -29,6 +29,12 @@
             </intent-filter>
         </activity>
 
+        <provider
+            android:name=".PhotoProvider"
+            android:authorities="com.mobileaistudio.app.photos"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <service
             android:name=".DownloadService"
             android:exported="false"
