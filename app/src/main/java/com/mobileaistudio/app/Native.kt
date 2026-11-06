@@ -15,11 +15,11 @@ object Native {
 
     /** Loads the engine once. Returns false on phones it cannot run on. */
     @Synchronized
-    fun ensureLoaded(): Boolean {
+    fun ensureLoaded(libDir: String): Boolean {
         if (ready) return true
         return try {
             System.loadLibrary("mobileai")
-            backendInit()
+            backendInit(libDir)
             ready = true
             true
         } catch (t: Throwable) {
@@ -27,7 +27,10 @@ object Native {
         }
     }
 
-    external fun backendInit()
+    external fun backendInit(libDir: String)
+
+    /** Which CPU features the loaded maths code uses (for example DOTPROD, MATMUL_INT8). */
+    external fun systemInfo(): String
 
     /** Returns a handle, or 0 if the model could not be loaded. */
     external fun loadModel(path: String, nCtx: Int, nThreads: Int): Long

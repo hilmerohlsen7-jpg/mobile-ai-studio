@@ -21,7 +21,7 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += listOf(
-                    "-DANDROID_STL=c++_static",
+                    "-DANDROID_STL=c++_shared",
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
                     "-DCMAKE_BUILD_TYPE=Release"
                 )
@@ -51,6 +51,11 @@ android {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
         }
+    }
+
+    packaging {
+        // the CPU variants are loaded by file path, so they must be unpacked on install
+        jniLibs { useLegacyPackaging = true }
     }
 
     compileOptions {

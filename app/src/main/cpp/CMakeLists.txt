@@ -14,7 +14,11 @@ endif()
 # llama.cpp is fetched by the build workflow into this folder (see .github/workflows/build.yml).
 set(LLAMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp" CACHE PATH "Path to llama.cpp")
 
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# The CPU maths code is built in several versions (basic phones ... newest phones) and the
+# app loads the fastest one this phone can run, at start-up.
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
+set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)

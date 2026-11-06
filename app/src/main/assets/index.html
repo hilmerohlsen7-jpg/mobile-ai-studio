@@ -173,6 +173,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label class="chk"><input type="checkbox" id="s_aiWeb"> The AI can search the web</label>
   <label class="chk"><input type="checkbox" id="s_aiAuto"> Use them on its own when a question needs it</label>
   <label class="chk"><input type="checkbox" id="s_imgDetail"> Look at pictures in more detail (slower)</label>
+  <div id="cpuInfo" style="font-size:.75rem;color:var(--mute);margin:6px 0"></div>
   <button id="openModels">Models...</button>
   <button id="openDl">Downloads...</button>
   <button id="openFiles">Files on this phone...</button>
@@ -1280,6 +1281,7 @@ function initSettings() {
     const el = $('s_' + k); el.checked = S.settings[k] !== false;
     el.onchange = () => { S.settings[k] = el.checked; persist(); };
   });
+  if (dev.cpu) $('cpuInfo').textContent = 'Speed mode: ' + dev.cpu + (dev.cpu === 'basic' ? ' (this phone has no extra speed features)' : '');
   const det = $('s_imgDetail');
   try { det.checked = hasBridge && Android.getImageSide() >= 1024; } catch (e) {}
   det.onchange = () => { try { Android.setImageSide(det.checked ? 1024 : 512); } catch (e) {} };

@@ -119,7 +119,17 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         o.put("cores", Runtime.getRuntime().availableProcessors())
         o.put("freeMB", modelsDir.usableSpace / 1048576L)
         o.put("abi", Build.SUPPORTED_ABIS.firstOrNull() ?: "")
-        o.put("engine", Native.ensureLoaded())
+        val okEngine = Native.ensureLoaded(activity.applicationInfo.nativeLibraryDir)
+        o.put("engine", okEngine)
+        if (okEngine) {
+            try {
+                val si = Native.systemInfo()
+                val feats = ArrayList<String>()
+                for (k in listOf("DOTPROD", "MATMUL_INT8", "FP16_VA", "SVE", "SME")) if (Regex("\\b$k\\s*=\\s*1").containsMatchIn(si)) feats.add(k)
+                o.put("cpu", if (feats.isEmpty()) "basic" else feats.joinToString(" + "))
+            } catch (e: Throwable) {
+            }
+        }
         return o.toString()
     }
 
@@ -700,7 +710,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     private fun runChat(req: JSONObject) {
-        if (!Native.ensureLoaded()) {
+        if (!Native.ensureLoaded(activity.applicationInfo.nativeLibraryDir)) {
             chatError("The AI engine could not start on this phone. It needs a 64-bit ARM phone.")
             return
         }

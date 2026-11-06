@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "llama.h"
+#include "ggml-backend.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
 
@@ -186,9 +187,18 @@ llama_sampler *make_sampler(Engine *e, float temperature) {
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_com_mobileaistudio_app_Native_backendInit(JNIEnv *, jobject) {
+JNIEXPORT void JNICALL Java_com_mobileaistudio_app_Native_backendInit(JNIEnv *env, jobject, jstring jdir) {
     llama_log_set(log_cb, nullptr);
+    const char *dir = env->GetStringUTFChars(jdir, nullptr);
+#ifdef GGML_BACKEND_DL
+    ggml_backend_load_all_from_path(dir);
+#endif
+    env->ReleaseStringUTFChars(jdir, dir);
     llama_backend_init();
+}
+
+JNIEXPORT jstring JNICALL Java_com_mobileaistudio_app_Native_systemInfo(JNIEnv *env, jobject) {
+    return env->NewStringUTF(llama_print_system_info());
 }
 
 JNIEXPORT jlong JNICALL Java_com_mobileaistudio_app_Native_loadModel(JNIEnv *env, jobject, jstring jpath, jint n_ctx, jint n_threads) {
