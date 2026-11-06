@@ -271,8 +271,8 @@ function loadState() {
 }
 function projectList() { return Object.values(S.projects).sort((a, b) => a.created - b.created); }
 function makeProject(name) {
-  const p = {id: uid(), name: (name || 'New project').slice(0, 60), system: 'You are a helpful assistant that is great at coding.',
-             skills: ['code'], files: [], messages: [], created: Date.now()};
+  const p = {id: uid(), name: (name || 'New project').slice(0, 60), system: '',
+             skills: [], files: [], messages: [], created: Date.now()};
   S.projects[p.id] = p; persist(); return p;
 }
 
@@ -398,10 +398,6 @@ function renderDrawer() {
   if (cur) {
     d.append(h('h3', null, 'This project: ' + cur.name));
     d.append(h('button', {onclick: renameProject}, 'Rename'));
-    d.append(h('label', null, 'Instructions for the AI'));
-    const ta = h('textarea', {rows: '4', value: cur.system});
-    ta.onchange = () => { cur.system = ta.value.slice(0, 4000); persist(); };
-    d.append(ta);
     d.append(h('label', null, 'Skills (tap to switch on or off)'));
     Object.values(S.skills).forEach(sk => {
       const on = cur.skills.includes(sk.id);
@@ -425,9 +421,12 @@ function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classL
 function refreshModels() {
   try { models = hasBridge ? JSON.parse(Android.modelList()) : []; } catch (e) { models = []; }
   const ready = models.filter(m => m.state === 'ready');
-  if (!ready.some(m => m.id === S.settings.model)) { S.settings.model = ready.length ? ready[0].id : ''; persist(); }
+  if (ready.length && !S.settings.autoMigrated) { S.settings.autoMigrated = true; S.settings.model = 'auto'; persist(); }
+  if (S.settings.model !== 'auto' && !ready.some(m => m.id === S.settings.model)) { S.settings.model = ready.length ? 'auto' : ''; persist(); }
+  if (S.settings.model === 'auto' && !ready.length) { S.settings.model = ''; persist(); }
   const sel = $('model'); sel.textContent = '';
   if (!ready.length) sel.append(h('option', {value: ''}, 'No model'));
+  else sel.append(h('option', {value: 'auto'}, 'Auto'));
   ready.forEach(m => sel.append(h('option', {value: m.id}, m.name)));
   sel.value = S.settings.model;
   if ($('models').classList.contains('open')) renderModels();
@@ -437,6 +436,29 @@ $('model').onchange = () => {
   if (!$('model').value) { openModels(); return; }
   S.settings.model = $('model').value; persist();
 };
+/* ---------- choosing the best model for this phone and this question ---------- */
+const codeIntent = t => /\b(code|coding|function|bug|bugs|error|exception|stack ?trace|compile|script|python|javascript|typescript|java|kotlin|html|css|sql|regex|api|class|variable|debug|refactor|program|algorithm)\b|```/i.test(t || '');
+function phoneBudgetMB() {
+  let cap = dev.ramMB ? dev.ramMB * 0.45 : 1200;          // what a model file may take, leaving room for Android and the chat
+  if (dev.cpu === 'basic' || (dev.cores && dev.cores <= 4)) cap *= 0.65;   // slow phone: prefer smaller, quicker models
+  return cap;
+}
+function pickAuto(text, wantsImage) {
+  const ready = models.filter(m => m.state === 'ready');
+  let cands = ready;
+  if (wantsImage) cands = ready.filter(m => m.vision);
+  else { const plain = ready.filter(m => !m.vision); if (plain.length) cands = plain; }
+  if (!cands.length) return null;
+  const cost = m => (m.sizeMB || 0) * (m.vision ? 1.3 : 1);
+  const cap = phoneBudgetMB();
+  let pool = cands.filter(m => cost(m) <= cap);
+  if (!pool.length) pool = [cands.slice().sort((a, b) => cost(a) - cost(b))[0]];
+  const coder = !wantsImage && codeIntent(text);
+  pool.sort((a, b) => ((coder && /cod/i.test(b.name)) - (coder && /cod/i.test(a.name))) || (b.sizeMB || 0) - (a.sizeMB || 0));
+  return pool[0];
+}
+let autoPick = null;
+function bestForPhone() { return pickAuto('', false); }
 function ramWarn(m) {
   if (!dev.ramMB) return '';
   if (m.sizeMB >= 700 && dev.ramMB < 5000) return 'Heavy for this phone (' + (dev.ramMB / 1024).toFixed(1) + ' GB RAM). It may be slow or the app may close.';
@@ -518,6 +540,7 @@ function modelRow(m) {
   const acts = h('div', {class: 'acts'});
   if (m.state === 'ready') {
     if (S.settings.model === m.id) acts.append(h('span', {class: 'tag'}, '✓ In use'));
+    else if (S.settings.model === 'auto' && bestForPhone() && bestForPhone().id === m.id) acts.append(h('span', {class: 'tag'}, '★ Auto picks this'));
     else acts.append(h('button', {class: 'pri', onclick: () => { S.settings.model = m.id; persist(); refreshModels(); }}, 'Use'));
     acts.append(h('button', {class: 'danger', onclick: () => deleteModel(m)}, 'Delete'));
   } else if (m.state === 'downloading') {
@@ -1293,8 +1316,14 @@ function initSettings() {
 function autoThreads() { return Math.max(2, Math.min(4, Math.floor((dev.cores || 4) / 2))); }
 
 /* ---------- chat ---------- */
-function buildSystem(avail) {
-  const parts = [cur.system];
+function autoSystem(text, hasImg) {
+  const p = ['You are a helpful assistant running on the person\'s phone. Answer in the language the person writes in. Be accurate and keep answers short and clear unless they ask for more. If you do not know something, say so.'];
+  if (codeIntent(text)) p.push('The person is working with code. Give correct, complete code in code blocks, then a short explanation.');
+  if (hasImg) p.push('The person attached a picture. Describe and answer from what you can actually see, and say so if something is not readable.');
+  return p.join('\n');
+}
+function buildSystem(avail, text, hasImg) {
+  const parts = [autoSystem(text, hasImg)];
   cur.skills.forEach(id => { const s = S.skills[id]; if (s) parts.push(s.prompt); });
   let budget = Math.floor(avail * 0.45); const blocks = [];
   for (const f of cur.files) {
@@ -1317,7 +1346,7 @@ function buildHistory(avail) {
   return kept.reverse();
 }
 let pending = [];
-const curModel = () => models.find(m => m.id === S.settings.model);
+const curModel = () => S.settings.model === 'auto' ? (autoPick || pickAuto('', pending.length > 0)) : models.find(m => m.id === S.settings.model);
 function renderAttach() {
   const a = $('attach'); a.textContent = '';
   pending.forEach((im, i) => a.append(h('div', {class: 'th'}, h('img', {src: im.thumb, alt: 'Picture'}), h('button', {onclick: () => { pending.splice(i, 1); renderAttach(); }}, '×'))));
@@ -1327,7 +1356,7 @@ window.__onImage = json => {
   let r; try { r = JSON.parse(json); } catch (e) { return; }
   if (!r.ok) { if (!r.cancelled) toast(r.msg || 'Could not add the picture.'); return; }
   pending = [{id: r.id, thumb: r.thumb}]; renderAttach();
-  const m = curModel(); if (m && !m.vision) toast('This model cannot look at pictures. Pick one marked \u{1F441} or download one in Find models online (try "smolvlm").');
+  const m = curModel(); if (!m || !m.vision) toast('This model cannot look at pictures. Pick one marked \u{1F441} or download one in Find models online (try "smolvlm").');
 };
 $('camBtn').onclick = async () => {
   if (!hasBridge) { toast('Open this in the app.'); return; }
@@ -1342,7 +1371,7 @@ let genResolve = null, turnStop = false, genImgs = [], genProject0 = null;
 function generate(messages) {
   return new Promise(resolve => {
     genAcc = ''; genResolve = resolve;
-    Android.chat(JSON.stringify({model: S.settings.model, messages: messages, max_tokens: S.settings.num_predict, n_ctx: (curModel() && curModel().vision) ? Math.max(4096, S.settings.num_ctx) : S.settings.num_ctx,
+    Android.chat(JSON.stringify({model: curModel().id, messages: messages, max_tokens: S.settings.num_predict, n_ctx: (curModel() && curModel().vision) ? Math.max(4096, S.settings.num_ctx) : S.settings.num_ctx,
       threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
   });
 }
@@ -1356,16 +1385,17 @@ async function send() {
   const maxTok = S.settings.num_predict, nCtx = S.settings.num_ctx;
   const avail = Math.max(1000, (nCtx - maxTok - 64) * 3);
   let imgs = pending; pending = []; renderAttach();
-  const vm = curModel();
   if (imgs.length && imgs.every(im => im.carried) && (storageIntent(text) || webIntent(text))) imgs = []; // picture kept from before, but this question is about something else
   imgs = imgs.filter(im => Android.imageExists(im.id));
-  if (imgs.length && !(vm && vm.vision)) {
-    toast('This model cannot look at pictures. Pick one marked \u{1F441}, or download one in Find models online (try "smolvlm").');
+  autoPick = S.settings.model === 'auto' ? pickAuto(text, imgs.length > 0) : null;
+  const vm = curModel();
+  if ((imgs.length && !(vm && vm.vision)) || !vm) {
+    toast(!imgs.length ? 'Download a model first.' : S.settings.model === 'auto' ? 'No downloaded model can look at pictures. Open Models > Find models online and download one (try "smolvlm").' : 'This model cannot look at pictures. Choose Auto, or a model marked \u{1F441}.');
     $('prompt').value = text; return;
   }
   const userMsg = {role: 'user', content: text};
   if (imgs.length) userMsg.images = imgs.map(im => im.id);
-  const msgs = [{role: 'system', content: buildSystem(avail)}].concat(buildHistory(avail), [userMsg]);
+  const msgs = [{role: 'system', content: buildSystem(avail, text, imgs.length > 0)}].concat(buildHistory(avail), [userMsg]);
   const hint = document.querySelector('.msg.hint'); if (hint) hint.remove();
   addMsg('user', text, [], imgs);
   $('prompt').value = ''; autosize();
@@ -1417,7 +1447,7 @@ async function send() {
   persistNow();
   if (genImgs.length && !pending.length && !err && cur === genProject0) { pending = genImgs.map(im => ({id: im.id, thumb: im.thumb, carried: true})); renderAttach(); }
   let st = '';
-  if (info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '');
+  if (info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '') + (S.settings.model === 'auto' && autoPick ? ' · ' + autoPick.name : '');
   setStatus(st);
   if (err) toast(err);
   genBox = null; genProject = null; genAcc = ''; setBusy(false);
