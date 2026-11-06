@@ -1336,7 +1336,7 @@ function setStatus(t) { $('status').textContent = t || ''; }
 function autosize() { const t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 140) + 'px'; }
 function setBusy(b) { busy = b; $('send').textContent = b ? 'Stop' : 'Send'; }
 
-let genResolve = null, turnStop = false, genImgs = [];
+let genResolve = null, turnStop = false, genImgs = [], genProject0 = null;
 function generate(messages) {
   return new Promise(resolve => {
     genAcc = ''; genResolve = resolve;
@@ -1355,11 +1355,8 @@ async function send() {
   const avail = Math.max(1000, (nCtx - maxTok - 64) * 3);
   let imgs = pending; pending = []; renderAttach();
   const vm = curModel();
-  if (!imgs.length && vm && vm.vision && cur.messages.length >= 2) {
-    // a follow-up question about the picture just discussed
-    const prev = cur.messages[cur.messages.length - 2];
-    if (prev && prev.role === 'user' && prev.images && prev.images.length && prev.images.every(im => Android.imageExists(im.id))) imgs = prev.images;
-  }
+  if (imgs.length && imgs.every(im => im.carried) && (storageIntent(text) || webIntent(text))) imgs = []; // picture kept from before, but this question is about something else
+  imgs = imgs.filter(im => Android.imageExists(im.id));
   if (imgs.length && !(vm && vm.vision)) {
     toast('This model cannot look at pictures. Pick one marked \u{1F441}, or download one in Find models online (try "smolvlm").');
     $('prompt').value = text; return;
@@ -1370,7 +1367,7 @@ async function send() {
   const hint = document.querySelector('.msg.hint'); if (hint) hint.remove();
   addMsg('user', text, [], imgs);
   $('prompt').value = ''; autosize();
-  genProject = cur; genPrompt = text; genImgs = imgs.map(im => ({id: im.id, thumb: im.thumb})); genAcc = ''; genStart = Date.now(); turnStop = false;
+  genProject0 = cur; genProject = cur; genPrompt = text; genImgs = imgs.map(im => ({id: im.id, thumb: im.thumb})); genAcc = ''; genStart = Date.now(); turnStop = false;
   genBox = addMsg('assistant', '...');
   setBusy(true); setStatus('Starting...');
   const tools = toolsAvailable(); const chips = [], notes = [];
@@ -1416,6 +1413,7 @@ async function send() {
     persistNow();
   }
   persistNow();
+  if (genImgs.length && !pending.length && !err && cur === genProject0) { pending = genImgs.map(im => ({id: im.id, thumb: im.thumb, carried: true})); renderAttach(); }
   let st = '';
   if (info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '');
   setStatus(st);
