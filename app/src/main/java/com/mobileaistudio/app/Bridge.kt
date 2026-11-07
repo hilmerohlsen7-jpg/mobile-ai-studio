@@ -1308,7 +1308,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
-    private fun startListening() {
+    private fun startListening(offline: Boolean = true) {
         WakeCenter.paused = true
         try { tts?.stop() } catch (e: Throwable) {}
         try { recognizer?.destroy() } catch (e: Throwable) {}
@@ -1321,6 +1321,20 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             override fun onBufferReceived(b: ByteArray?) {}
             override fun onEndOfSpeech() { js("__onSpeech", JSONObject().put("state", "thinking").toString()) }
             override fun onError(code: Int) {
+                // The recognizer service dropped or has no offline pack: try again online, then fall back to the phone's own voice window.
+                if (code == 11 || code == 12 || code == 13 || code == 5) {
+                    ui.postDelayed({
+                        if (offline) startListening(false)
+                        else {
+                            WakeCenter.paused = true
+                            if (!activity.speechDialog()) {
+                                WakeCenter.paused = false
+                                js("__onSpeech", JSONObject().put("state", "error").put("msg", "Speech recognition is not working on this phone. Check Google app, Settings, Voice.").toString())
+                            }
+                        }
+                    }, 300)
+                    return
+                }
                 val msg = when (code) {
                     android.speech.SpeechRecognizer.ERROR_NO_MATCH, android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> ""
                     android.speech.SpeechRecognizer.ERROR_NETWORK, android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT, android.speech.SpeechRecognizer.ERROR_SERVER ->
@@ -1346,9 +1360,16 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         val i = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         i.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-        i.putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, offline)
         i.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         r.startListening(i)
+    }
+
+    /** Result of the phone's own voice window (the fallback). */
+    fun onVoiceDialog(text: String?) {
+        WakeCenter.paused = false
+        if (text.isNullOrBlank()) js("__onSpeech", JSONObject().put("state", "error").put("msg", "").toString())
+        else js("__onSpeech", JSONObject().put("state", "done").put("text", text).toString())
     }
 
     @JavascriptInterface

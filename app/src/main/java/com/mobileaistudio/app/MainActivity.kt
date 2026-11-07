@@ -73,6 +73,18 @@ class MainActivity : Activity() {
         }
     }
 
+    /** The phone's own "speak now" window. Returns false if there is none. */
+    fun speechDialog(): Boolean {
+        return try {
+            val i = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            startActivityForResult(i, REQ_VOICE)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun hasMic(): Boolean =
         checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
@@ -214,6 +226,10 @@ class MainActivity : Activity() {
                 }
                 if (list.isNotEmpty()) bridge.onDocsPicked(list)
             }
+            REQ_VOICE -> {
+                val t = if (resultCode == RESULT_OK) data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() else null
+                bridge.onVoiceDialog(t)
+            }
             REQ_IMAGE -> {
                 val uri = data?.data
                 if (resultCode == RESULT_OK && uri != null) bridge.onImagePicked(uri, false) else bridge.onImageCancelled()
@@ -249,6 +265,7 @@ class MainActivity : Activity() {
         private const val REQ_MODEL = 2
         private const val REQ_IMAGE = 3
         private const val REQ_DOC = 5
+        private const val REQ_VOICE = 9
         private const val REQ_CAMERA = 4
     }
 }
