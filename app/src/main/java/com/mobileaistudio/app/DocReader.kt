@@ -161,6 +161,7 @@ object DocReader {
 
     private fun xmlText(ins: InputStream, out: Out, textTags: Set<String>?, nlEnd: Set<String>, tabEnd: Set<String>, nlStart: Set<String>, tabStart: Set<String>) {
         val p = Xml.newPullParser()
+        p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
         p.setInput(ins, "UTF-8")
         var inText = 0
         var ev = p.eventType
@@ -171,7 +172,7 @@ object DocReader {
                     if (textTags != null && n in textTags) inText++
                     if (n in nlStart) out.add("\n")
                     if (n in tabStart) out.add("\t")
-                    if (n == "text:s") out.add(" ")
+                    if (n == "s") out.add(" ")
                 }
                 XmlPullParser.TEXT -> if (textTags == null || inText > 0) out.add(p.text)
                 XmlPullParser.END_TAG -> {
@@ -206,11 +207,24 @@ object DocReader {
             var capped = false
             try {
                 it.getInputStream(e).use { ins ->
-                    xmlText(ins, o, setOf("w:t"), setOf("w:p"), setOf("w:tc"), setOf("w:br"), setOf("w:tab"))
+                    xmlText(ins, o, setOf("t"), setOf("p"), setOf("tc"), setOf("br"), setOf("tab"))
                 }
             } catch (c: Cap) {
                 capped = true
             }
+            if (o.sb.isBlank()) {
+                // some generators put text elsewhere: try every part of the document
+                for (e2 in it.entries().toList().filter { x -> x.name.startsWith("word/") && x.name.endsWith(".xml") && x.name != entry }) {
+                    try {
+                        it.getInputStream(e2).use { ins -> xmlText(ins, o, setOf("t"), setOf("p"), setOf("tc"), setOf("br"), setOf("tab")) }
+                    } catch (c: Cap) {
+                        capped = true
+                        break
+                    } catch (x: Exception) {
+                    }
+                }
+            }
+            if (o.sb.isBlank()) return Result("error", note = "There is no text in that $label file (it may be only pictures, or a scan).")
             return finish(o, capped, "docx")
         }
     }
@@ -226,7 +240,7 @@ object DocReader {
             try {
                 slides.forEachIndexed { i, e ->
                     o.add("--- Slide ${i + 1} ---\n")
-                    it.getInputStream(e).use { ins -> xmlText(ins, o, setOf("a:t"), setOf("a:p"), emptySet(), emptySet(), emptySet()) }
+                    it.getInputStream(e).use { ins -> xmlText(ins, o, setOf("t"), setOf("p"), emptySet(), emptySet(), emptySet()) }
                     o.add("\n")
                 }
             } catch (c: Cap) {
@@ -314,7 +328,7 @@ object DocReader {
             var capped = false
             try {
                 it.getInputStream(e).use { ins ->
-                    xmlText(ins, o, null, setOf("text:p", "text:h", "table:table-row"), setOf("table:table-cell"), emptySet(), setOf("text:tab"))
+                    xmlText(ins, o, null, setOf("p", "h", "table-row"), setOf("table-cell"), emptySet(), setOf("tab"))
                 }
             } catch (c: Cap) {
                 capped = true

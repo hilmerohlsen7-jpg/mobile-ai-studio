@@ -391,7 +391,7 @@ async function savePdf(o) {
 function pdfBtn(d, text) {
   if (!d || !text || text === '...' || d._pdf) return;
   d._pdf = true;
-  d.append(h('div', {class: 'macts'}, h('button', {onclick: () => savePdf({name: text.replace(/[#*`]/g, '').trim().split('\n')[0].slice(0, 50), text: text, reason: 'You chose Save as PDF on an answer.'})}, 'Save as PDF')));
+  d.append(h('div', {class: 'macts'}, h('button', {onclick: () => savePdf({name: text.replace(/[#*`_]/g, '').replace(/[^\w\s]/g, ' ').trim().split(/\s+/).slice(0, 5).join(' '), text: text, reason: 'You chose Save as PDF on an answer.'})}, 'Save as PDF')));
 }
 function renderMessages() {
   $('chat').textContent = '';
@@ -1419,10 +1419,13 @@ function initSettings() {
   try { det.checked = hasBridge && Android.getImageSide() >= 1024; } catch (e) {}
   det.onchange = () => { try { Android.setImageSide(det.checked ? 1024 : 512); } catch (e) {} };
   ['num_predict', 'num_ctx', 'num_thread', 'temperature'].forEach(k => {
-    const el = $('s_' + k); el.value = S.settings[k];
-    el.onchange = () => { const v = parseFloat(el.value); if (!isNaN(v) && v >= 0) { S.settings[k] = v; persist(); } };
+    const el = $('s_' + k); el.value = k === 'num_ctx' ? effCtx() : S.settings[k];
+    el.onchange = () => { const v = parseFloat(el.value); if (!isNaN(v) && v >= 0) { S.settings[k] = v; if (k === 'num_ctx') S.settings.ctxManual = true; persist(); } };
   });
 }
+function autoCtx() { const r = dev.ramMB || 3000; return r < 3500 ? 2048 : r < 6000 ? 3072 : r < 10000 ? 4096 : 6144; }
+function effCtx() { return S.settings.ctxManual ? S.settings.num_ctx : autoCtx(); }
+function toolRelevant(t) { return storageIntent(t) || webIntent(t) || pdfIntent(t) || /\b(files?|folders?|directory|delete|remove|trash|search the web|look (it )?up|google|pdf|save|write|storage|downloads?)\b/i.test(t); }
 function autoThreads() { return Math.max(2, Math.min(4, Math.floor((dev.cores || 4) / 2))); }
 
 /* ---------- chat ---------- */
@@ -1435,16 +1438,22 @@ function autoSystem(text, hasImg) {
 function buildSystem(avail, text, hasImg) {
   const parts = [autoSystem(text, hasImg)];
   cur.skills.forEach(id => { const s = S.skills[id]; if (s) parts.push(s.prompt); });
-  let budget = Math.floor(avail * 0.45); const blocks = [];
-  for (const f of cur.files) {
-    if (budget <= 200) break;
-    const chunk = f.text.slice(0, budget); budget -= chunk.length;
-    blocks.push('--- File: ' + f.name + ' ---\n' + chunk);
-  }
-  if (blocks.length) parts.push('Project files for reference:\n' + blocks.join('\n\n'));
-  parts.push(toolsPrompt());
+  if (cur.files.length) parts.push('The person attached files to this project. They are shown at the start of the person\'s message. Read them and answer from them; never ask the person to paste them again.');
+  if (toolRelevant(text)) parts.push(toolsPrompt());
   return parts.filter(Boolean).join('\n\n');
 }
+function filesBlock(avail) {
+  let budget = Math.floor(avail * 0.6); const blocks = []; const cut = [];
+  for (const f of cur.files) {
+    if (budget <= 200) { cut.push(f.name + ' (not shown)'); continue; }
+    const chunk = f.text.slice(0, budget); budget -= chunk.length;
+    if (chunk.length < f.text.length) cut.push(f.name + ' (first ' + chunk.length + ' of ' + f.text.length + ' characters)');
+    blocks.push('--- File: ' + f.name + ' ---\n' + chunk + '\n--- end of ' + f.name + ' ---');
+  }
+  filesCut = cut;
+  return blocks.length ? 'Files in this project:\n' + blocks.join('\n\n') + '\n\n' : '';
+}
+let filesCut = [];
 function buildHistory(avail) {
   let used = 0; const kept = [];
   for (let i = cur.messages.length - 1; i >= 0; i--) {
@@ -1481,7 +1490,7 @@ let genResolve = null, turnStop = false, genImgs = [], genProject0 = null;
 function generate(messages) {
   return new Promise(resolve => {
     genAcc = ''; genResolve = resolve;
-    Android.chat(JSON.stringify({model: curModel().id, messages: messages, max_tokens: S.settings.num_predict, n_ctx: (curModel() && curModel().vision) ? Math.max(4096, S.settings.num_ctx) : S.settings.num_ctx,
+    Android.chat(JSON.stringify({model: curModel().id, messages: messages, max_tokens: S.settings.num_predict, n_ctx: (curModel() && curModel().vision) ? Math.max(4096, effCtx()) : effCtx(),
       threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
   });
 }
@@ -1492,7 +1501,7 @@ async function send() {
   if (!text || !cur) return;
   if (!hasBridge) { toast('Open this in the app.'); return; }
   if (!S.settings.model) { openModels(); toast('Download a model first.'); return; }
-  const maxTok = S.settings.num_predict, nCtx = S.settings.num_ctx;
+  const maxTok = S.settings.num_predict, nCtx = effCtx();
   const avail = Math.max(1000, (nCtx - maxTok - 64) * 3);
   let imgs = pending; pending = []; renderAttach();
   if (imgs.length && imgs.every(im => im.carried) && (storageIntent(text) || webIntent(text))) imgs = []; // picture kept from before, but this question is about something else
@@ -1503,7 +1512,8 @@ async function send() {
     toast(!imgs.length ? 'Download a model first.' : S.settings.model === 'auto' ? 'No downloaded model can look at pictures. Open Models > Find models online and download one (try "smolvlm").' : 'This model cannot look at pictures. Choose Auto, or a model marked \u{1F441}.');
     $('prompt').value = text; return;
   }
-  const userMsg = {role: 'user', content: text};
+  const fb = cur.files.length ? filesBlock(avail) : '';
+  const userMsg = {role: 'user', content: fb ? fb + 'My question: ' + text : text};
   if (imgs.length) userMsg.images = imgs.map(im => im.id);
   const msgs = [{role: 'system', content: buildSystem(avail, text, imgs.length > 0)}].concat(buildHistory(avail), [userMsg]);
   const hint = document.querySelector('.msg.hint'); if (hint) hint.remove();
