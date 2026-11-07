@@ -145,6 +145,28 @@ object TorrentCenter {
         return e.id
     }
 
+    /** Adds a .torrent file the person picked (its bytes). */
+    fun addFile(data: ByteArray): String {
+        val ti = try {
+            TorrentInfo.bdecode(data)
+        } catch (t: Throwable) {
+            throw IllegalArgumentException("That is not a valid .torrent file.")
+        }
+        val src = "file:" + ti.name() + ":" + ti.totalSize()
+        val e = Entry("t" + UUID.randomUUID().toString().substring(0, 7), src, System.currentTimeMillis())
+        synchronized(this) {
+            if (entries.any { it.source == src && it.state != "done" }) throw IllegalArgumentException("This download is already in the list.")
+            torrentDir.mkdirs()
+            File(torrentDir, e.id + ".torrent").writeBytes(data)
+            entries.add(e)
+        }
+        e.state = "queued"
+        save()
+        changed()
+        start(e)
+        return e.id
+    }
+
     /** Gets the torrent details (for a magnet link from other people's computers, which can take a while) and starts it. */
     private fun start(e: Entry) {
         e.state = "downloading"

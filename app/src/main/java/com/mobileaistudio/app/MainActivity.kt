@@ -60,6 +60,7 @@ class MainActivity : Activity() {
             }
         }
         web.loadUrl("file:///android_asset/index.html")
+        bridge.onShare(intent)
     }
 
     fun askNotificationPermission() {
@@ -103,6 +104,12 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (::bridge.isInitialized) bridge.onShare(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         if (::web.isInitialized) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
@@ -114,6 +121,17 @@ class MainActivity : Activity() {
     }
 
     private var cameraFile: java.io.File? = null
+
+    fun pickDocs() {
+        try {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            i.addCategory(Intent.CATEGORY_OPENABLE)
+            i.type = "*/*"
+            i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            startActivityForResult(i, REQ_DOC)
+        } catch (e: Exception) {
+        }
+    }
 
     /** mode is "camera" (take a photo with the phone's camera app) or "gallery" (pick a picture). */
     fun pickImage(mode: String) {
@@ -167,6 +185,15 @@ class MainActivity : Activity() {
                 val uri = data?.data
                 if (resultCode == RESULT_OK && uri != null) bridge.onModelPicked(uri)
             }
+            REQ_DOC -> {
+                val list = ArrayList<Uri>()
+                if (resultCode == RESULT_OK && data != null) {
+                    val cd = data.clipData
+                    if (cd != null) for (i in 0 until cd.itemCount) list.add(cd.getItemAt(i).uri)
+                    else data.data?.let { list.add(it) }
+                }
+                if (list.isNotEmpty()) bridge.onDocsPicked(list)
+            }
             REQ_IMAGE -> {
                 val uri = data?.data
                 if (resultCode == RESULT_OK && uri != null) bridge.onImagePicked(uri, false) else bridge.onImageCancelled()
@@ -201,6 +228,7 @@ class MainActivity : Activity() {
         private const val REQ_FILE = 1
         private const val REQ_MODEL = 2
         private const val REQ_IMAGE = 3
+        private const val REQ_DOC = 5
         private const val REQ_CAMERA = 4
     }
 }

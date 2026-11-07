@@ -29,6 +29,8 @@ button.danger{color:var(--bad)}
 code.ic{background:#111;padding:1px 5px;border-radius:4px;color:#00ffcc;font-family:monospace}
 footer{display:flex;gap:6px;align-items:flex-end;padding:8px;border-top:1px solid var(--line)}
 footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(--panel);color:#fff;border:1px solid #444;border-radius:8px;padding:10px}
+.macts{margin-top:6px}
+.macts button{padding:3px 10px;font-size:.75rem}
 .pics{display:flex;gap:6px;flex-wrap:wrap}
 .pics img{max-width:120px;max-height:120px;border-radius:8px;display:block}
 .msg .pics{margin-bottom:6px}
@@ -155,7 +157,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <div id="attach"></div>
   <footer>
     <button class="ib" id="camBtn" title="Take or add a picture" aria-label="Picture">&#128247;</button>
-    <label class="ib" title="Add a file to this project">&#128206;<input type="file" id="fileIn" multiple hidden></label>
+    <button class="ib" id="docBtn" title="Add a file to this project" aria-label="Add a file">&#128206;</button><input type="file" id="fileIn" multiple hidden>
     <textarea id="prompt" rows="1" placeholder="Message..."></textarea>
     <button id="send" class="pri">Send</button>
   </footer>
@@ -234,12 +236,61 @@ function toast(msg) {
 }
 function mb(n) { return n >= 1024 ? (n / 1024).toFixed(1) + ' GB' : Math.round(n) + ' MB'; }
 
+/* ---------- Share to this app ---------- */
+const URL_RE = /(magnet:\?[^\s]+|(?:https?|ftp):\/\/[^\s<>"]+)/ig;
+async function pickProject() {
+  const opts = projectList().map(p => ({label: (cur && cur.id === p.id ? '\u2713 ' : '') + p.name, value: p.id}));
+  opts.push({label: '+ New project', value: '__new'});
+  const v = await choose('Add to which project?', opts); if (!v) return null;
+  if (v === '__new') { const n = await askText('Project name?', ''); if (!n || !n.trim()) return null; return makeProject(n.trim()).id; }
+  return v;
+}
+async function handleShare(sh) {
+  const links = ((sh.text || '').match(URL_RE) || []).map(x => x.replace(/[.,;)]+$/, ''));
+  const files = sh.files || [];
+  const opts = [];
+  if (links.length) opts.push({label: '\u2B07 Download this link' + (links.length > 1 ? 's (' + links.length + ')' : ''), value: 'download'});
+  files.forEach(f => { if (/\.torrent$/i.test(f.name)) opts.push({label: '\u2B07 Start torrent: ' + f.name.slice(0, 40), value: 'torrent:' + f.id}); });
+  const readable = files.filter(f => !/\.torrent$/i.test(f.name));
+  if (readable.length || (sh.text || '').trim()) opts.push({label: '\u{1F4C1} Add to an AI project', value: 'project'});
+  if (readable.some(f => f.image)) opts.push({label: '\u{1F4F7} Ask the AI about this picture', value: 'image'});
+  else if ((sh.text || '').trim()) opts.push({label: '\u{1F4AC} Ask the AI about it now', value: 'ask'});
+  if (readable.length) opts.push({label: '\u{1F4BE} Save a copy in the Download folder', value: 'save'});
+  const what = files.length ? (files.length === 1 ? files[0].name : files.length + ' files') : (links[0] ? links[0].slice(0, 60) : 'text');
+  const v = await choose('Shared: ' + what, opts);
+  if (!v) { files.forEach(f => Android.docDiscard(f.id)); return; }
+  if (v === 'download') {
+    let ok = 0, last = '';
+    for (const u of links) { try { const r = JSON.parse(Android.dlAdd(u, 0)); if (r.ok) ok++; else last = r.msg; } catch (e) { last = 'Could not add it.'; } }
+    toast(ok ? 'Added ' + ok + ' to Downloads' : (last || 'Could not add it.')); if (ok) { pullDownloads(); openDownloads(); }
+  } else if (v.startsWith('torrent:')) {
+    const id = v.slice(8); let a; try { a = JSON.parse(Android.docStartTorrent(id)); } catch (e) { a = {ok: false, msg: 'Could not start it.'}; }
+    if (a.ok) { toast('Added to Downloads'); pullDownloads(); openDownloads(); } else toast(a.msg);
+  } else if (v === 'project') {
+    const pid = await pickProject(); if (!pid) return;
+    docTargetId = pid; setTimeout(() => { if (docTargetId === pid) docTargetId = null; }, 60000);
+    if ((sh.text || '').trim() && !links.length) { S.projects[pid].files.push({name: 'Shared text.txt', text: sh.text.slice(0, 200000)}); persist(); renderDrawer(); toast('Added the text to "' + S.projects[pid].name + '".'); }
+    else if (links.length && !readable.length) { S.projects[pid].files.push({name: 'Shared link.txt', text: sh.text.slice(0, 20000)}); persist(); renderDrawer(); toast('Added the link text to "' + S.projects[pid].name + '".'); }
+    readable.forEach(f => Android.docProcess(f.id));
+  } else if (v === 'image') {
+    const f = readable.find(x => x.image); Android.docAsImage(f.id);
+  } else if (v === 'ask') {
+    $('prompt').value = sh.text.slice(0, 4000) + '\n\n'; autosize(); $('prompt').focus();
+  } else if (v === 'save') {
+    for (const f of readable) { const r = await fsCall('docSaveCopy', f.id); toast(r.msg || (r.ok ? 'Saved.' : 'Could not save it.')); }
+  }
+}
+window.__onShare = () => {
+  let sh = null; try { const j = Android.takeShare(); sh = j ? JSON.parse(j) : null; } catch (e) {}
+  if (sh) { closeDrawer(); handleShare(sh); }
+};
+
 /* ---------- own dialogs (the app has no browser pop-ups) ---------- */
 let modalDone = null;
-function openModal(text, withInput, initial, okLabel) {
+function openModal(text, withInput, initial, okLabel, secret) {
   return new Promise(resolve => {
     $('mt').textContent = text;
-    const mi = $('mi'); mi.style.display = withInput ? 'block' : 'none'; mi.value = initial || '';
+    const mi = $('mi'); mi.type = secret ? 'password' : 'text'; mi.style.display = withInput ? 'block' : 'none'; mi.value = initial || '';
     $('myes').textContent = okLabel || 'OK';
     $('modal').classList.add('open');
     if (withInput) setTimeout(() => mi.focus(), 50);
@@ -247,6 +298,7 @@ function openModal(text, withInput, initial, okLabel) {
   });
 }
 const askText = (t, init) => openModal(t, true, init, 'OK');
+const askPassword = t => openModal(t, true, '', 'Unlock', true);
 const askConfirm = (t, ok) => openModal(t, false, '', ok || 'OK');
 $('myes').onclick = () => modalDone && modalDone(true);
 $('mno').onclick = () => modalDone && modalDone(false);
@@ -323,12 +375,30 @@ function addMsg(role, text, tools, images) {
   (tools || []).forEach(c => addChip(d, c));
   renderRich(d._body, text); $('chat').append(d); scrollDown(); return d;
 }
+async function savePdf(o) {
+  if (!hasBridge || !Android.makePdf) { toast('Open this in the app.'); return {ok: false}; }
+  if (!Android.fsAccess()) { openFiles(); toast('Allow file access first, then try again.'); return {ok: false, noAccess: true}; }
+  const safe = (o.name || 'Document').replace(/[^\w .-]+/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Document';
+  const path = o.path || (Android.fsRoot().replace(/\/$/, '') + '/Documents/' + safe + '.pdf');
+  const c = await askApproval({title: 'Create a PDF', path: path, reason: o.reason, preview: o.text.slice(0, 900),
+    rows: [['About', Math.max(1, Math.ceil(o.text.length / 3000)) + ' page(s)']], primary: {label: 'Approve: create the PDF', value: 'create'},
+    note: 'A new file is made. Nothing existing is replaced.'});
+  if (c === 'deny') { toast('Denied. No PDF was made.'); return {ok: false, denied: true}; }
+  const r = await fsCall('makePdf', o.heading || '', o.text, path, o.reason || '');
+  toast(r.msg || (r.ok ? 'PDF saved.' : 'Could not make the PDF.'));
+  return r;
+}
+function pdfBtn(d, text) {
+  if (!d || !text || text === '...' || d._pdf) return;
+  d._pdf = true;
+  d.append(h('div', {class: 'macts'}, h('button', {onclick: () => savePdf({name: text.replace(/[#*`]/g, '').trim().split('\n')[0].slice(0, 50), text: text, reason: 'You chose Save as PDF on an answer.'})}, 'Save as PDF')));
+}
 function renderMessages() {
   $('chat').textContent = '';
   if (!cur.messages.length) {
     $('chat').append(h('div', {class: 'msg hint'}, 'Ask anything. \u{1F4CE} adds files to this project. ☰ opens projects, skills and models.'));
   }
-  cur.messages.forEach(m => addMsg(m.role, m.content, m.tools, m.images));
+  cur.messages.forEach(m => { const d = addMsg(m.role, m.content, m.tools, m.images); if (m.role === 'assistant' && m.content.length > 40) pdfBtn(d, m.content); });
 }
 
 /* ---------- projects ---------- */
@@ -384,6 +454,35 @@ async function addFileFromPicker(f) {
     toast('Added ' + f.name + ' to this project');
   } catch (e) { toast('Could not read ' + f.name); }
 }
+$('docBtn').onclick = () => { if (hasBridge && Android.pickDocs) Android.pickDocs(); else $('fileIn').click(); };
+let docTargetId = null;
+function addDocToProject(r) {
+  const tp = (docTargetId && S.projects[docTargetId]) || cur;
+  if (!tp) return;
+  tp.files = tp.files.filter(f => f.name !== r.name);
+  tp.files.push({name: r.name.slice(0, 120), text: r.text}); persist(); renderDrawer();
+  toast('Added ' + r.name + ' to ' + (tp === cur ? 'this project' : '"' + tp.name + '"') + '.' + (r.note ? ' ' + r.note : '') + (r.text.length > 6000 ? ' The AI reads as much as fits its memory.' : ''));
+}
+window.__onDoc = async json => {
+  let r; try { r = JSON.parse(json); } catch (e) { return; }
+  if (r.status === 'ok') {
+    addDocToProject(r);
+    if (r.unlockable) {
+      const v = await choose(r.name + ' was protected. Save an unlocked copy too?', [{label: 'Save unlocked copy in Download', value: 'yes'}]);
+      if (v === 'yes') { const u = await fsCall('docUnlockSave', r.id); toast(u.msg || (u.ok ? 'Saved.' : 'Could not save it.')); }
+    }
+    Android.docDiscard(r.id);
+  } else if (r.status === 'password' || r.status === 'wrong') {
+    const pw = await askPassword((r.status === 'wrong' ? 'That password is not right. ' : '') + r.name + ' is protected. Enter its password:');
+    if (!pw) { Android.docDiscard(r.id); toast('Skipped ' + r.name); return; }
+    Android.docPassword(r.id, pw);
+  } else if (r.status === 'torrent') {
+    if (await askConfirm('Start downloading the torrent in "' + r.name + '"?', 'Start download')) {
+      let a; try { a = JSON.parse(Android.docStartTorrent(r.id)); } catch (e) { a = {ok: false, msg: 'Could not start it.'}; }
+      if (a.ok) { toast('Added to Downloads'); pullDownloads(); openDownloads(); } else toast(a.msg);
+    } else Android.docDiscard(r.id);
+  } else { toast(r.name + ': ' + (r.note || 'could not be read.')); Android.docDiscard(r.id); }
+};
 $('fileIn').onchange = async e => {
   for (const f of e.target.files) await addFileFromPicker(f);
   e.target.value = '';
@@ -1130,6 +1229,7 @@ function toolsPrompt() {
     '- find_big_files {"path": "/storage/emulated/0", "min_mb": 50}: find the biggest files that take up space.',
     '- read_file {"path": "..."}: read a text file.',
     '- write_file {"path": "...", "content": "..."}: create or change a text file. The person must approve it first.',
+    '- make_pdf {"title": "...", "content": "text; # headings and - bullets work"}: make a PDF document. The person must approve it first.',
     '- delete_files {"paths": ["...", "..."], "reason": "..."}: move files or folders to the Trash. The person must approve it first.',
     'The phone storage starts at /storage/emulated/0. You can look at files freely, but you cannot change or delete anything unless the person approves it.');
   return L.join('\n');
@@ -1142,11 +1242,13 @@ function parseToolCall(text) {
   if (!raw) return null;
   try {
     const o = JSON.parse(raw); const name = o.name; const args = o.arguments || o.args || o.parameters || {};
-    if (!['search_web', 'list_files', 'find_big_files', 'read_file', 'write_file', 'delete_files'].includes(name)) return null;
+    if (!['search_web', 'list_files', 'find_big_files', 'read_file', 'write_file', 'delete_files', 'make_pdf'].includes(name)) return null;
     return {name, args: typeof args === 'object' && args ? args : {}};
   } catch (e) { return null; }
 }
 const visibleText = t => t.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '').replace(/<\/?tool_response>/g, '').trim();
+function pdfIntent(t) { return /\b(make|create|save|export|turn|convert|put|give me)\b.{0,40}\bpdf\b/i.test(t) && /\b(this|that|it|above|previous|last|answer|reply|conversation|chat|those|these)\b/i.test(t) && t.length < 120; }
+function lastAnswer() { for (let i = cur.messages.length - 1; i >= 0; i--) if (cur.messages[i].role === 'assistant' && cur.messages[i].content.length > 20) return cur.messages[i].content; return ''; }
 function storageIntent(t) { return /\b(big|large|huge|biggest|largest)\b.{0,25}\bfiles?\b|taking up (the |my )?(space|storage)|free up (some |more )?(space|storage)|clean ?up (my )?(storage|phone)|using (up )?(my )?(space|storage)|storage is full|running out of (space|storage)/i.test(t); }
 function webIntent(t) {
   if (t.length > 220 || /```/.test(t) || /\bmy (code|project|file|app)\b/i.test(t)) return false;
@@ -1282,6 +1384,14 @@ async function runTool(name, args) {
       const p = String(args.path || ''); const ok = await fsSaveText(p, String(args.content == null ? '' : args.content), 'The AI asked to ' + 'write this file.');
       return {text: ok ? 'The person approved and the file was saved.' : 'The file was not saved (the person denied it, or it failed).', chip: {icon: '✏️', label: ok ? 'Saved ' + baseName(p) : 'Did not save ' + baseName(p)}};
     }
+    if (name === 'make_pdf') {
+      const content = String(args.content == null ? '' : args.content); const title = String(args.title || '').slice(0, 80);
+      if (!content.trim()) return {text: 'Error: no content given.', chip: {icon: '⚠️', label: 'Nothing to put in a PDF'}};
+      let path = String(args.path || ''); if (path && !/\.pdf$/i.test(path)) path += '.pdf';
+      const r = await savePdf({name: title || content.split('\n')[0].slice(0, 50), heading: title, text: content, path: path, reason: 'The AI asked to make this PDF.'});
+      return {text: r.ok ? 'The person approved and the PDF was saved as ' + baseName(r.path || 'a file') + '.' : 'The PDF was not made (' + (r.denied ? 'the person denied it' : 'it failed') + ').',
+        chip: {icon: '📄', label: r.ok ? 'Made PDF ' + baseName(r.path || '') : 'Did not make the PDF'}};
+    }
     if (name === 'delete_files') {
       const paths = (Array.isArray(args.paths) ? args.paths : [args.path]).filter(x => typeof x === 'string').slice(0, 60);
       if (!paths.length) return {text: 'Error: no paths given.', chip: {icon: '⚠️', label: 'Nothing to delete'}};
@@ -1416,6 +1526,7 @@ async function send() {
     if (settingOn('aiAuto') && tools.length) {
       let pre = null;
       if (tools.includes('files') && storageIntent(text) && Android.fsAccess()) pre = ['find_big_files', {path: Android.fsRoot(), min_mb: 50}];
+      else if (tools.includes('files') && pdfIntent(text) && lastAnswer()) pre = ['make_pdf', {title: '', content: lastAnswer()}];
       else if (tools.includes('web') && webIntent(text) && navigator.onLine !== false) pre = ['search_web', {query: cleanQuery(text)}];
       if (pre) {
         const r = await use(pre[0], pre[1]);
@@ -1450,6 +1561,7 @@ async function send() {
   if (info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '') + (S.settings.model === 'auto' && autoPick ? ' · ' + autoPick.name : '');
   setStatus(st);
   if (err) toast(err);
+  if (genBox && shownText.trim().length > 40 && !err) pdfBtn(genBox, shownText.trim());
   genBox = null; genProject = null; genAcc = ''; setBusy(false);
 }
 function scheduleRender() {
@@ -1494,6 +1606,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
   loadDlSettings(); pullDownloads();
   openProject(S.projects[S.last] ? S.last : projectList()[0].id);
   refreshModels();
+  setTimeout(() => { try { if (hasBridge && Android.takeShare) window.__onShare(); } catch (e) {} }, 300);
 })();
 </script>
 </body></html>

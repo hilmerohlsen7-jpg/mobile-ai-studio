@@ -942,4 +942,253 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     /** Thumbnail data URL for a stored picture, so old chats can still show it. */
     @JavascriptInterface
     fun imageExists(id: String): Boolean = id.matches(Regex("[A-Za-z0-9_-]{1,64}")) && File(imagesDir, "$id.jpg").exists()
+
+    // ---------- documents (PDF, Word, Excel, zip, text ...) ----------
+
+    private class Doc(val file: File, val name: String, var pw: String? = null)
+
+    private val docs = HashMap<String, Doc>()
+    private val docDir: File by lazy {
+        File(activity.cacheDir, "docs").also {
+            it.mkdirs()
+            val old = System.currentTimeMillis() - 24L * 3600L * 1000L
+            it.listFiles()?.forEach { d -> if (d.lastModified() < old) d.deleteRecursively() }
+        }
+    }
+
+    @JavascriptInterface
+    fun pickDocs() {
+        ui.post { activity.pickDocs() }
+    }
+
+    fun onDocsPicked(uris: List<Uri>) {
+        Thread {
+            for (u in uris) handleDoc(u)
+        }.start()
+    }
+
+    private fun docJson(id: String, name: String, status: String): JSONObject =
+        JSONObject().put("id", id).put("name", name).put("status", status)
+
+    private fun handleDoc(uri: Uri) {
+        var name = "file"
+        var size = -1L
+        try {
+            activity.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val z = c.getColumnIndex(OpenableColumns.SIZE)
+                if (c.moveToFirst()) {
+                    if (i >= 0) name = c.getString(i) ?: name
+                    if (z >= 0 && !c.isNull(z)) size = c.getLong(z)
+                }
+            }
+        } catch (e: Exception) {
+        }
+        val mime = try { activity.contentResolver.getType(uri) } catch (e: Exception) { null }
+        if (mime != null && mime.startsWith("image/")) {
+            onImagePicked(uri, false)
+            return
+        }
+        val id = "d" + System.currentTimeMillis().toString(36) + (Math.random() * 1000).toInt()
+        try {
+            if (size > 200L * 1048576L) {
+                js("__onDoc", docJson(id, name, "error").put("note", "That file is too big (over 200 MB).").toString())
+                return
+            }
+            val safe = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(100).ifEmpty { "file" }
+            val dir = File(docDir, id).also { it.mkdirs() }
+            val f = File(dir, safe)
+            activity.contentResolver.openInputStream(uri)!!.use { ins -> FileOutputStream(f).use { ins.copyTo(it) } }
+            docs[id] = Doc(f, name)
+            processDoc(id, null)
+        } catch (e: Throwable) {
+            js("__onDoc", docJson(id, name, "error").put("note", "Could not open that file.").toString())
+        }
+    }
+
+    private fun processDoc(id: String, pw: String?) {
+        val d = docs[id] ?: return
+        val r = DocReader.read(activity, d.file, d.name, pw)
+        if (r.status == "ok" && pw != null) d.pw = pw
+        val o = docJson(id, d.name, r.status).put("text", r.text).put("note", r.note).put("kind", r.kind)
+        o.put("unlockable", pw != null && (r.kind == "pdf" || r.kind == "zip") && r.status == "ok")
+        js("__onDoc", o.toString())
+    }
+
+    @JavascriptInterface
+    fun docPassword(id: String, pw: String) {
+        Thread { processDoc(id, pw) }.start()
+    }
+
+    @JavascriptInterface
+    fun docDiscard(id: String) {
+        docs.remove(id)?.file?.parentFile?.deleteRecursively()
+    }
+
+    /** Starts the torrent inside a picked .torrent file. */
+    @JavascriptInterface
+    fun docStartTorrent(id: String): String {
+        val d = docs[id] ?: return JSONObject().put("ok", false).put("msg", "That file is gone. Pick it again.").toString()
+        return try {
+            ui.post { activity.askNotificationPermission() }
+            val tid = TorrentCenter.addFile(d.file.readBytes())
+            docDiscard(id)
+            JSONObject().put("ok", true).put("id", tid).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("msg", e.message ?: "Could not start it.").toString()
+        }
+    }
+
+    /** Saves an unlocked copy of a protected PDF or zip into the Download folder. Answer in __onFs. */
+    @JavascriptInterface
+    fun docUnlockSave(reqId: String, id: String) {
+        fsPool.execute {
+            val d = docs[id]
+            if (d == null) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "That file is gone. Pick it again."))
+                return@execute
+            }
+            if (!activity.hasFilesAccess()) {
+                fsReply(reqId, null, fsNoAccess())
+                return@execute
+            }
+            val root = fsOps.root()
+            val base = d.name.substringBeforeLast('.', d.name).replace(Regex("[^A-Za-z0-9._ -]"), "_").take(80).ifEmpty { "file" }
+            val dir = File(root, "Download").also { it.mkdirs() }
+            if (DocReader.extOf(d.name) == "pdf") {
+                val tmp = File(d.file.parentFile, "unlocked.pdf")
+                val err = DocReader.unlockPdf(activity, d.file, d.pw, tmp)
+                if (err != null) {
+                    fsReply(reqId, null, JSONObject().put("ok", false).put("msg", err))
+                    return@execute
+                }
+                val r = fsOps.createBinary(File(dir, "$base (unlocked).pdf").path, tmp.readBytes(), "You chose to save an unlocked copy.")
+                tmp.delete()
+                fsReply(reqId, r)
+            } else {
+                var out = File(dir, "$base (unlocked)")
+                var n = 2
+                while (out.exists()) out = File(dir, "$base (unlocked $n)").also { n++ }
+                val err = DocReader.unzipTo(d.file, d.pw, out)
+                if (err != null) fsReply(reqId, null, JSONObject().put("ok", false).put("msg", err))
+                else fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Unpacked into Download/" + out.name).put("path", out.path))
+            }
+        }
+    }
+
+    // ---------- making PDFs ----------
+
+    /** Builds a PDF from text and saves it as a new file at path (already approved). Answer in __onFs. */
+    @JavascriptInterface
+    fun makePdf(reqId: String, title: String, text: String, path: String, reason: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) {
+                fsReply(reqId, null, fsNoAccess())
+                return@execute
+            }
+            try {
+                val bytes = PdfMaker.make(title, text)
+                fsReply(reqId, fsOps.createBinary(path, bytes, reason))
+            } catch (e: Throwable) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not make the PDF."))
+            }
+        }
+    }
+
+    // ---------- "Share to this app" ----------
+
+    private var pendingShare: String? = null
+
+    /** Called with the intent that opened the app: shared text, links, files, magnet links and .torrent files. */
+    fun onShare(intent: android.content.Intent?) {
+        if (intent == null) return
+        val act = intent.action
+        if (act != android.content.Intent.ACTION_SEND && act != android.content.Intent.ACTION_SEND_MULTIPLE && act != android.content.Intent.ACTION_VIEW) return
+        Thread {
+            try {
+                val uris = ArrayList<Uri>()
+                var text = ""
+                if (act == android.content.Intent.ACTION_VIEW) {
+                    val d = intent.data
+                    if (d != null) {
+                        if (d.scheme == "magnet") text = d.toString() else uris.add(d)
+                    }
+                } else {
+                    text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT) ?: ""
+                    @Suppress("DEPRECATION")
+                    if (act == android.content.Intent.ACTION_SEND) {
+                        (intent.getParcelableExtra<Uri>(android.content.Intent.EXTRA_STREAM))?.let { uris.add(it) }
+                    } else {
+                        intent.getParcelableArrayListExtra<Uri>(android.content.Intent.EXTRA_STREAM)?.let { uris.addAll(it) }
+                    }
+                }
+                val files = JSONArray()
+                for (u in uris.take(10)) {
+                    val id = "d" + System.currentTimeMillis().toString(36) + (Math.random() * 1000).toInt()
+                    var name = u.lastPathSegment?.substringAfterLast('/') ?: "file"
+                    try {
+                        activity.contentResolver.query(u, null, null, null, null)?.use { c ->
+                            val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (i >= 0 && c.moveToFirst()) name = c.getString(i) ?: name
+                        }
+                    } catch (e: Exception) {
+                    }
+                    val mime = try { activity.contentResolver.getType(u) } catch (e: Exception) { null } ?: ""
+                    val safe = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(100).ifEmpty { "file" }
+                    val dir = File(docDir, id).also { it.mkdirs() }
+                    val f = File(dir, safe)
+                    try {
+                        (if (u.scheme == "file") java.io.FileInputStream(File(u.path!!)) else activity.contentResolver.openInputStream(u)!!).use { ins ->
+                            FileOutputStream(f).use { ins.copyTo(it) }
+                        }
+                    } catch (e: Exception) {
+                        continue
+                    }
+                    docs[id] = Doc(f, name)
+                    files.put(JSONObject().put("id", id).put("name", name).put("size", f.length()).put("image", mime.startsWith("image/")))
+                }
+                if (text.isBlank() && files.length() == 0) return@Thread
+                pendingShare = JSONObject().put("text", text).put("files", files).toString()
+                ui.post { js("__onShare", "") }
+            } catch (e: Throwable) {
+            }
+        }.start()
+    }
+
+    @JavascriptInterface
+    fun takeShare(): String {
+        val s = pendingShare ?: ""
+        pendingShare = null
+        return s
+    }
+
+    /** Reads a staged file (from Share) into the project, same as picking it. */
+    @JavascriptInterface
+    fun docProcess(id: String) {
+        Thread { processDoc(id, null) }.start()
+    }
+
+    /** Uses a shared picture as the attached picture. */
+    @JavascriptInterface
+    fun docAsImage(id: String) {
+        val d = docs[id] ?: return
+        onImagePicked(Uri.fromFile(d.file), false)
+    }
+
+    /** Saves a copy of a shared file into the Download folder. Answer in __onFs. */
+    @JavascriptInterface
+    fun docSaveCopy(reqId: String, id: String) {
+        fsPool.execute {
+            val d = docs[id]
+            when {
+                d == null -> fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "That file is gone. Share it again."))
+                !activity.hasFilesAccess() -> fsReply(reqId, null, fsNoAccess())
+                d.file.length() > 50L * 1048576L -> fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "That file is too big to copy this way (limit 50 MB)."))
+                else -> {
+                    val name = d.name.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(100).ifEmpty { "file" }
+                    fsReply(reqId, fsOps.createBinary(File(File(fsOps.root(), "Download"), name).path, d.file.readBytes(), "You chose Save a copy from the Share menu."))
+                }
+            }
+        }
+    }
 }

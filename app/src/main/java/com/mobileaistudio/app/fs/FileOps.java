@@ -454,6 +454,28 @@ public final class FileOps {
         }
     }
 
+    /** Saves a new binary file (for example a PDF). Never replaces anything: a taken name gets " (new)" added. */
+    public synchronized Result createBinary(String path, byte[] data, String reason) {
+        try {
+            File f = resolve(path);
+            if (f.isDirectory()) return Result.fail("That is a folder, not a file.");
+            if (data.length > 100L * 1048576L) return Result.fail("That file is too big to save.");
+            File parent = f.getParentFile();
+            if (parent == null) return Result.fail("The folder does not exist.");
+            if (!parent.isDirectory() && !parent.mkdirs()) return Result.fail("Could not create the folder: " + parent.getPath());
+            File target = f.exists() ? new File(parent, uniqueName(parent, f.getName(), "new")) : f;
+            Entry e = begin("create", reason);
+            writeFile(target, data);
+            e.path = target.getPath();
+            e.postMtime = target.lastModified();
+            e.size = data.length;
+            record(e);
+            return Result.ok("Created " + target.getName() + ".", e, target.getPath());
+        } catch (IOException ex) {
+            return Result.fail(msg(ex));
+        }
+    }
+
     public synchronized Result mkdir(String path, String reason) {
         try {
             File f = resolve(path);
