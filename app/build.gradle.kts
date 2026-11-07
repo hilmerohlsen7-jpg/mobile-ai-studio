@@ -55,7 +55,10 @@ android {
 
     packaging {
         // the CPU variants are loaded by file path, so they must be unpacked on install
-        jniLibs { useLegacyPackaging = true }
+        jniLibs {
+            useLegacyPackaging = true
+            pickFirsts += "**/libc++_shared.so"
+        }
     }
 
     compileOptions {
@@ -75,6 +78,7 @@ android {
 dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("net.lingala.zip4j:zip4j:2.11.5")
+    implementation("com.alphacephei:vosk-android:0.3.47")
     implementation("com.frostwire:jlibtorrent:2.0.15.3")
     implementation("com.frostwire:jlibtorrent-android-arm64:2.0.15.3")
 }

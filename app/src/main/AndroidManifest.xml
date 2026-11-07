@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
@@ -66,6 +67,11 @@
             android:authorities="com.mobileaistudio.app.photos"
             android:exported="false"
             android:grantUriPermissions="true" />
+
+        <service
+            android:name=".WakeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <service
             android:name=".DownloadService"

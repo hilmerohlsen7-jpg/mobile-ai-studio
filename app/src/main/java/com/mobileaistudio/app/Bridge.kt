@@ -62,6 +62,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     private fun chatError(msg: String) = js("__onChatError", msg)
 
     fun shutdown() {
+        WakeCenter.onWake = null
         cancelChat = true
         try { tts?.shutdown() } catch (e: Throwable) {}
         try { recognizer?.destroy() } catch (e: Throwable) {}
@@ -1232,7 +1233,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                     ttsReady = true
                     tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
                         override fun onStart(id: String?) {}
-                        override fun onDone(id: String?) { if (id != null && id.endsWith("_last")) ui.post { js("__onSpeakDone", "") } }
+                        override fun onDone(id: String?) { if (id != null && id.endsWith("_last")) ui.post { WakeCenter.paused = false; js("__onSpeakDone", "") } }
                         @Deprecated("Deprecated in Java")
                         override fun onError(id: String?) { ui.post { js("__onSpeakDone", "") } }
                     })
@@ -1253,6 +1254,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         ui.post {
             withTts {
                 val t = tts ?: return@withTts
+                WakeCenter.paused = true
                 t.stop()
                 t.setSpeechRate(rate.coerceIn(0.5f, 2.0f))
                 try {
@@ -1282,7 +1284,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     @JavascriptInterface
     fun stopSpeak() {
-        ui.post { try { tts?.stop() } catch (e: Throwable) {} }
+        ui.post { WakeCenter.paused = false; try { tts?.stop() } catch (e: Throwable) {} }
     }
 
     private var recognizer: android.speech.SpeechRecognizer? = null
@@ -1307,6 +1309,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     private fun startListening() {
+        WakeCenter.paused = true
         try { tts?.stop() } catch (e: Throwable) {}
         try { recognizer?.destroy() } catch (e: Throwable) {}
         val r = android.speech.SpeechRecognizer.createSpeechRecognizer(activity)
@@ -1326,9 +1329,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                     android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The speech recognizer is busy. Try again."
                     else -> "Speech recognition failed (code $code)."
                 }
+                WakeCenter.paused = false
                 js("__onSpeech", JSONObject().put("state", "error").put("msg", msg).toString())
             }
             override fun onResults(b: android.os.Bundle?) {
+                WakeCenter.paused = false
                 val t = b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
                 js("__onSpeech", JSONObject().put("state", "done").put("text", t).toString())
             }
@@ -1354,5 +1359,109 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun cancelListening() {
         ui.post { try { recognizer?.cancel() } catch (e: Throwable) {} }
+    }
+
+    // ---------- wake word ("hey Alex") ----------
+
+    private val prefs get() = activity.getSharedPreferences("mai", Context.MODE_PRIVATE)
+
+    fun onWake() {
+        js("__onWake", "")
+    }
+
+    private fun wakePhrase(name: String): String =
+        "hey " + name.lowercase().replace(Regex("[^a-z ]"), "").trim().ifEmpty { "alex" }
+
+    @JavascriptInterface
+    fun wakeStatus(): String = JSONObject()
+        .put("model", WakeCenter.modelReady(activity))
+        .put("running", WakeCenter.running)
+        .put("on", prefs.getBoolean("wakeOn", false))
+        .put("name", prefs.getString("wakeName", "Alex"))
+        .toString()
+
+    /** Downloads the small offline English voice model (about 40 MB) and unpacks it. Progress in __onWakeModel. */
+    @JavascriptInterface
+    fun wakeDownloadModel() {
+        Thread {
+            try {
+                val url = java.net.URL("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip")
+                val c = url.openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 20000
+                c.readTimeout = 30000
+                val total = c.contentLengthLong
+                val tmp = File(activity.cacheDir, "vosk-model.zip")
+                c.inputStream.use { ins ->
+                    FileOutputStream(tmp).use { out ->
+                        val buf = ByteArray(65536)
+                        var got = 0L
+                        var lastPct = -1
+                        while (true) {
+                            val n = ins.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            got += n
+                            val pct = if (total > 0) (got * 100 / total).toInt() else 0
+                            if (pct != lastPct) { lastPct = pct; js("__onWakeModel", JSONObject().put("pct", pct).toString()) }
+                        }
+                    }
+                }
+                val dest = File(activity.filesDir, "vosk/model")
+                dest.deleteRecursively()
+                dest.mkdirs()
+                val destPath = dest.canonicalPath + File.separator
+                java.util.zip.ZipInputStream(java.io.FileInputStream(tmp)).use { zin ->
+                    while (true) {
+                        val e = zin.nextEntry ?: break
+                        val rel = e.name.substringAfter('/', "")
+                        if (rel.isEmpty() || e.isDirectory) continue
+                        val f = File(dest, rel)
+                        if (!f.canonicalPath.startsWith(destPath)) continue
+                        f.parentFile?.mkdirs()
+                        FileOutputStream(f).use { zin.copyTo(it) }
+                    }
+                }
+                tmp.delete()
+                if (!WakeCenter.modelReady(activity)) throw IllegalStateException("The voice model looks incomplete.")
+                js("__onWakeModel", JSONObject().put("done", true).toString())
+            } catch (e: Exception) {
+                js("__onWakeModel", JSONObject().put("error", e.message ?: "Download failed. Check your internet.").toString())
+            }
+        }.start()
+    }
+
+    /** Turns the wake word on or off. Returns {"ok":..,"msg":..}. */
+    @JavascriptInterface
+    fun wakeSet(on: Boolean, name: String): String {
+        val nm = name.lowercase().replace(Regex("[^a-z ]"), "").trim().ifEmpty { "alex" }
+        prefs.edit().putBoolean("wakeOn", on).putString("wakeName", nm.replaceFirstChar { it.uppercase() }).apply()
+        if (!on) {
+            activity.startService(android.content.Intent(activity, WakeService::class.java).setAction(WakeService.ACTION_STOP))
+            WakeCenter.onWake = null
+            return JSONObject().put("ok", true).toString()
+        }
+        if (!WakeCenter.modelReady(activity)) return JSONObject().put("ok", false).put("msg", "Download the voice model first.").toString()
+        if (!activity.hasMic()) {
+            ui.post { activity.askMic() }
+            return JSONObject().put("ok", false).put("msg", "Allow the microphone, then switch this on again.").toString()
+        }
+        ui.post { activity.askNotificationPermission() }
+        wakeStartService()
+        return JSONObject().put("ok", true).put("msg", "Listening for \"" + wakePhrase(nm) + "\".").toString()
+    }
+
+    private fun wakeStartService() {
+        WakeCenter.onWake = { onWake() }
+        val i = android.content.Intent(activity, WakeService::class.java).putExtra("phrase", wakePhrase(prefs.getString("wakeName", "Alex") ?: "Alex"))
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) activity.startForegroundService(i) else activity.startService(i)
+        } catch (e: Exception) {
+        }
+    }
+
+    /** Called when the app opens: brings the wake word back if it was on. */
+    fun wakeResume() {
+        WakeCenter.onWake = { onWake() }
+        if (prefs.getBoolean("wakeOn", false) && WakeCenter.modelReady(activity) && activity.hasMic() && !WakeCenter.running) wakeStartService()
     }
 }

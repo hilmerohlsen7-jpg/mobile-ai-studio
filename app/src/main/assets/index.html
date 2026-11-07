@@ -186,6 +186,10 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label>Voice speed<select id="s_ttsRate"><option value="0.7">Slow</option><option value="1">Normal</option><option value="1.3">Fast</option></select></label>
   <label class="chk"><input type="checkbox" id="s_imgDetail"> Look at pictures in more detail (slower)</label>
   <div id="cpuInfo" style="font-size:.75rem;color:var(--mute);margin:6px 0"></div>
+  <label class="chk"><input type="checkbox" id="s_wakeOn"> Wake word (say it and the AI starts listening)</label>
+  <label>Wake word name<input type="text" id="s_wakeName" value="Alex" maxlength="20" autocapitalize="words" autocomplete="off"></label>
+  <div id="wakeInfo" style="font-size:.75rem;color:var(--mute);margin:4px 0"></div>
+  <button id="wakeDl" style="display:none">Download voice model (about 40 MB)</button>
   <button id="openModels">Models...</button>
   <button id="openDl">Downloads...</button>
   <button id="openFiles">Files on this phone...</button>
@@ -322,6 +326,33 @@ function persistNow() {
   try { if (hasBridge) Android.saveState(json); else localStorage.setItem('mas_state', json); } catch (e) {}
 }
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(persistNow, 300); }
+/* ---------- wake word ---------- */
+let wakeSt = {}, nameDirty = false;
+function wakeRefresh() {
+  if (!hasBridge || !Android.wakeStatus) { $('wakeInfo').textContent = 'Only works in the app.'; return; }
+  try { wakeSt = JSON.parse(Android.wakeStatus()); } catch (e) { return; }
+  $('s_wakeOn').checked = !!wakeSt.on && wakeSt.model; if (!nameDirty) $('s_wakeName').value = wakeSt.name || 'Alex';
+  $('wakeDl').style.display = wakeSt.model ? 'none' : 'block';
+  $('wakeInfo').textContent = wakeSt.model
+    ? (wakeSt.on ? 'Listening for "Hey ' + (wakeSt.name || 'Alex') + '". Uses some battery. English only. Works offline.' : 'Voice model ready. Switch it on to listen for "Hey ' + (wakeSt.name || 'Alex') + '".')
+    : 'First download the small offline voice model. English only.';
+}
+function wakeApply() {
+  const r = JSON.parse(Android.wakeSet($('s_wakeOn').checked, $('s_wakeName').value || 'Alex'));
+  if (r.msg) toast(r.msg); if (!r.ok) $('s_wakeOn').checked = false; nameDirty = false; setTimeout(wakeRefresh, 300);
+}
+$('s_wakeOn').onchange = wakeApply;
+$('s_wakeName').oninput = () => { nameDirty = true; };
+$('s_wakeName').onchange = () => { if ($('s_wakeOn').checked) wakeApply(); };
+$('wakeDl').onclick = () => { $('wakeDl').disabled = true; $('wakeDl').textContent = 'Downloading 0%'; Android.wakeDownloadModel(); };
+window.__onWakeModel = json => {
+  let r; try { r = JSON.parse(json); } catch (e) { return; }
+  if (r.error) { $('wakeDl').disabled = false; $('wakeDl').textContent = 'Download voice model (about 40 MB)'; toast(r.error); }
+  else if (r.done) { toast('Voice model ready.'); $('wakeDl').disabled = false; wakeRefresh(); }
+  else $('wakeDl').textContent = 'Downloading ' + r.pct + '%';
+};
+function beep() { try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.connect(g); g.connect(a.destination); o.frequency.value = 880; g.gain.value = .15; o.start(); o.stop(a.currentTime + .12); } catch (e) {} }
+window.__onWake = () => { if (busy || listening) return; beep(); stopSpeaking(); voiceBase = ''; $('prompt').value = ''; Android.listen(); };
 function applyTheme() {
   const t = S.settings && S.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
@@ -1467,6 +1498,7 @@ function initSettings() {
   });
   if (dev.cpu) $('cpuInfo').textContent = 'Speed mode: ' + dev.cpu + (dev.cpu === 'basic' ? ' (this phone has no extra speed features)' : '');
   ['ttsAuto', 'sttSend'].forEach(k => { const el = $('s_' + k); el.checked = !!S.settings[k]; el.onchange = () => { S.settings[k] = el.checked; persist(); }; });
+  wakeRefresh();
   const th = $('s_theme'); th.value = S.settings.theme || 'auto'; th.onchange = () => { S.settings.theme = th.value; applyTheme(); persist(); };
   const rt = $('s_ttsRate'); rt.value = String(S.settings.ttsRate || 1); rt.onchange = () => { S.settings.ttsRate = parseFloat(rt.value) || 1; persist(); };
   const det = $('s_imgDetail');

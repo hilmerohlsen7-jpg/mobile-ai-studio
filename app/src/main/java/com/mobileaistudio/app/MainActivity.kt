@@ -62,6 +62,7 @@ class MainActivity : Activity() {
         }
         web.loadUrl("file:///android_asset/index.html")
         bridge.onShare(intent)
+        bridge.wakeResume()
     }
 
     fun askNotificationPermission() {
@@ -118,8 +119,18 @@ class MainActivity : Activity() {
         if (::bridge.isInitialized) bridge.onShare(intent)
     }
 
+    override fun onPause() {
+        WakeCenter.visible = false
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        WakeCenter.visible = true
+        if (intent?.getBooleanExtra("wake", false) == true) {
+            intent.removeExtra("wake")
+            if (::bridge.isInitialized) bridge.onWake()
+        }
         if (::web.isInitialized) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
     }
 
