@@ -1492,7 +1492,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     fun permStatus(): String {
         val pm = activity.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         val installer = try {
-            if (android.os.Build.VERSION.SDK_INT >= 30) activity.packageManager.getInstallSourceInfo(activity.packageName).installingPackage
+            if (android.os.Build.VERSION.SDK_INT >= 30) activity.packageManager.getInstallSourceInfo(activity.packageName).installingPackageName
             else @Suppress("DEPRECATION") activity.packageManager.getInstallerPackageName(activity.packageName)
         } catch (e: Exception) {
             null
