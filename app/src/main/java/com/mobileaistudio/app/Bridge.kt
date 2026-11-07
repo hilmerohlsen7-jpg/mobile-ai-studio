@@ -63,6 +63,8 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     fun shutdown() {
         cancelChat = true
+        try { tts?.shutdown() } catch (e: Throwable) {}
+        try { recognizer?.destroy() } catch (e: Throwable) {}
         DownloadCenter.onChange = null
         worker.execute {
             if (handle != 0L) {
@@ -117,6 +119,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         val o = JSONObject()
         o.put("ramMB", mi.totalMem / 1048576L)
         o.put("cores", Runtime.getRuntime().availableProcessors())
+        o.put("bigCores", bigCores())
         o.put("freeMB", modelsDir.usableSpace / 1048576L)
         o.put("abi", Build.SUPPORTED_ABIS.firstOrNull() ?: "")
         val okEngine = Native.ensureLoaded(activity.applicationInfo.nativeLibraryDir)
@@ -845,6 +848,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 val o = JSONObject()
                 o.put("tokens", n)
                 o.put("ms", SystemClock.elapsedRealtime() - started)
+                try {
+                    val st = Native.lastStats(handle)
+                    o.put("pTok", st[0]).put("pMs", st[1]).put("gTok", st[2]).put("gMs", st[3])
+                } catch (e: Throwable) {
+                }
                 o.put("stopped", cancelChat)
                 js("__onChatDone", o.toString())
             }
@@ -1190,5 +1198,161 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 }
             }
         }
+    }
+
+    /** How many of the phone's cores are the fast ones (phones mix fast and slow cores; slow ones drag the AI down). */
+    private fun bigCores(): Int {
+        val n = Runtime.getRuntime().availableProcessors()
+        val freqs = ArrayList<Long>()
+        for (i in 0 until n) {
+            try {
+                freqs.add(File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq").readText().trim().toLong())
+            } catch (e: Exception) {
+            }
+        }
+        if (freqs.size < n || freqs.isEmpty()) return Math.max(2, n / 2)
+        val top = freqs.max()
+        val big = freqs.count { it >= top * 0.75 }
+        return big.coerceIn(2, 6)
+    }
+
+    // ---------- speaking and listening ----------
+
+    private var tts: android.speech.tts.TextToSpeech? = null
+    private var ttsReady = false
+    private var ttsPending: (() -> Unit)? = null
+
+    private fun withTts(then: () -> Unit) {
+        if (ttsReady && tts != null) { then(); return }
+        ttsPending = then
+        if (tts != null) return
+        tts = android.speech.tts.TextToSpeech(activity) { status ->
+            ui.post {
+                if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                    ttsReady = true
+                    tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                        override fun onStart(id: String?) {}
+                        override fun onDone(id: String?) { if (id != null && id.endsWith("_last")) ui.post { js("__onSpeakDone", "") } }
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(id: String?) { ui.post { js("__onSpeakDone", "") } }
+                    })
+                    ttsPending?.invoke()
+                } else {
+                    tts = null
+                    js("__onSpeakDone", "")
+                    js("__onVoiceError", "This phone has no text-to-speech voice. Install one in Settings, then Text-to-speech.")
+                }
+                ttsPending = null
+            }
+        }
+    }
+
+    /** Reads text aloud. rate: 0.6 slow ... 1.0 normal ... 1.5 fast. Ends with __onSpeakDone. */
+    @JavascriptInterface
+    fun speak(text: String, rate: Float) {
+        ui.post {
+            withTts {
+                val t = tts ?: return@withTts
+                t.stop()
+                t.setSpeechRate(rate.coerceIn(0.5f, 2.0f))
+                try {
+                    val loc = java.util.Locale.getDefault()
+                    if (t.isLanguageAvailable(loc) >= android.speech.tts.TextToSpeech.LANG_AVAILABLE) t.language = loc
+                } catch (e: Throwable) {
+                }
+                val max = Math.min(3000, android.speech.tts.TextToSpeech.getMaxSpeechInputLength() - 100)
+                val parts = ArrayList<String>()
+                var rest = text.trim()
+                while (rest.length > max) {
+                    var cut = rest.lastIndexOfAny(charArrayOf('.', '!', '?', '\n'), max)
+                    if (cut < max / 2) cut = rest.lastIndexOf(' ', max)
+                    if (cut < 1) cut = max
+                    parts.add(rest.substring(0, cut + 1))
+                    rest = rest.substring(cut + 1).trim()
+                }
+                if (rest.isNotEmpty()) parts.add(rest)
+                if (parts.isEmpty()) { js("__onSpeakDone", ""); return@withTts }
+                parts.forEachIndexed { i, p ->
+                    val id = "u" + i + (if (i == parts.size - 1) "_last" else "")
+                    t.speak(p, android.speech.tts.TextToSpeech.QUEUE_ADD, null, id)
+                }
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun stopSpeak() {
+        ui.post { try { tts?.stop() } catch (e: Throwable) {} }
+    }
+
+    private var recognizer: android.speech.SpeechRecognizer? = null
+    private var listenAfterPermission = false
+
+    fun onMicResult(granted: Boolean) {
+        if (granted && listenAfterPermission) startListening()
+        else if (!granted) js("__onSpeech", JSONObject().put("state", "error").put("msg", "Microphone access was denied. Allow it in the phone's Settings for this app.").toString())
+        listenAfterPermission = false
+    }
+
+    @JavascriptInterface
+    fun listen() {
+        ui.post {
+            if (!android.speech.SpeechRecognizer.isRecognitionAvailable(activity)) {
+                js("__onSpeech", JSONObject().put("state", "error").put("msg", "This phone has no speech recognizer. Install or enable Speech Services by Google.").toString())
+            } else if (!activity.hasMic()) {
+                listenAfterPermission = true
+                activity.askMic()
+            } else startListening()
+        }
+    }
+
+    private fun startListening() {
+        try { tts?.stop() } catch (e: Throwable) {}
+        try { recognizer?.destroy() } catch (e: Throwable) {}
+        val r = android.speech.SpeechRecognizer.createSpeechRecognizer(activity)
+        recognizer = r
+        r.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(p: android.os.Bundle?) { js("__onSpeech", JSONObject().put("state", "listening").toString()) }
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(v: Float) {}
+            override fun onBufferReceived(b: ByteArray?) {}
+            override fun onEndOfSpeech() { js("__onSpeech", JSONObject().put("state", "thinking").toString()) }
+            override fun onError(code: Int) {
+                val msg = when (code) {
+                    android.speech.SpeechRecognizer.ERROR_NO_MATCH, android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> ""
+                    android.speech.SpeechRecognizer.ERROR_NETWORK, android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT, android.speech.SpeechRecognizer.ERROR_SERVER ->
+                        "Speech recognition needs internet on this phone, or an offline language pack (Google app, Settings, Voice, Offline speech recognition)."
+                    android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone access is off for this app."
+                    android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The speech recognizer is busy. Try again."
+                    else -> "Speech recognition failed (code $code)."
+                }
+                js("__onSpeech", JSONObject().put("state", "error").put("msg", msg).toString())
+            }
+            override fun onResults(b: android.os.Bundle?) {
+                val t = b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
+                js("__onSpeech", JSONObject().put("state", "done").put("text", t).toString())
+            }
+            override fun onPartialResults(b: android.os.Bundle?) {
+                val t = b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+                js("__onSpeech", JSONObject().put("state", "partial").put("text", t).toString())
+            }
+            override fun onEvent(t: Int, b: android.os.Bundle?) {}
+        })
+        val i = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        r.startListening(i)
+    }
+
+    @JavascriptInterface
+    fun stopListening() {
+        ui.post { try { recognizer?.stopListening() } catch (e: Throwable) {} }
+    }
+
+    @JavascriptInterface
+    fun cancelListening() {
+        ui.post { try { recognizer?.cancel() } catch (e: Throwable) {} }
     }
 }

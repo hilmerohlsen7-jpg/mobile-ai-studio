@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "llama.h"
+#include <chrono>
 #include "ggml-backend.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
@@ -31,7 +32,15 @@ struct Engine {
     llama_context *ctx = nullptr;
     const llama_vocab *vocab = nullptr;
     mtmd_context *mm = nullptr;  // image reader, only for models loaded with a vision file
+    // Tokens whose results are already in the memory of the context, so the next prompt can skip re-reading them.
+    std::vector<llama_token> cached;
+    // Timing of the last answer: prompt tokens read, ms to read them, tokens written, ms to write them.
+    int64_t st_prompt_tokens = 0, st_prompt_ms = 0, st_gen_tokens = 0, st_gen_ms = 0;
 };
+
+inline int64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 // Error codes returned to Kotlin
 constexpr jint ERR_NO_ENGINE = -1;
@@ -279,15 +288,31 @@ JNIEXPORT jint JNICALL Java_com_mobileaistudio_app_Native_generate(JNIEnv *env, 
     if (n_prompt + 8 > n_ctx) return ERR_TOO_LONG;
     const int32_t budget = std::min<int32_t>(max_tokens, n_ctx - n_prompt);
 
-    llama_memory_clear(llama_get_memory(e->ctx), true);
+    // Re-use what is already in memory: the start of the prompt is usually the same as last time.
+    int32_t common = 0;
+    {
+        const size_t lim = std::min<size_t>(e->cached.size(), static_cast<size_t>(n_prompt - 1));
+        while (static_cast<size_t>(common) < lim && e->cached[common] == toks[common]) common++;
+    }
+    llama_memory_t mem = llama_get_memory(e->ctx);
+    if (common > 0) {
+        if (!llama_memory_seq_rm(mem, 0, common, -1)) {
+            llama_memory_clear(mem, true);
+            common = 0;
+        }
+    } else {
+        llama_memory_clear(mem, true);
+    }
+    e->cached.clear();
 
     llama_sampler *smpl = make_sampler(e, temperature);
 
     jint result = 0;
+    const int64_t t0 = now_ms();
 
     // Read the prompt in chunks so cancel works even during a long prompt.
     const int32_t n_batch = static_cast<int32_t>(llama_n_batch(e->ctx));
-    for (int32_t i = 0; i < n_prompt; i += n_batch) {
+    for (int32_t i = common; i < n_prompt; i += n_batch) {
         const int32_t n_eval = std::min(n_batch, n_prompt - i);
         llama_batch batch = llama_batch_get_one(toks.data() + i, n_eval);
         if (llama_decode(e->ctx, batch) != 0) {
@@ -300,9 +325,32 @@ JNIEXPORT jint JNICALL Java_com_mobileaistudio_app_Native_generate(JNIEnv *env, 
         }
     }
 
+    const int64_t t1 = now_ms();
     result = run_loop(env, e, smpl, sink, on_token, budget);
+    const int64_t t2 = now_ms();
     llama_sampler_free(smpl);
+    e->st_prompt_tokens = n_prompt - common;
+    e->st_prompt_ms = t1 - t0;
+    e->st_gen_tokens = result > 0 ? result : 0;
+    e->st_gen_ms = t2 - t1;
+    // Keep the prompt (not the answer) for next time.
+    if (result >= 0 && llama_memory_seq_rm(mem, 0, n_prompt, -1)) e->cached = toks;
+    else llama_memory_clear(mem, true);
     return result;
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_mobileaistudio_app_Native_lastStats(JNIEnv *env, jobject, jlong handle) {
+    Engine *e = reinterpret_cast<Engine *>(handle);
+    jlongArray arr = env->NewLongArray(4);
+    jlong v[4] = {0, 0, 0, 0};
+    if (e != nullptr) {
+        v[0] = e->st_prompt_tokens;
+        v[1] = e->st_prompt_ms;
+        v[2] = e->st_gen_tokens;
+        v[3] = e->st_gen_ms;
+    }
+    env->SetLongArrayRegion(arr, 0, 4, v);
+    return arr;
 }
 
 // Loads the image reader (the "mmproj" file) that belongs to the loaded model.
@@ -393,6 +441,7 @@ JNIEXPORT jint JNICALL Java_com_mobileaistudio_app_Native_generateWithImages(JNI
     }
     const int32_t budget = std::min<int32_t>(max_tokens, n_ctx - n_prompt);
 
+    e->cached.clear();
     llama_memory_clear(llama_get_memory(e->ctx), true);
     if (env->CallBooleanMethod(sink, is_cancelled)) {
         mtmd_input_chunks_free(chunks);

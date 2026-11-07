@@ -70,4 +70,7 @@ object Native {
         temperature: Float,
         sink: TokenSink
     ): Int
+
+    /** [prompt tokens read, ms spent reading, tokens written, ms spent writing] for the last answer. */
+    external fun lastStats(handle: Long): LongArray
 }

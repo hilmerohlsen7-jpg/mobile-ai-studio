@@ -71,6 +71,13 @@ class MainActivity : Activity() {
         }
     }
 
+    fun hasMic(): Boolean =
+        checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    fun askMic() {
+        requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 8)
+    }
+
     fun hasFilesAccess(): Boolean =
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             android.os.Environment.isExternalStorageManager()
@@ -117,6 +124,7 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 8) bridge.onMicResult(grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED)
         if (requestCode == 7) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
     }
 
