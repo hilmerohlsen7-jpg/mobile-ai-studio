@@ -20,7 +20,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         web = WebView(this)
-        web.setBackgroundColor(0xFF121212.toInt())
+        val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        web.setBackgroundColor(if (night) 0xFF262624.toInt() else 0xFFFAF9F5.toInt())
         setContentView(web)
 
         val s = web.settings
