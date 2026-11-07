@@ -181,6 +181,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label class="chk"><input type="checkbox" id="s_aiWeb"> The AI can search the web</label>
   <label class="chk"><input type="checkbox" id="s_aiAuto"> Use them on its own when a question needs it</label>
   <label>Theme<select id="s_theme"><option value="auto">Match my phone</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  <label class="chk"><input type="checkbox" id="s_convo"> Keep the conversation going (hands-free: it listens again after it answers)</label>
   <label class="chk"><input type="checkbox" id="s_ttsAuto"> Read answers out loud automatically</label>
   <label class="chk"><input type="checkbox" id="s_sttSend"> Send automatically when I stop talking</label>
   <label>Voice speed<select id="s_ttsRate"><option value="0.7">Slow</option><option value="1">Normal</option><option value="1.3">Fast</option></select></label>
@@ -193,6 +194,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <button id="openModels">Models...</button>
   <button id="openDl">Downloads...</button>
   <button id="openFiles">Files on this phone...</button>
+  <button id="openPerms">Permissions...</button>
 </div>
 
 <div id="models" class="overlay"></div>
@@ -200,6 +202,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
 <div id="find" class="overlay z9"></div>
 <div id="welcome" class="overlay"></div>
 <div id="files" class="overlay z9"></div>
+<div id="perms" class="overlay z9"></div>
 <div id="approve"></div>
 <div id="sheet"></div>
 <div id="undobar"></div>
@@ -217,7 +220,7 @@ const DEFAULT_SKILLS = {
   review: {id: 'review', name: 'Code reviewer',  prompt: 'When shown code, review it: list bugs first, then improvements, then show the fixed code.'},
   debug:  {id: 'debug',  name: 'Debug an error', prompt: 'When shown an error message, explain what it means, the most likely cause, and the exact fix.'}
 };
-const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread: 0, temperature: 0.7, aiFiles: true, aiWeb: true, aiAuto: true, ttsAuto: false, sttSend: true, ttsRate: 1};
+const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread: 0, temperature: 0.7, aiFiles: true, aiWeb: true, aiAuto: true, ttsAuto: false, sttSend: true, convo: true, ttsRate: 1};
 
 let S = {projects: {}, skills: {}, settings: {}, last: ''};
 let dev = {ramMB: 0, cores: 4, freeMB: 0, engine: true};
@@ -326,6 +329,43 @@ function persistNow() {
   try { if (hasBridge) Android.saveState(json); else localStorage.setItem('mas_state', json); } catch (e) {}
 }
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(persistNow, 300); }
+/* ---------- permissions ---------- */
+function permsClose() { $('perms').classList.remove('open'); }
+function permsRender() {
+  const o = $('perms'); o.textContent = '';
+  o.append(h('div', {class: 'topbar'}, h('h2', null, 'Permissions'), h('button', {onclick: permsClose}, 'Close')));
+  if (!hasBridge || !Android.permStatus) { o.append(h('div', {class: 'sub'}, 'Only works in the app.')); return; }
+  let st; try { st = JSON.parse(Android.permStatus()); } catch (e) { return; }
+  o.append(h('div', {class: 'sub'}, 'Android keeps these off until you allow them. Tap Allow, say yes on the screen that opens, then come back.'));
+  const item = (key, title, why, ok) => o.append(h('div', {class: 'mrow' + (ok ? '' : ' sel')},
+    h('div', {class: 'nm'}, (ok ? '\u2705 ' : '\u26A0\uFE0F ') + title), h('div', {class: 'nt'}, why),
+    ok ? h('span', {class: 'tag'}, 'Allowed') : h('button', {class: 'pri', onclick: () => Android.permRequest(key)}, 'Allow')));
+  item('files', 'All files on this phone', 'Lets the AI find big files, read files and save PDFs.', st.files);
+  item('mic', 'Microphone', 'For talking to the AI and the wake word.', st.mic);
+  item('notif', 'Notifications', 'Shows download progress and the wake-word listener.', st.notif);
+  item('battery', 'Keep running in the background', 'Stops Android putting the app to sleep, so downloads and the wake word keep going.', st.battery);
+  if (st.sdk >= 33 && st.sideloaded) {
+    o.append(h('div', {class: 'mrow sel'}, h('div', {class: 'nm'}, '\u{1F513} Unlock restricted settings'),
+      h('div', {class: 'nt'}, 'Because this app was installed from a file (not the Play Store), Android 13 and newer may grey out some Allow buttons. If a switch above is greyed out or does nothing:'),
+      h('div', {class: 'nt'}, '1. Tap "Open app info" below.\n2. Tap the \u22EE menu at the top right.\n3. Tap "Allow restricted settings" (it may ask for your PIN or fingerprint).\n4. Come back here and tap Allow again.'),
+      h('button', {class: 'pri', onclick: () => Android.permRequest('app')}, 'Open app info')));
+  }
+}
+function permsOpen() { $('perms').classList.add('open'); permsRender(); }
+$('openPerms').onclick = () => { $('settings').classList.remove('open'); permsOpen(); };
+async function permsFirstRun() {
+  if (!hasBridge || !Android.permStatus || S.settings.permsAsked) return;
+  let st; try { st = JSON.parse(Android.permStatus()); } catch (e) { return; }
+  S.settings.permsAsked = true; persist();
+  if (st.files && st.mic && st.notif && st.battery) return;
+  if (await askConfirm('The app needs a few permissions to do everything (files, microphone, notifications, background). Set them up now?', 'Set up')) permsOpen();
+}
+
+/* ---------- hands-free conversation ---------- */
+let convoActive = false, convoEmpty = 0;
+function convoEnd(msg) { if (convoActive && msg) toast(msg); convoActive = false; convoEmpty = 0; }
+function convoListen(ms) { setTimeout(() => { if (convoActive && !busy && !listening) { voiceBase = ''; $('prompt').value = ''; Android.listen(); } }, ms || 400); }
+
 /* ---------- wake word ---------- */
 let wakeSt = {}, nameDirty = false;
 function wakeRefresh() {
@@ -352,7 +392,7 @@ window.__onWakeModel = json => {
   else $('wakeDl').textContent = 'Downloading ' + r.pct + '%';
 };
 function beep() { try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.connect(g); g.connect(a.destination); o.frequency.value = 880; g.gain.value = .15; o.start(); o.stop(a.currentTime + .12); } catch (e) {} }
-window.__onWake = () => { if (busy || listening) return; beep(); stopSpeaking(); voiceBase = ''; $('prompt').value = ''; Android.listen(); };
+window.__onWake = () => { if (busy || listening) return; beep(); stopSpeaking(); convoActive = !!S.settings.convo; convoEmpty = 0; voiceBase = ''; $('prompt').value = ''; Android.listen(); };
 function applyTheme() {
   const t = S.settings && S.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
@@ -435,7 +475,7 @@ function speakMsg(text, btn) {
   if (btn) { speakingBtn = btn; btn.textContent = '\u23F9 Stop'; }
   Android.speak(t, S.settings.ttsRate || 1);
 }
-window.__onSpeakDone = () => { if (speakingBtn) { speakingBtn.textContent = '\u{1F50A} Read aloud'; speakingBtn = null; } };
+window.__onSpeakDone = () => { if (speakingBtn) { speakingBtn.textContent = '\u{1F50A} Read aloud'; speakingBtn = null; } if (convoActive) convoListen(500); };
 window.__onVoiceError = m => toast(m);
 let listening = false;
 function setMic(on) { listening = on; $('micBtn').classList.toggle('rec', on); $('micBtn').innerHTML = on ? '&#9209;' : '&#127908;'; }
@@ -447,14 +487,24 @@ window.__onSpeech = json => {
   else if (r.state === 'thinking') { box.placeholder = 'Message...'; }
   else if (r.state === 'done') {
     setMic(false); box.placeholder = 'Message...';
-    if (r.text) { box.value = (voiceBase ? voiceBase + ' ' : '') + r.text; autosize(); if (S.settings.sttSend && !busy) send(); } else toast("I didn't hear anything.");
-  } else if (r.state === 'error') { setMic(false); box.placeholder = 'Message...'; if (r.msg) toast(r.msg); else toast("I didn't hear anything."); }
+    if (r.text) {
+      convoEmpty = 0;
+      if (convoActive && /^\s*(stop|goodbye|bye|that'?s all|end( the)? conversation|never ?mind)\b/i.test(r.text)) { convoEnd('Conversation ended.'); box.value = voiceBase; return; }
+      box.value = (voiceBase ? voiceBase + ' ' : '') + r.text; autosize(); if ((S.settings.sttSend || convoActive) && !busy) send();
+    } else if (convoActive) { if (++convoEmpty >= 2) convoEnd('Conversation ended (I did not hear anything).'); else convoListen(300); } else toast("I didn't hear anything.");
+  } else if (r.state === 'error') {
+    setMic(false); box.placeholder = 'Message...';
+    if (r.msg) { convoEnd(); toast(r.msg); }
+    else if (convoActive) { if (++convoEmpty >= 2) convoEnd('Conversation ended (I did not hear anything).'); else convoListen(300); }
+    else toast("I didn't hear anything.");
+  }
 };
 let voiceBase = '';
 $('micBtn').onclick = () => {
   if (!hasBridge || !Android.listen) { toast('Open this in the app.'); return; }
-  if (listening) { Android.stopListening(); return; }
-  stopSpeaking(); voiceBase = $('prompt').value.trim(); Android.listen();
+  if (listening) { convoEnd(); Android.stopListening(); return; }
+  if (convoActive) { convoEnd('Conversation ended.'); stopSpeaking(); return; }
+  stopSpeaking(); voiceBase = $('prompt').value.trim(); convoActive = !!S.settings.convo; convoEmpty = 0; Android.listen();
 };
 async function savePdf(o) {
   if (!hasBridge || !Android.makePdf) { toast('Open this in the app.'); return {ok: false}; }
@@ -1161,7 +1211,7 @@ function openFiles() {
   renderFiles(); $('files').classList.add('open');
 }
 function closeFiles() { $('files').classList.remove('open'); }
-window.__onResume = () => { if ($('files').classList.contains('open')) { FS.access = !!Android.fsAccess(); if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); } };
+window.__onResume = () => { if ($('perms').classList.contains('open')) permsRender();  if ($('files').classList.contains('open')) { FS.access = !!Android.fsAccess(); if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); } };
 function topbar(title, back) { return h('div', {class: 'topbar'}, h('h2', null, title), back ? h('button', {onclick: back}, 'Back') : null, h('button', {onclick: closeFiles}, 'Close')); }
 function renderFiles() {
   const o = $('files'); o.textContent = '';
@@ -1497,7 +1547,7 @@ function initSettings() {
     el.onchange = () => { S.settings[k] = el.checked; persist(); };
   });
   if (dev.cpu) $('cpuInfo').textContent = 'Speed mode: ' + dev.cpu + (dev.cpu === 'basic' ? ' (this phone has no extra speed features)' : '');
-  ['ttsAuto', 'sttSend'].forEach(k => { const el = $('s_' + k); el.checked = !!S.settings[k]; el.onchange = () => { S.settings[k] = el.checked; persist(); }; });
+  ['ttsAuto', 'sttSend', 'convo'].forEach(k => { const el = $('s_' + k); el.checked = !!S.settings[k]; el.onchange = () => { S.settings[k] = el.checked; persist(); }; });
   wakeRefresh();
   const th = $('s_theme'); th.value = S.settings.theme || 'auto'; th.onchange = () => { S.settings.theme = th.value; applyTheme(); persist(); };
   const rt = $('s_ttsRate'); rt.value = String(S.settings.ttsRate || 1); rt.onchange = () => { S.settings.ttsRate = parseFloat(rt.value) || 1; persist(); };
@@ -1660,7 +1710,8 @@ async function send() {
   else if (info && info.tokens > 0 && info.ms > 0) st = (info.tokens / (info.ms / 1000)).toFixed(1) + ' tokens/sec' + (info.stopped ? ' (stopped)' : '') + (S.settings.model === 'auto' && autoPick ? ' · ' + autoPick.name : '');
   setStatus(st);
   if (err) toast(err);
-  if (genBox && shownText.trim().length > 40 && !err) { pdfBtn(genBox, shownText.trim()); if (S.settings.ttsAuto) speakMsg(shownText.trim(), genBox.querySelector('.macts button')); }
+  if (genBox && shownText.trim().length > 40 && !err) { pdfBtn(genBox, shownText.trim()); if (S.settings.ttsAuto || convoActive) speakMsg(shownText.trim(), genBox.querySelector('.macts button')); }
+  else if (convoActive) convoListen(400);
   genBox = null; genProject = null; genAcc = ''; setBusy(false);
 }
 function scheduleRender() {
@@ -1706,6 +1757,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
   openProject(S.projects[S.last] ? S.last : projectList()[0].id);
   refreshModels();
   setTimeout(() => { try { if (hasBridge && Android.takeShare) window.__onShare(); } catch (e) {} }, 300);
+  setTimeout(permsFirstRun, 1200);
 })();
 </script>
 </body></html>

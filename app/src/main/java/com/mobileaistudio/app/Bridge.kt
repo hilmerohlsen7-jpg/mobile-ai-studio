@@ -1485,4 +1485,40 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         WakeCenter.onWake = { onWake() }
         if (prefs.getBoolean("wakeOn", false) && WakeCenter.modelReady(activity) && activity.hasMic() && !WakeCenter.running) wakeStartService()
     }
+
+    // ---------- permissions checklist ----------
+
+    @JavascriptInterface
+    fun permStatus(): String {
+        val pm = activity.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val installer = try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) activity.packageManager.getInstallSourceInfo(activity.packageName).installingPackage
+            else @Suppress("DEPRECATION") activity.packageManager.getInstallerPackageName(activity.packageName)
+        } catch (e: Exception) {
+            null
+        }
+        val notif = android.os.Build.VERSION.SDK_INT < 33 ||
+            activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        return JSONObject()
+            .put("mic", activity.hasMic())
+            .put("notif", notif)
+            .put("files", activity.hasFilesAccess())
+            .put("battery", pm.isIgnoringBatteryOptimizations(activity.packageName))
+            .put("sdk", android.os.Build.VERSION.SDK_INT)
+            .put("sideloaded", installer != "com.android.vending")
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun permRequest(kind: String) {
+        ui.post {
+            when (kind) {
+                "mic" -> activity.askMic()
+                "notif" -> activity.askNotificationPermission()
+                "files" -> activity.requestFilesAccess()
+                "battery" -> activity.askBattery()
+                else -> activity.openAppInfo()
+            }
+        }
+    }
 }

@@ -73,6 +73,23 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Asks Android to let this app run in the background without being stopped (needed for the wake word). */
+    fun askBattery() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+        } catch (e: Exception) {
+            try { startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (e2: Exception) { openAppInfo() }
+        }
+    }
+
+    /** Opens this app's page in Android settings (where "Allow restricted settings" lives, in the top-right menu). */
+    fun openAppInfo() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        } catch (e: Exception) {
+        }
+    }
+
     /** The phone's own "speak now" window. Returns false if there is none. */
     fun speechDialog(): Boolean {
         return try {
