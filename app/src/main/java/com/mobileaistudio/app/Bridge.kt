@@ -572,7 +572,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             val o = JSONObject().put("id", reqId)
             try {
                 val u = java.net.URL(url)
-                if (u.protocol != "https" || u.host !in setOf("huggingface.co", "en.wikipedia.org", "html.duckduckgo.com")) throw Exception("Not allowed.")
+                if (u.protocol != "https" || u.host !in setOf("huggingface.co", "en.wikipedia.org", "html.duckduckgo.com", "api.open-meteo.com", "geocoding-api.open-meteo.com")) throw Exception("Not allowed.")
                 val c = u.openConnection() as java.net.HttpURLConnection
                 c.connectTimeout = 15000
                 c.readTimeout = 20000

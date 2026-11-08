@@ -1484,6 +1484,7 @@ function wxFormat(c, stale) {
   if (!n) L.push('The saved forecast is too old to cover today.');
   return L.join('\n');
 }
+let wxAskedPlace = false;
 async function weatherReport(place) {
   S.wx = S.wx || {};
   place = String(place || '').trim().slice(0, 60);
@@ -1499,8 +1500,9 @@ async function weatherReport(place) {
     if (g.offline) offline = true; else loc = g;
   }
   if (!key) {
+    wxAskedPlace = true;
     const bar = wxBarometer();
-    return {ok: false, label: 'Weather: no location', text: 'I do not know where the person is. Ask them for a city, or tell them to allow Location in the app Permissions or type My city in Settings.' + (bar ? '\n' + bar : '')};
+    return {ok: false, label: 'Weather: no location', text: 'You do not know where the person is. Reply to them directly, using "you", in one short sentence: ask which city they want the weather for, and mention they can allow Location in Permissions or type My city in Settings.' + (bar ? '\n' + bar : '')};
   }
   let c = null;
   if (loc) {
@@ -1518,7 +1520,7 @@ async function weatherReport(place) {
   if (c) return {ok: true, label: 'Weather: ' + c.label, text: wxFormat(c, false) + (bar ? '\n' + bar : '')};
   const saved = S.wx[key];
   if (saved) return {ok: true, label: 'Weather (saved forecast): ' + saved.label, text: wxFormat(saved, true) + (bar ? '\n' + bar : '')};
-  return {ok: !!bar, label: 'Weather: offline', text: 'No internet and no saved forecast for ' + (key === 'here' ? 'this place' : place) + '. Say you cannot give a forecast right now.' + (bar ? '\n' + bar : '')};
+  return {ok: !!bar, label: 'Weather: offline', text: 'There is no internet and no saved forecast for ' + (key === 'here' ? 'this place' : place) + '. Tell the person, using "you", that you cannot give a forecast until they are online.' + (bar ? '\n' + bar : '')};
 }
 async function statPaths(paths) {
   const out = [], cache = {};
@@ -1789,6 +1791,7 @@ async function send() {
       let pre = null;
       if (tools.includes('files') && storageIntent(text) && Android.fsAccess()) pre = ['find_big_files', {path: Android.fsRoot(), min_mb: 50}];
       else if (tools.includes('files') && pdfIntent(text) && lastAnswer()) pre = ['make_pdf', {title: '', content: lastAnswer()}];
+      else if (tools.includes('web') && wxAskedPlace && text.trim().split(/\s+/).length <= 4 && !/[?]/.test(text) && !weatherIntent(text)) { wxAskedPlace = false; pre = ['get_weather', {place: text.trim().replace(/^(in|for|at)\s+/i, '')}]; }
       else if (tools.includes('web') && weatherIntent(text)) pre = ['get_weather', {place: wxPlaceFromText(text)}];
       else if (tools.includes('web') && webIntent(text) && navigator.onLine !== false) pre = ['search_web', {query: cleanQuery(text)}];
       if (pre) {
