@@ -34,8 +34,12 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     @Volatile
     private var cancelChat = false
-    private var handle = 0L
-    private var loadedKey = ""
+    private var handle: Long
+        get() = Shared.handle
+        set(v) { Shared.handle = v }
+    private var loadedKey: String
+        get() = Shared.loadedKey
+        set(v) { Shared.loadedKey = v }
     private var importing: String? = null
 
     init {
@@ -68,9 +72,12 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         try { recognizer?.destroy() } catch (e: Throwable) {}
         DownloadCenter.onChange = null
         worker.execute {
-            if (handle != 0L) {
-                Native.freeModel(handle)
-                handle = 0L
+            synchronized(Shared.lock) {
+                if (handle != 0L) {
+                    Native.freeModel(handle)
+                    handle = 0L
+                    loadedKey = ""
+                }
             }
         }
         worker.shutdown()
@@ -701,7 +708,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         cancelChat = false
         worker.execute {
             try {
-                runChat(JSONObject(requestJson))
+                synchronized(Shared.lock) { runChat(JSONObject(requestJson)) }
             } catch (t: Throwable) {
                 chatError("Something went wrong: ${t.message}")
             }
@@ -1571,7 +1578,99 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         .put("running", WakeCenter.running)
         .put("on", prefs.getBoolean("wakeOn", false))
         .put("name", prefs.getString("wakeName", "Ajax"))
+        .put("spkModel", WakeCenter.spkModelReady(activity))
+        .put("spkLoaded", WakeCenter.spkLoaded)
+        .put("enrolled", (prefs.getString("spkVec", "") ?: "").isNotEmpty())
+        .put("spkOn", prefs.getBoolean("spkOn", false))
+        .put("level", prefs.getFloat("spkLevel", 0.6f).toDouble())
+        .put("lastDist", WakeCenter.lastDist)
+        .put("lastConf", WakeCenter.lastConf)
         .toString()
+
+    /** The settings the background assistant needs while the screen is closed (model, name, city, online key). */
+    @JavascriptInterface
+    fun assistantConfig(json: String) {
+        try { JSONObject(json); prefs.edit().putString("assistantCfg", json).apply() } catch (e: Exception) {}
+    }
+
+    /** Downloads the voice-match model (about 13 MB). Progress in __onSpkModel. */
+    @JavascriptInterface
+    fun spkDownloadModel() {
+        Thread {
+            try {
+                val c = java.net.URL("https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip").openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 20000
+                c.readTimeout = 30000
+                val total = c.contentLengthLong
+                val tmp = File(activity.cacheDir, "vosk-spk.zip")
+                c.inputStream.use { ins ->
+                    FileOutputStream(tmp).use { out ->
+                        val buf = ByteArray(65536)
+                        var got = 0L
+                        var lastPct = -1
+                        while (true) {
+                            val n = ins.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            got += n
+                            val pct = if (total > 0) (got * 100 / total).toInt() else 0
+                            if (pct != lastPct) { lastPct = pct; js("__onSpkModel", JSONObject().put("pct", pct).toString()) }
+                        }
+                    }
+                }
+                val dest = WakeCenter.spkDir(activity)
+                dest.deleteRecursively()
+                dest.mkdirs()
+                val destPath = dest.canonicalPath + File.separator
+                java.util.zip.ZipInputStream(java.io.FileInputStream(tmp)).use { zin ->
+                    while (true) {
+                        val e = zin.nextEntry ?: break
+                        val rel = e.name.substringAfter('/', "")
+                        if (rel.isEmpty() || e.isDirectory) continue
+                        val f = File(dest, rel)
+                        if (!f.canonicalPath.startsWith(destPath)) continue
+                        f.parentFile?.mkdirs()
+                        FileOutputStream(f).use { zin.copyTo(it) }
+                    }
+                }
+                tmp.delete()
+                if (!WakeCenter.spkModelReady(activity)) throw IllegalStateException("The voice-match model looks incomplete.")
+                js("__onSpkModel", JSONObject().put("done", true).toString())
+            } catch (e: Exception) {
+                js("__onSpkModel", JSONObject().put("error", e.message ?: "Download failed. Check your internet.").toString())
+            }
+        }.start()
+    }
+
+    /** Restarts the listener so it picks up a newly downloaded voice-match model. */
+    @JavascriptInterface
+    fun wakeRestart() {
+        activity.startService(android.content.Intent(activity, WakeService::class.java).setAction(WakeService.ACTION_STOP))
+        ui.postDelayed({ if (prefs.getBoolean("wakeOn", false)) wakeStartService() }, 800)
+    }
+
+    /** Starts learning the person's voice: they say the wake phrase five times. Progress in __onEnroll. */
+    @JavascriptInterface
+    fun spkEnroll(): String {
+        if (!WakeCenter.spkModelReady(activity)) return JSONObject().put("ok", false).put("msg", "Download the voice-match model first.").toString()
+        if (!prefs.getBoolean("wakeOn", false) || !WakeCenter.running) return JSONObject().put("ok", false).put("msg", "Switch the wake word on first.").toString()
+        if (!WakeCenter.spkLoaded) { wakeRestart(); return JSONObject().put("ok", false).put("msg", "Restarting the listener. Tap again in a few seconds.").toString() }
+        WakeCenter.samples.clear()
+        WakeCenter.enrollLeft = WakeCenter.ENROLL_TOTAL
+        WakeCenter.onEnroll = { done, total -> js("__onEnroll", JSONObject().put("done", done).put("total", total).toString()) }
+        return JSONObject().put("ok", true).put("msg", "Say \"" + wakePhrase(prefs.getString("wakeName", "Ajax") ?: "Ajax") + "\" " + WakeCenter.ENROLL_TOTAL + " times, with a short pause between.").toString()
+    }
+
+    @JavascriptInterface
+    fun spkSet(on: Boolean, level: Double) {
+        prefs.edit().putBoolean("spkOn", on).putFloat("spkLevel", level.toFloat().coerceIn(0.2f, 1.0f)).apply()
+    }
+
+    @JavascriptInterface
+    fun spkClear() {
+        prefs.edit().remove("spkVec").putBoolean("spkOn", false).apply()
+        WakeCenter.enrollLeft = 0
+    }
 
     /** Downloads the small offline English voice model (about 40 MB) and unpacks it. Progress in __onWakeModel. */
     @JavascriptInterface
@@ -1677,6 +1776,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             .put("files", activity.hasFilesAccess())
             .put("loc", activity.hasLocation())
             .put("battery", pm.isIgnoringBatteryOptimizations(activity.packageName))
+            .put("xiaomi", android.os.Build.MANUFACTURER.lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") })
             .put("sdk", android.os.Build.VERSION.SDK_INT)
             .put("sideloaded", installer != "com.android.vending")
             .toString()
@@ -1767,6 +1867,18 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 "files" -> activity.requestFilesAccess()
                 "battery" -> activity.askBattery()
                 "loc" -> activity.askLocation()
+                "autostart" -> {
+                    var done = false
+                    for (cls in listOf("com.miui.permcenter.autostart.AutoStartManagementActivity", "com.miui.securitycenter.autostart.AutoStartManagementActivity")) {
+                        if (done) break
+                        try {
+                            activity.startActivity(android.content.Intent().setComponent(android.content.ComponentName("com.miui.securitycenter", cls)))
+                            done = true
+                        } catch (e: Exception) {
+                        }
+                    }
+                    if (!done) activity.openAppInfo()
+                }
                 else -> activity.openAppInfo()
             }
         }

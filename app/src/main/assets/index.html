@@ -196,6 +196,13 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label>My city (for weather, if location is off)<input type="text" id="s_city" placeholder="e.g. Johannesburg" maxlength="40" autocapitalize="words" autocomplete="off"></label>
   <div id="wakeInfo" style="font-size:.75rem;color:var(--mute);margin:4px 0"></div>
   <button id="wakeDl" style="display:none">Download voice model (about 40 MB)</button>
+  <label class="chk"><input type="checkbox" id="s_headless"> When the app is closed, answer by voice without opening it</label>
+  <label class="chk"><input type="checkbox" id="s_spk" disabled> Only react to my voice</label>
+  <label>Voice match<select id="s_spkLevel"><option value="0.75">Relaxed</option><option value="0.6">Normal</option><option value="0.45">Strict</option></select></label>
+  <button id="spkGet" style="display:none">Download the voice-match model (about 13 MB)</button>
+  <button id="spkTeach" disabled>Teach it my voice</button>
+  <button id="spkClear" style="display:none">Forget my voice</button>
+  <div id="spkInfo" style="font-size:.75rem;color:var(--mute);margin:4px 0"></div>
   <div style="font-size:.8rem;color:var(--mute);margin-top:12px">Online AI (needs internet; your chat is sent to that company)</div>
   <label>Gemini key (free at aistudio.google.com)<input type="password" id="k_gemini" autocomplete="off" autocapitalize="none"></label>
   <label>Claude key (console.anthropic.com, paid)<input type="password" id="k_claude" autocomplete="off" autocapitalize="none"></label>
@@ -339,6 +346,7 @@ function persistNow() {
   clearTimeout(saveTimer); saveTimer = null;
   const json = JSON.stringify(S);
   try { if (hasBridge) Android.saveState(json); else localStorage.setItem('mas_state', json); } catch (e) {}
+  try { syncAssistant(); } catch (e) {}
 }
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(persistNow, 300); }
 /* ---------- permissions ---------- */
@@ -357,6 +365,11 @@ function permsRender() {
   item('mic', 'Microphone', 'For talking to the AI and the wake word.', st.mic);
   item('notif', 'Notifications', 'Shows download progress and the wake-word listener.', st.notif);
   item('battery', 'Keep running in the background', 'Stops Android putting the app to sleep, so downloads and the wake word keep going.', st.battery);
+  if (st.xiaomi) {
+    o.append(h('div', {class: 'mrow sel'}, h('div', {class: 'nm'}, '\u{1F4F1} Keep it alive on Xiaomi / Redmi'),
+      h('div', {class: 'nt'}, 'Xiaomi phones close background apps. For the wake word to work with the app closed: tap Open below and switch Autostart on for this app. Then open the recent-apps screen, hold on this app\'s card and choose Lock. Under Battery saver for this app choose No restrictions.'),
+      h('button', {class: 'pri', onclick: () => Android.permRequest('autostart')}, 'Open Autostart')));
+  }
   if (st.sdk >= 33 && st.sideloaded) {
     o.append(h('div', {class: 'mrow sel'}, h('div', {class: 'nm'}, '\u{1F513} Unlock restricted settings'),
       h('div', {class: 'nt'}, 'Because this app was installed from a file (not the Play Store), Android 13 and newer may grey out some Allow buttons. If a switch above is greyed out or does nothing:'),
@@ -389,6 +402,42 @@ function wakeRefresh() {
   $('wakeInfo').textContent = wakeSt.model
     ? (wakeSt.on ? 'Listening for "Hey ' + (wakeSt.name || 'Ajax') + '". Uses some battery. English only. Works offline.' : 'Voice model ready. Switch it on to listen for "Hey ' + (wakeSt.name || 'Ajax') + '".')
     : 'First download the small offline voice model. English only.';
+  $('spkGet').style.display = wakeSt.spkModel ? 'none' : 'block';
+  $('spkTeach').disabled = !wakeSt.spkModel || !wakeSt.on;
+  $('spkClear').style.display = wakeSt.enrolled ? 'block' : 'none';
+  $('s_spk').disabled = !wakeSt.enrolled; $('s_spk').checked = !!wakeSt.spkOn && !!wakeSt.enrolled;
+  if (wakeSt.level != null) { const opt = [...$('s_spkLevel').options].reduce((a, o) => Math.abs(o.value - wakeSt.level) < Math.abs(a.value - wakeSt.level) ? o : a); $('s_spkLevel').value = opt.value; }
+  $('spkInfo').textContent = !wakeSt.spkModel ? 'Voice match needs a small download first.'
+    : !wakeSt.enrolled ? 'Not taught yet. Switch the wake word on, then tap "Teach it my voice" and say the wake phrase 5 times.'
+    : 'Your voice is saved.' + (wakeSt.lastDist >= 0 ? ' Last try: distance ' + wakeSt.lastDist.toFixed(2) + ' (accepted when below ' + Number(wakeSt.level).toFixed(2) + ').' : '') + (wakeSt.lastConf >= 0 ? ' Clarity ' + Math.round(wakeSt.lastConf * 100) + '%.' : '');
+}
+function spkApply() { try { Android.spkSet($('s_spk').checked, parseFloat($('s_spkLevel').value)); } catch (e) {} }
+$('s_spk').onchange = spkApply; $('s_spkLevel').onchange = spkApply;
+$('s_headless').onchange = () => { S.settings.headless = $('s_headless').checked; persist(); };
+$('spkGet').onclick = () => { $('spkGet').disabled = true; $('spkGet').textContent = 'Downloading 0%'; Android.spkDownloadModel(); };
+window.__onSpkModel = json => {
+  let r; try { r = JSON.parse(json); } catch (e) { return; }
+  if (r.error) { $('spkGet').disabled = false; $('spkGet').textContent = 'Download the voice-match model (about 13 MB)'; toast(r.error); }
+  else if (r.done) { toast('Voice-match model ready.'); $('spkGet').disabled = false; $('spkGet').textContent = 'Download the voice-match model (about 13 MB)'; try { Android.wakeRestart(); } catch (e) {} setTimeout(wakeRefresh, 1500); }
+  else $('spkGet').textContent = 'Downloading ' + r.pct + '%';
+};
+$('spkTeach').onclick = () => {
+  let r; try { r = JSON.parse(Android.spkEnroll()); } catch (e) { return; }
+  toast(r.msg || ''); if (r.ok) $('spkInfo').textContent = 'Say it now: 0 of 5.';
+};
+window.__onEnroll = json => {
+  let r; try { r = JSON.parse(json); } catch (e) { return; }
+  if (r.done >= r.total) { toast('Your voice is saved. "Only react to my voice" is now on.'); wakeRefresh(); }
+  else $('spkInfo').textContent = 'Say it again: ' + r.done + ' of ' + r.total + ' heard.';
+};
+$('spkClear').onclick = async () => { if (await askConfirm('Forget your saved voice? Anyone will be able to wake the AI again.', 'Forget')) { Android.spkClear(); wakeRefresh(); } };
+function syncAssistant() {
+  if (!hasBridge || !Android.assistantConfig) return;
+  const m = String(S.settings.model || ''); let local = '', cloud = null;
+  if (m && m !== 'auto' && !m.startsWith('cloud:')) local = m;
+  else { try { const pk = pickAuto('', false); if (pk && pk.id) local = pk.id; } catch (e) {} }
+  if (m.startsWith('cloud:')) { const p = m.slice(6); if (CLOUD[p] && cloudKey(p)) cloud = {provider: p, key: cloudKey(p), model: ((S.settings.cloudModels || {})[p] || '').trim() || CLOUD[p].model}; }
+  Android.assistantConfig(JSON.stringify({headless: S.settings.headless !== false, greet: S.settings.greet !== false, convo: S.settings.convo !== false, userName: userName(), city: S.settings.city || '', rate: S.settings.ttsRate || 1, local: local, cloud: cloud, threads: S.settings.num_thread || autoThreads(), temp: S.settings.temperature}));
 }
 function wakeApply() {
   const r = JSON.parse(Android.wakeSet($('s_wakeOn').checked, $('s_wakeName').value || 'Ajax'));
@@ -1686,6 +1735,7 @@ function initSettings() {
     k.value = cloudKey(p); k.onchange = () => { S.settings.keys = S.settings.keys || {}; S.settings.keys[p] = k.value.trim(); persist(); refreshModels(); };
     m.placeholder = CLOUD[p].model; m.value = (S.settings.cloudModels || {})[p] || ''; m.onchange = () => { S.settings.cloudModels = S.settings.cloudModels || {}; S.settings.cloudModels[p] = m.value.trim(); persist(); };
   });
+  $('s_headless').checked = S.settings.headless !== false;
   $('s_userName').value = S.settings.userName || ''; $('s_userName').oninput = () => { S.settings.userName = $('s_userName').value.trim(); persist(); };
   $('s_city').value = S.settings.city || ''; $('s_city').oninput = () => { S.settings.city = $('s_city').value.trim(); persist(); };
   $('s_greet').checked = S.settings.greet !== false; $('s_greet').onchange = () => { S.settings.greet = $('s_greet').checked; persist(); };
@@ -1891,7 +1941,7 @@ $('send').onclick = send;
 $('prompt').oninput = autosize;
 $('menuBtn').onclick = openDrawer;
 $('scrim').onclick = () => { closeDrawer(); $('settings').classList.remove('open'); };
-$('setBtn').onclick = () => { $('settings').classList.toggle('open'); voicesRefresh(); };
+$('setBtn').onclick = () => { $('settings').classList.toggle('open'); voicesRefresh(); wakeRefresh(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
 
 (function init() {
