@@ -196,6 +196,13 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label>My city (for weather, if location is off)<input type="text" id="s_city" placeholder="e.g. Johannesburg" maxlength="40" autocapitalize="words" autocomplete="off"></label>
   <div id="wakeInfo" style="font-size:.75rem;color:var(--mute);margin:4px 0"></div>
   <button id="wakeDl" style="display:none">Download voice model (about 40 MB)</button>
+  <div style="font-size:.8rem;color:var(--mute);margin-top:12px">Online AI (needs internet; your chat is sent to that company)</div>
+  <label>Gemini key (free at aistudio.google.com)<input type="password" id="k_gemini" autocomplete="off" autocapitalize="none"></label>
+  <label>Claude key (console.anthropic.com, paid)<input type="password" id="k_claude" autocomplete="off" autocapitalize="none"></label>
+  <label>Grok key (console.x.ai, paid)<input type="password" id="k_grok" autocomplete="off" autocapitalize="none"></label>
+  <label>Gemini model name<input type="text" id="m_gemini" autocomplete="off" autocapitalize="none"></label>
+  <label>Claude model name<input type="text" id="m_claude" autocomplete="off" autocapitalize="none"></label>
+  <label>Grok model name<input type="text" id="m_grok" autocomplete="off" autocapitalize="none"></label>
   <button id="openModels">Models...</button>
   <button id="openDl">Downloads...</button>
   <button id="openFiles">Files on this phone...</button>
@@ -679,23 +686,37 @@ function openDrawer() { renderDrawer(); $('drawer').classList.add('open'); $('sc
 function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); }
 
 /* ---------- models ---------- */
+const CLOUD = {gemini: {name: 'Gemini', co: 'Google', model: 'gemini-2.5-flash'}, claude: {name: 'Claude', co: 'Anthropic', model: 'claude-sonnet-5-5'}, grok: {name: 'Grok', co: 'xAI', model: 'grok-4'}};
+const cloudKey = p => String(((S.settings.keys || {})[p]) || '').trim();
+const cloudList = () => Object.keys(CLOUD).filter(p => cloudKey(p)).map(p => ({id: 'cloud:' + p, name: CLOUD[p].name + ' (online)', vision: true, cloud: p, state: 'ready'}));
+const isCloudSel = () => String(S.settings.model || '').startsWith('cloud:');
 function refreshModels() {
   try { models = hasBridge ? JSON.parse(Android.modelList()) : []; } catch (e) { models = []; }
   const ready = models.filter(m => m.state === 'ready');
   if (ready.length && !S.settings.autoMigrated) { S.settings.autoMigrated = true; S.settings.model = 'auto'; persist(); }
-  if (S.settings.model !== 'auto' && !ready.some(m => m.id === S.settings.model)) { S.settings.model = ready.length ? 'auto' : ''; persist(); }
-  if (S.settings.model === 'auto' && !ready.length) { S.settings.model = ''; persist(); }
+  const cl = cloudList();
+  if (S.settings.model !== 'auto' && !ready.some(m => m.id === S.settings.model) && !cl.some(m => m.id === S.settings.model)) { S.settings.model = ready.length ? 'auto' : (cl.length ? cl[0].id : ''); persist(); }
+  if (S.settings.model === 'auto' && !ready.length) { S.settings.model = cl.length ? cl[0].id : ''; persist(); }
   const sel = $('model'); sel.textContent = '';
-  if (!ready.length) sel.append(h('option', {value: ''}, 'No model'));
-  else sel.append(h('option', {value: 'auto'}, 'Auto'));
+  if (!ready.length && !cl.length) sel.append(h('option', {value: ''}, 'No model'));
+  else if (ready.length) sel.append(h('option', {value: 'auto'}, 'Auto'));
   ready.forEach(m => sel.append(h('option', {value: m.id}, m.name)));
+  cl.forEach(m => sel.append(h('option', {value: m.id}, m.name)));
   sel.value = S.settings.model;
   if ($('models').classList.contains('open')) renderModels();
   renderWelcome();
 }
-$('model').onchange = () => {
-  if (!$('model').value) { openModels(); return; }
-  S.settings.model = $('model').value; persist();
+$('model').onchange = async () => {
+  const v = $('model').value;
+  if (!v) { openModels(); return; }
+  if (v.startsWith('cloud:')) {
+    const p = v.slice(6); S.settings.cloudOk = S.settings.cloudOk || {};
+    if (!S.settings.cloudOk[p]) {
+      if (!await askConfirm('Chats with this model are sent over the internet to ' + CLOUD[p].co + ', including pictures you attach. Local models stay on your phone. Use ' + CLOUD[p].name + '?', 'Use it')) { $('model').value = S.settings.model; return; }
+      S.settings.cloudOk[p] = true;
+    }
+  }
+  S.settings.model = v; persist();
 };
 /* ---------- choosing the best model for this phone and this question ---------- */
 const codeIntent = t => /\b(code|coding|function|bug|bugs|error|exception|stack ?trace|compile|script|python|javascript|typescript|java|kotlin|html|css|sql|regex|api|class|variable|debug|refactor|program|algorithm)\b|```/i.test(t || '');
@@ -836,7 +857,7 @@ $('openModels').onclick = openModels;
 
 function renderWelcome() {
   const w = $('welcome');
-  const ready = models.some(m => m.state === 'ready');
+  const ready = models.some(m => m.state === 'ready') || cloudList().length > 0;
   const open = hasBridge && !ready && !$('models').classList.contains('open');
   w.classList.toggle('open', open);
   if (!open) return;
@@ -1660,6 +1681,11 @@ function initSettings() {
   if (dev.cpu) $('cpuInfo').textContent = 'Speed mode: ' + dev.cpu + (dev.cpu === 'basic' ? ' (this phone has no extra speed features)' : '');
   ['ttsAuto', 'sttSend', 'convo'].forEach(k => { const el = $('s_' + k); el.checked = !!S.settings[k]; el.onchange = () => { S.settings[k] = el.checked; persist(); }; });
   wakeRefresh();
+  Object.keys(CLOUD).forEach(p => {
+    const k = $('k_' + p), m = $('m_' + p);
+    k.value = cloudKey(p); k.onchange = () => { S.settings.keys = S.settings.keys || {}; S.settings.keys[p] = k.value.trim(); persist(); refreshModels(); };
+    m.placeholder = CLOUD[p].model; m.value = (S.settings.cloudModels || {})[p] || ''; m.onchange = () => { S.settings.cloudModels = S.settings.cloudModels || {}; S.settings.cloudModels[p] = m.value.trim(); persist(); };
+  });
   $('s_userName').value = S.settings.userName || ''; $('s_userName').oninput = () => { S.settings.userName = $('s_userName').value.trim(); persist(); };
   $('s_city').value = S.settings.city || ''; $('s_city').oninput = () => { S.settings.city = $('s_city').value.trim(); persist(); };
   $('s_greet').checked = S.settings.greet !== false; $('s_greet').onchange = () => { S.settings.greet = $('s_greet').checked; persist(); };
@@ -1719,7 +1745,7 @@ function buildHistory(avail) {
   return kept.reverse();
 }
 let pending = [];
-const curModel = () => S.settings.model === 'auto' ? (autoPick || pickAuto('', pending.length > 0)) : models.find(m => m.id === S.settings.model);
+const curModel = () => S.settings.model === 'auto' ? (autoPick || pickAuto('', pending.length > 0)) : (models.find(m => m.id === S.settings.model) || cloudList().find(m => m.id === S.settings.model));
 function renderAttach() {
   const a = $('attach'); a.textContent = '';
   pending.forEach((im, i) => a.append(h('div', {class: 'th'}, h('img', {src: im.thumb, alt: 'Picture'}), h('button', {onclick: () => { pending.splice(i, 1); renderAttach(); }}, '×'))));
@@ -1744,6 +1770,8 @@ let genResolve = null, turnStop = false, genImgs = [], genProject0 = null;
 function generate(messages) {
   return new Promise(resolve => {
     genAcc = ''; genResolve = resolve;
+    const cm = curModel();
+    if (cm && cm.cloud) { Android.cloudChat(JSON.stringify({provider: cm.cloud, key: cloudKey(cm.cloud), model: ((S.settings.cloudModels || {})[cm.cloud] || '').trim() || CLOUD[cm.cloud].model, messages: messages, max_tokens: Math.max(S.settings.num_predict, 2048), temperature: S.settings.temperature})); return; }
     Android.chat(JSON.stringify({model: curModel().id, messages: messages, max_tokens: S.settings.num_predict, n_ctx: (curModel() && curModel().vision) ? Math.max(4096, effCtx()) : effCtx(),
       threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
   });
@@ -1756,7 +1784,7 @@ async function send() {
   if (!text || !cur) return;
   if (!hasBridge) { toast('Open this in the app.'); return; }
   if (!S.settings.model) { openModels(); toast('Download a model first.'); return; }
-  const maxTok = S.settings.num_predict, nCtx = effCtx();
+  const maxTok = S.settings.num_predict, nCtx = isCloudSel() ? 24000 : effCtx();
   const avail = Math.max(1000, (nCtx - maxTok - 64) * 3);
   let imgs = pending; pending = []; renderAttach();
   if (imgs.length && imgs.every(im => im.carried) && (storageIntent(text) || webIntent(text))) imgs = []; // picture kept from before, but this question is about something else

@@ -708,9 +708,176 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    @Volatile private var cloudConn: java.net.HttpURLConnection? = null
+
+    /** Sends the chat to an online AI (Gemini, Claude or Grok) with the person's own key. The whole answer arrives at once. */
+    @JavascriptInterface
+    fun cloudChat(requestJson: String) {
+        cancelChat = false
+        worker.execute {
+            val t0 = System.currentTimeMillis()
+            try {
+                val req = JSONObject(requestJson)
+                val provider = req.getString("provider")
+                val key = req.getString("key").trim()
+                val model = req.getString("model").trim()
+                if (key.isEmpty()) { chatError("There is no key for this service. Open Settings, Online AI, and paste it."); return@execute }
+                if (!model.matches(Regex("[A-Za-z0-9._:/-]{1,80}"))) { chatError("That model name does not look right. Check it in Settings, Online AI."); return@execute }
+                val maxTok = req.optInt("max_tokens", 2048).coerceIn(64, 8192)
+                val temp = req.optDouble("temperature", 0.7)
+
+                var system = ""
+                val roles = ArrayList<String>()
+                val texts = ArrayList<String>()
+                val imgs = ArrayList<ArrayList<String>>()
+                val msgs = req.getJSONArray("messages")
+                for (i in 0 until msgs.length()) {
+                    val m = msgs.getJSONObject(i)
+                    val role = m.getString("role")
+                    val content = m.getString("content")
+                    val ids = ArrayList<String>()
+                    val ia = m.optJSONArray("images")
+                    if (ia != null) for (k in 0 until ia.length()) {
+                        val iid = ia.getString(k)
+                        if (iid.matches(Regex("[A-Za-z0-9_-]{1,64}")) && File(imagesDir, "$iid.jpg").exists()) ids.add(iid)
+                    }
+                    if (role == "system") { system = content; continue }
+                    if (roles.isNotEmpty() && roles.last() == role) {
+                        texts[texts.size - 1] = texts.last() + "\n\n" + content
+                        imgs.last().addAll(ids)
+                    } else {
+                        roles.add(role); texts.add(content); imgs.add(ids)
+                    }
+                }
+                if (roles.isEmpty() || roles[0] != "user") { chatError("Nothing to send."); return@execute }
+                fun b64(id: String) = android.util.Base64.encodeToString(File(imagesDir, "$id.jpg").readBytes(), android.util.Base64.NO_WRAP)
+
+                val url: String
+                val body = JSONObject()
+                val headers = HashMap<String, String>()
+                when (provider) {
+                    "gemini" -> {
+                        url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+                        headers["x-goog-api-key"] = key
+                        if (system.isNotEmpty()) body.put("systemInstruction", JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", system))))
+                        val contents = org.json.JSONArray()
+                        for (i in roles.indices) {
+                            val parts = org.json.JSONArray()
+                            for (id in imgs[i]) parts.put(JSONObject().put("inline_data", JSONObject().put("mime_type", "image/jpeg").put("data", b64(id))))
+                            parts.put(JSONObject().put("text", texts[i]))
+                            contents.put(JSONObject().put("role", if (roles[i] == "assistant") "model" else "user").put("parts", parts))
+                        }
+                        body.put("contents", contents).put("generationConfig", JSONObject().put("maxOutputTokens", maxTok).put("temperature", temp))
+                    }
+                    "claude" -> {
+                        url = "https://api.anthropic.com/v1/messages"
+                        headers["x-api-key"] = key
+                        headers["anthropic-version"] = "2023-06-01"
+                        body.put("model", model).put("max_tokens", maxTok).put("temperature", Math.min(temp, 1.0))
+                        if (system.isNotEmpty()) body.put("system", system)
+                        val arr = org.json.JSONArray()
+                        for (i in roles.indices) {
+                            val parts = org.json.JSONArray()
+                            for (id in imgs[i]) parts.put(JSONObject().put("type", "image").put("source", JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", b64(id))))
+                            parts.put(JSONObject().put("type", "text").put("text", texts[i]))
+                            arr.put(JSONObject().put("role", roles[i]).put("content", parts))
+                        }
+                        body.put("messages", arr)
+                    }
+                    "grok" -> {
+                        url = "https://api.x.ai/v1/chat/completions"
+                        headers["Authorization"] = "Bearer $key"
+                        body.put("model", model).put("max_tokens", maxTok).put("temperature", temp)
+                        val arr = org.json.JSONArray()
+                        if (system.isNotEmpty()) arr.put(JSONObject().put("role", "system").put("content", system))
+                        for (i in roles.indices) {
+                            if (imgs[i].isEmpty()) arr.put(JSONObject().put("role", roles[i]).put("content", texts[i]))
+                            else {
+                                val parts = org.json.JSONArray()
+                                for (id in imgs[i]) parts.put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64," + b64(id))))
+                                parts.put(JSONObject().put("type", "text").put("text", texts[i]))
+                                arr.put(JSONObject().put("role", roles[i]).put("content", parts))
+                            }
+                        }
+                        body.put("messages", arr)
+                    }
+                    else -> { chatError("Unknown online service."); return@execute }
+                }
+
+                js("__onStatus", "Asking the online AI...")
+                val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                cloudConn = c
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.connectTimeout = 20000
+                c.readTimeout = 120000
+                c.setRequestProperty("Content-Type", "application/json")
+                for ((k, v) in headers) c.setRequestProperty(k, v)
+                c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                val code = c.responseCode
+                val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
+                c.disconnect()
+                cloudConn = null
+                if (cancelChat) { js("__onChatDone", JSONObject().put("stopped", true).toString()); return@execute }
+                if (code !in 200..299) {
+                    var msg = ""
+                    try {
+                        val j = JSONObject(text)
+                        val e = j.opt("error")
+                        msg = if (e is JSONObject) e.optString("message") else (e?.toString() ?: j.optString("message"))
+                    } catch (e: Exception) {
+                    }
+                    val who = when (provider) { "gemini" -> "Google"; "claude" -> "Anthropic"; else -> "xAI" }
+                    chatError(when (code) {
+                        400 -> "$who did not accept the request: " + msg.take(200)
+                        401, 403 -> "$who refused the key. Check it in Settings, Online AI. " + msg.take(120)
+                        404 -> "$who does not know that model name. Check it in Settings, Online AI."
+                        429 -> "$who says the limit is reached (too many requests or the free quota is used up). Try again later."
+                        else -> "$who error $code: " + msg.take(200)
+                    })
+                    return@execute
+                }
+                val j = JSONObject(text)
+                val sb = StringBuilder()
+                when (provider) {
+                    "gemini" -> {
+                        val cand = j.optJSONArray("candidates")?.optJSONObject(0)
+                        val parts = cand?.optJSONObject("content")?.optJSONArray("parts")
+                        if (parts != null) for (i in 0 until parts.length()) {
+                            val pt = parts.getJSONObject(i)
+                            if (!pt.optBoolean("thought", false)) sb.append(pt.optString("text"))
+                        }
+                        if (sb.isEmpty()) {
+                            val why = j.optJSONObject("promptFeedback")?.optString("blockReason") ?: cand?.optString("finishReason") ?: ""
+                            chatError("Google gave no answer" + (if (why.isNotEmpty()) " ($why)." else "."))
+                            return@execute
+                        }
+                    }
+                    "claude" -> {
+                        val arr = j.optJSONArray("content")
+                        if (arr != null) for (i in 0 until arr.length()) {
+                            val b = arr.getJSONObject(i)
+                            if (b.optString("type") == "text") sb.append(b.optString("text"))
+                        }
+                    }
+                    else -> sb.append(j.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content") ?: "")
+                }
+                val reply = sb.toString().trim()
+                if (reply.isEmpty()) { chatError("The online AI sent an empty answer."); return@execute }
+                js("__onToken", reply)
+                js("__onChatDone", JSONObject().put("stopped", false).put("cloud", true).put("ms", System.currentTimeMillis() - t0).toString())
+            } catch (t: Throwable) {
+                cloudConn = null
+                if (cancelChat) js("__onChatDone", JSONObject().put("stopped", true).toString())
+                else chatError(if (t is java.net.UnknownHostException || t is java.net.SocketTimeoutException || t is java.net.ConnectException) "No internet connection, or the online AI did not answer in time." else "Online AI problem: ${t.message}")
+            }
+        }
+    }
+
     @JavascriptInterface
     fun stopChat() {
         cancelChat = true
+        try { cloudConn?.disconnect() } catch (e: Throwable) {}
     }
 
     private fun runChat(req: JSONObject) {
