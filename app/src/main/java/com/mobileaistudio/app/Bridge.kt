@@ -1262,6 +1262,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                     if (t.isLanguageAvailable(loc) >= android.speech.tts.TextToSpeech.LANG_AVAILABLE) t.language = loc
                 } catch (e: Throwable) {
                 }
+                try {
+                    val vid = prefs.getString("ttsVoice", "") ?: ""
+                    if (vid.isNotEmpty()) t.voices?.firstOrNull { it.name == vid }?.let { t.voice = it }
+                } catch (e: Throwable) {
+                }
                 val max = Math.min(3000, android.speech.tts.TextToSpeech.getMaxSpeechInputLength() - 100)
                 val parts = ArrayList<String>()
                 var rest = text.trim()
@@ -1391,14 +1396,14 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     private fun wakePhrase(name: String): String =
-        "hey " + name.lowercase().replace(Regex("[^a-z ]"), "").trim().ifEmpty { "alex" }
+        "hey " + name.lowercase().replace(Regex("[^a-z ]"), "").trim().ifEmpty { "ajax" }
 
     @JavascriptInterface
     fun wakeStatus(): String = JSONObject()
         .put("model", WakeCenter.modelReady(activity))
         .put("running", WakeCenter.running)
         .put("on", prefs.getBoolean("wakeOn", false))
-        .put("name", prefs.getString("wakeName", "Alex"))
+        .put("name", prefs.getString("wakeName", "Ajax"))
         .toString()
 
     /** Downloads the small offline English voice model (about 40 MB) and unpacks it. Progress in __onWakeModel. */
@@ -1454,7 +1459,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     /** Turns the wake word on or off. Returns {"ok":..,"msg":..}. */
     @JavascriptInterface
     fun wakeSet(on: Boolean, name: String): String {
-        val nm = name.lowercase().replace(Regex("[^a-z ]"), "").trim().ifEmpty { "alex" }
+        val nm = name.lowercase().replace(Regex("[^a-z ]"), "").trim().ifEmpty { "ajax" }
         prefs.edit().putBoolean("wakeOn", on).putString("wakeName", nm.replaceFirstChar { it.uppercase() }).apply()
         if (!on) {
             activity.startService(android.content.Intent(activity, WakeService::class.java).setAction(WakeService.ACTION_STOP))
@@ -1473,7 +1478,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     private fun wakeStartService() {
         WakeCenter.onWake = { onWake() }
-        val i = android.content.Intent(activity, WakeService::class.java).putExtra("phrase", wakePhrase(prefs.getString("wakeName", "Alex") ?: "Alex"))
+        val i = android.content.Intent(activity, WakeService::class.java).putExtra("phrase", wakePhrase(prefs.getString("wakeName", "Ajax") ?: "Ajax"))
         try {
             if (android.os.Build.VERSION.SDK_INT >= 26) activity.startForegroundService(i) else activity.startService(i)
         } catch (e: Exception) {
@@ -1503,10 +1508,87 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             .put("mic", activity.hasMic())
             .put("notif", notif)
             .put("files", activity.hasFilesAccess())
+            .put("loc", activity.hasLocation())
             .put("battery", pm.isIgnoringBatteryOptimizations(activity.packageName))
             .put("sdk", android.os.Build.VERSION.SDK_INT)
             .put("sideloaded", installer != "com.android.vending")
             .toString()
+    }
+
+    // ---------- weather helpers: coarse location, barometer, voices ----------
+    @JavascriptInterface
+    fun locationGet(): String {
+        try {
+            if (!activity.hasLocation()) return "{}"
+            val lm = activity.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            var best: android.location.Location? = null
+            for (pr in lm.getProviders(true)) {
+                val l = try { lm.getLastKnownLocation(pr) } catch (e: SecurityException) { null } ?: continue
+                if (best == null || l.time > best.time) best = l
+            }
+            val b = best ?: return "{}"
+            return JSONObject().put("lat", b.latitude).put("lon", b.longitude).put("age", (System.currentTimeMillis() - b.time) / 60000).toString()
+        } catch (e: Throwable) {
+            return "{}"
+        }
+    }
+
+    /** Reads the phone's barometer (if it has one) and keeps a small history so a trend can be worked out. */
+    @JavascriptInterface
+    fun pressure(): String {
+        try {
+            val sm = activity.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
+            val sensor = sm.getDefaultSensor(android.hardware.Sensor.TYPE_PRESSURE) ?: return "{\"has\":false}"
+            var v = -1f
+            val latch = java.util.concurrent.CountDownLatch(1)
+            val l = object : android.hardware.SensorEventListener {
+                override fun onSensorChanged(e: android.hardware.SensorEvent) { v = e.values[0]; latch.countDown() }
+                override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+            }
+            sm.registerListener(l, sensor, android.hardware.SensorManager.SENSOR_DELAY_NORMAL, android.os.Handler(android.os.Looper.getMainLooper()))
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+            sm.unregisterListener(l)
+            if (v <= 0f) return "{\"has\":true}"
+            val now = System.currentTimeMillis()
+            val hist = ArrayList<Pair<Long, Float>>()
+            for (e in (prefs.getString("pHist", "") ?: "").split(",")) {
+                val a = e.split(":"); if (a.size == 2) { val t = a[0].toLongOrNull(); val x = a[1].toFloatOrNull(); if (t != null && x != null && now - t < 24 * 3600_000L) hist.add(Pair(t, x)) }
+            }
+            // trend against a reading taken 2 to 6 hours ago (closest to 3 hours)
+            val ref = hist.filter { now - it.first in 2 * 3600_000L..6 * 3600_000L }.minByOrNull { Math.abs(now - it.first - 3 * 3600_000L) }
+            if (hist.isEmpty() || now - hist.last().first > 20 * 60_000L) hist.add(Pair(now, v))
+            prefs.edit().putString("pHist", hist.takeLast(100).joinToString(",") { it.first.toString() + ":" + it.second }).apply()
+            val o = JSONObject().put("has", true).put("hpa", Math.round(v * 10) / 10.0)
+            if (ref != null) o.put("change", Math.round((v - ref.second) * 10) / 10.0).put("hours", Math.round((now - ref.first) / 360_000.0) / 10.0)
+            return o.toString()
+        } catch (e: Throwable) {
+            return "{\"has\":false}"
+        }
+    }
+
+    /** Lists the phone's voices for the current language. Answer arrives in __onVoices. */
+    @JavascriptInterface
+    fun voiceList() {
+        ui.post {
+            withTts {
+                val t = tts ?: return@withTts
+                val arr = org.json.JSONArray()
+                try {
+                    val lang = java.util.Locale.getDefault().language
+                    t.voices?.filter { it.locale.language == lang && !it.features.contains("notInstalled") }
+                        ?.sortedBy { it.name }?.forEach {
+                            arr.put(JSONObject().put("id", it.name).put("lang", it.locale.displayName).put("offline", !it.isNetworkConnectionRequired))
+                        }
+                } catch (e: Throwable) {
+                }
+                js("__onVoices", JSONObject().put("voices", arr).put("current", prefs.getString("ttsVoice", "") ?: "").toString())
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun voiceSet(id: String) {
+        prefs.edit().putString("ttsVoice", id).apply()
     }
 
     @JavascriptInterface
@@ -1517,6 +1599,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 "notif" -> activity.askNotificationPermission()
                 "files" -> activity.requestFilesAccess()
                 "battery" -> activity.askBattery()
+                "loc" -> activity.askLocation()
                 else -> activity.openAppInfo()
             }
         }

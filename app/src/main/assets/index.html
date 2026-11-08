@@ -57,7 +57,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
 #drawer .row button{padding:2px 8px}
 #drawer .skill.on{border-color:var(--acc);color:var(--acc)}
 #drawer textarea{width:100%;background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px}
-#settings{display:none;position:fixed;top:56px;right:8px;width:min(92vw,300px);background:var(--pop);border:1px solid var(--line);border-radius:10px;padding:12px;z-index:6}
+#settings{display:none;position:fixed;top:56px;right:8px;width:min(92vw,300px);background:var(--pop);border:1px solid var(--line);border-radius:10px;padding:12px;z-index:6;max-height:calc(100vh - 72px);overflow-y:auto;overscroll-behavior:contain}
 #settings.open{display:block}
 #settings label{display:block;font-size:.8rem;color:var(--mute);margin-top:8px}
 #settings input{width:100%;background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px}
@@ -188,7 +188,12 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <label class="chk"><input type="checkbox" id="s_imgDetail"> Look at pictures in more detail (slower)</label>
   <div id="cpuInfo" style="font-size:.75rem;color:var(--mute);margin:6px 0"></div>
   <label class="chk"><input type="checkbox" id="s_wakeOn"> Wake word (say it and the AI starts listening)</label>
-  <label>Wake word name<input type="text" id="s_wakeName" value="Alex" maxlength="20" autocapitalize="words" autocomplete="off"></label>
+  <label>Wake word name<input type="text" id="s_wakeName" value="Ajax" maxlength="20" autocapitalize="words" autocomplete="off"></label>
+  <label>Your name<input type="text" id="s_userName" placeholder="What should the AI call you?" maxlength="30" autocapitalize="words" autocomplete="off"></label>
+  <label class="chk"><input type="checkbox" id="s_greet"> Greet me out loud after the wake word ("Hi Name, how can I assist?")</label>
+  <label>AI voice<select id="s_voice"><option value="">Phone default</option></select></label>
+  <button id="voiceTest">Test the voice</button>
+  <label>My city (for weather, if location is off)<input type="text" id="s_city" placeholder="e.g. Johannesburg" maxlength="40" autocapitalize="words" autocomplete="off"></label>
   <div id="wakeInfo" style="font-size:.75rem;color:var(--mute);margin:4px 0"></div>
   <button id="wakeDl" style="display:none">Download voice model (about 40 MB)</button>
   <button id="openModels">Models...</button>
@@ -220,7 +225,7 @@ const DEFAULT_SKILLS = {
   review: {id: 'review', name: 'Code reviewer',  prompt: 'When shown code, review it: list bugs first, then improvements, then show the fixed code.'},
   debug:  {id: 'debug',  name: 'Debug an error', prompt: 'When shown an error message, explain what it means, the most likely cause, and the exact fix.'}
 };
-const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread: 0, temperature: 0.7, aiFiles: true, aiWeb: true, aiAuto: true, ttsAuto: false, sttSend: true, convo: true, ttsRate: 1};
+const DEFAULT_SETTINGS = {model: '', num_predict: 512, num_ctx: 2048, num_thread: 0, temperature: 0.7, aiFiles: true, aiWeb: true, aiAuto: true, ttsAuto: false, sttSend: true, convo: true, ttsRate: 1, userName: '', city: '', greet: true};
 
 let S = {projects: {}, skills: {}, settings: {}, last: ''};
 let dev = {ramMB: 0, cores: 4, freeMB: 0, engine: true};
@@ -341,6 +346,7 @@ function permsRender() {
     h('div', {class: 'nm'}, (ok ? '\u2705 ' : '\u26A0\uFE0F ') + title), h('div', {class: 'nt'}, why),
     ok ? h('span', {class: 'tag'}, 'Allowed') : h('button', {class: 'pri', onclick: () => Android.permRequest(key)}, 'Allow')));
   item('files', 'All files on this phone', 'Lets the AI find big files, read files and save PDFs.', st.files);
+  item('loc', 'Location (approximate)', 'Lets the AI give the weather where you are. Without it, set your city in Settings.', st.loc);
   item('mic', 'Microphone', 'For talking to the AI and the wake word.', st.mic);
   item('notif', 'Notifications', 'Shows download progress and the wake-word listener.', st.notif);
   item('battery', 'Keep running in the background', 'Stops Android putting the app to sleep, so downloads and the wake word keep going.', st.battery);
@@ -371,14 +377,14 @@ let wakeSt = {}, nameDirty = false;
 function wakeRefresh() {
   if (!hasBridge || !Android.wakeStatus) { $('wakeInfo').textContent = 'Only works in the app.'; return; }
   try { wakeSt = JSON.parse(Android.wakeStatus()); } catch (e) { return; }
-  $('s_wakeOn').checked = !!wakeSt.on && wakeSt.model; if (!nameDirty) $('s_wakeName').value = wakeSt.name || 'Alex';
+  $('s_wakeOn').checked = !!wakeSt.on && wakeSt.model; if (!nameDirty) $('s_wakeName').value = wakeSt.name || 'Ajax';
   $('wakeDl').style.display = wakeSt.model ? 'none' : 'block';
   $('wakeInfo').textContent = wakeSt.model
-    ? (wakeSt.on ? 'Listening for "Hey ' + (wakeSt.name || 'Alex') + '". Uses some battery. English only. Works offline.' : 'Voice model ready. Switch it on to listen for "Hey ' + (wakeSt.name || 'Alex') + '".')
+    ? (wakeSt.on ? 'Listening for "Hey ' + (wakeSt.name || 'Ajax') + '". Uses some battery. English only. Works offline.' : 'Voice model ready. Switch it on to listen for "Hey ' + (wakeSt.name || 'Ajax') + '".')
     : 'First download the small offline voice model. English only.';
 }
 function wakeApply() {
-  const r = JSON.parse(Android.wakeSet($('s_wakeOn').checked, $('s_wakeName').value || 'Alex'));
+  const r = JSON.parse(Android.wakeSet($('s_wakeOn').checked, $('s_wakeName').value || 'Ajax'));
   if (r.msg) toast(r.msg); if (!r.ok) $('s_wakeOn').checked = false; nameDirty = false; setTimeout(wakeRefresh, 300);
 }
 $('s_wakeOn').onchange = wakeApply;
@@ -392,7 +398,12 @@ window.__onWakeModel = json => {
   else $('wakeDl').textContent = 'Downloading ' + r.pct + '%';
 };
 function beep() { try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.connect(g); g.connect(a.destination); o.frequency.value = 880; g.gain.value = .15; o.start(); o.stop(a.currentTime + .12); } catch (e) {} }
-window.__onWake = () => { if (busy || listening) return; beep(); stopSpeaking(); convoActive = !!S.settings.convo; convoEmpty = 0; voiceBase = ''; $('prompt').value = ''; Android.listen(); };
+window.__onWake = () => {
+  if (busy || listening) return;
+  stopSpeaking(); convoActive = !!S.settings.convo; convoEmpty = 0; voiceBase = ''; $('prompt').value = '';
+  if (S.settings.greet !== false && Android.speak) { greetPending = true; Android.speak(userName() ? 'Hi ' + userName() + ', how can I assist?' : 'Hi, how can I assist?', S.settings.ttsRate || 1); }
+  else { beep(); Android.listen(); }
+};
 function applyTheme() {
   const t = S.settings && S.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
@@ -475,7 +486,26 @@ function speakMsg(text, btn) {
   if (btn) { speakingBtn = btn; btn.textContent = '\u23F9 Stop'; }
   Android.speak(t, S.settings.ttsRate || 1);
 }
-window.__onSpeakDone = () => { if (speakingBtn) { speakingBtn.textContent = '\u{1F50A} Read aloud'; speakingBtn = null; } if (convoActive) convoListen(500); };
+let greetPending = false;
+window.__onSpeakDone = () => {
+  if (speakingBtn) { speakingBtn.textContent = '\u{1F50A} Read aloud'; speakingBtn = null; }
+  if (greetPending) { greetPending = false; setTimeout(() => { if (!busy && !listening) Android.listen(); }, 250); return; }
+  if (convoActive) convoListen(500);
+};
+function userName() { return (S.settings.userName || '').trim(); }
+function voicesRefresh() { try { if (hasBridge && Android.voiceList) Android.voiceList(); } catch (e) {} }
+function voiceLabel(v) {
+  const m = v.id.match(/#(male|female)_(\d+)/i);
+  const nm = m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() + ' ' + m[2] : v.id.replace(/-local$/, '');
+  return nm + ' (' + v.lang + (v.offline ? '' : ', needs internet') + ')';
+}
+window.__onVoices = json => {
+  let r; try { r = JSON.parse(json); } catch (e) { return; }
+  const sel = $('s_voice'); sel.textContent = ''; sel.append(new Option('Phone default', ''));
+  (r.voices || []).forEach(v => sel.append(new Option(voiceLabel(v), v.id)));
+  sel.value = r.current || ''; if (sel.value !== (r.current || '')) sel.value = '';
+};
+function testVoice() { if (hasBridge && Android.speak) { stopSpeaking(); Android.speak('Hi' + (userName() ? ' ' + userName() : '') + ', this is how I sound.', S.settings.ttsRate || 1); } }
 window.__onVoiceError = m => toast(m);
 let listening = false;
 function setMic(on) { listening = on; $('micBtn').classList.toggle('rec', on); $('micBtn').innerHTML = on ? '&#9209;' : '&#127908;'; }
@@ -1356,6 +1386,7 @@ function toolsPrompt() {
   const t = toolsAvailable(); if (!t.length) return '';
   const L = ['You can use tools. When you need one, reply with ONLY a tool call in exactly this form and nothing else:', '<tool_call>', '{"name": "TOOL_NAME", "arguments": {...}}', '</tool_call>',
     'You then get the result and can answer the person in plain words. Use one tool call at a time. Never say you did something unless a tool result says it was done.', 'Tools:'];
+  if (t.includes('web')) L.push('- get_weather {"place": "city name, or empty for where the person is"}: current weather, 7-day forecast and the phone barometer. Use it for any question about weather, rain or temperature.');
   if (t.includes('web')) L.push('- search_web {"query": "words to search"}: search the internet. Use it for facts, dates, news or anything you are not sure about.');
   if (t.includes('files')) L.push('- list_files {"path": "/storage/emulated/0/Download"}: list a folder on the phone.',
     '- find_big_files {"path": "/storage/emulated/0", "min_mb": 50}: find the biggest files that take up space.',
@@ -1374,7 +1405,7 @@ function parseToolCall(text) {
   if (!raw) return null;
   try {
     const o = JSON.parse(raw); const name = o.name; const args = o.arguments || o.args || o.parameters || {};
-    if (!['search_web', 'list_files', 'find_big_files', 'read_file', 'write_file', 'delete_files', 'make_pdf'].includes(name)) return null;
+    if (!['search_web', 'get_weather', 'list_files', 'find_big_files', 'read_file', 'write_file', 'delete_files', 'make_pdf'].includes(name)) return null;
     return {name, args: typeof args === 'object' && args ? args : {}};
   } catch (e) { return null; }
 }
@@ -1415,6 +1446,79 @@ async function webSearch(q) {
   }
   if (!n) return {ok: false, text: (!wiki.ok && !ddg.ok) ? 'Error: no internet connection, or the search sites could not be reached.' : 'No results found for that search.', n: 0};
   return {ok: true, text: parts.join('\n').slice(0, 2800), n: n};
+}
+/* ---------- weather (Open-Meteo, saved copy for offline, phone barometer) ---------- */
+const WX_CODES = {0: 'clear sky', 1: 'mostly clear', 2: 'partly cloudy', 3: 'overcast', 45: 'fog', 48: 'fog', 51: 'light drizzle', 53: 'drizzle', 55: 'heavy drizzle', 56: 'freezing drizzle', 57: 'freezing drizzle', 61: 'light rain', 63: 'rain', 65: 'heavy rain', 66: 'freezing rain', 67: 'freezing rain', 71: 'light snow', 73: 'snow', 75: 'heavy snow', 77: 'snow grains', 80: 'light showers', 81: 'showers', 82: 'heavy showers', 85: 'snow showers', 86: 'snow showers', 95: 'thunderstorm', 96: 'thunderstorm with hail', 99: 'thunderstorm with hail'};
+function weatherIntent(t) { return t.length < 200 && !/```/.test(t) && /\b(weather|forecast|rain(ing|y)?|temperature|how (hot|cold|warm)|umbrella|sunny|windy|storm|snow(ing)?|jacket)\b/i.test(t); }
+function wxPlaceFromText(t) { const m = t.match(/\b(?:in|for|at)\s+([A-Z][\w'\-]*(?:\s+[A-Z][\w'\-]*){0,2})/); return m ? m[1].trim() : ''; }
+function wxAgo(ms) { const m = Math.round(ms / 60000); return m < 60 ? Math.max(1, m) + ' minutes ago' : m < 2880 ? Math.round(m / 60) + ' hours ago' : Math.round(m / 1440) + ' days ago'; }
+async function wxGeocode(name) {
+  const g = await httpGet('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=' + encodeURIComponent(name));
+  if (!g.ok) return {offline: true};
+  try { const r = JSON.parse(g.body).results; if (r && r[0]) return {lat: r[0].latitude, lon: r[0].longitude, label: r[0].name + (r[0].country ? ', ' + r[0].country : '')}; } catch (e) {}
+  return {missing: true};
+}
+function wxBarometer() {
+  try {
+    if (!hasBridge || !Android.pressure) return '';
+    const p = JSON.parse(Android.pressure()); if (!p.has || p.hpa == null) return '';
+    let t = 'Phone barometer: ' + p.hpa + ' hPa. ';
+    if (p.change == null) t += 'Not enough readings yet to see a trend (it learns while the app is used).';
+    else if (p.change <= -1) t += 'Pressure is falling (' + p.change + ' hPa over ' + p.hours + ' h), which often means the weather is getting worse.';
+    else if (p.change >= 1) t += 'Pressure is rising (+' + p.change + ' hPa over ' + p.hours + ' h), which often means the weather is improving.';
+    else t += 'Pressure is steady, so little change is likely soon.';
+    return t + ' This is only a rough hint, not a forecast.';
+  } catch (e) { return ''; }
+}
+function wxFormat(c, stale) {
+  const d = c.data, cu = d.current || {}, dl = d.daily || {time: []}, age = Date.now() - c.at, L = [];
+  L.push('Weather for ' + c.label + (stale ? ' - NO INTERNET. This is the saved forecast from ' + wxAgo(age) + '; tell the person it may be out of date.' : ' (just updated):'));
+  if (cu.temperature_2m != null && (!stale || age < 3 * 3600000))
+    L.push((stale ? 'When saved' : 'Now') + ': ' + Math.round(cu.temperature_2m) + '°C (feels ' + Math.round(cu.apparent_temperature) + '°C), ' + (WX_CODES[cu.weather_code] || 'unknown') + ', wind ' + Math.round(cu.wind_speed_10m) + ' km/h, humidity ' + cu.relative_humidity_2m + '%.');
+  const today = new Date().toLocaleDateString('en-CA'); let n = 0;
+  dl.time.forEach((day, i) => {
+    if (day < today || n >= 7) return; n++;
+    const nm = new Date(day + 'T12:00:00').toLocaleDateString(undefined, {weekday: 'short', day: 'numeric', month: 'short'});
+    L.push(nm + (day === today ? ' (today)' : '') + ': ' + Math.round(dl.temperature_2m_min[i]) + ' to ' + Math.round(dl.temperature_2m_max[i]) + '°C, ' + (WX_CODES[dl.weather_code[i]] || '') + ', rain chance ' + (dl.precipitation_probability_max[i] == null ? '?' : dl.precipitation_probability_max[i]) + '%' + (dl.precipitation_sum[i] > 0.1 ? ' (' + dl.precipitation_sum[i] + ' mm)' : ''));
+  });
+  if (!n) L.push('The saved forecast is too old to cover today.');
+  return L.join('\n');
+}
+async function weatherReport(place) {
+  S.wx = S.wx || {};
+  place = String(place || '').trim().slice(0, 60);
+  let key = '', loc = null, offline = false;
+  if (!place) {
+    try { const l = JSON.parse(Android.locationGet ? Android.locationGet() : '{}'); if (l.lat != null) { loc = {lat: l.lat, lon: l.lon, label: 'your location'}; key = 'here'; } } catch (e) {}
+    if (!loc) place = (S.settings.city || '').trim();
+  }
+  if (!loc && place) {
+    key = place.toLowerCase();
+    const g = await wxGeocode(place);
+    if (g.missing) return {ok: false, text: 'Error: could not find a place called "' + place + '".', label: 'Weather: unknown place'};
+    if (g.offline) offline = true; else loc = g;
+  }
+  if (!key) {
+    const bar = wxBarometer();
+    return {ok: false, label: 'Weather: no location', text: 'I do not know where the person is. Ask them for a city, or tell them to allow Location in the app Permissions or type My city in Settings.' + (bar ? '\n' + bar : '')};
+  }
+  let c = null;
+  if (loc) {
+    const r = await httpGet('https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat + '&longitude=' + loc.lon + '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum&timezone=auto&forecast_days=7');
+    if (r.ok) {
+      try {
+        c = {at: Date.now(), label: loc.label, lat: loc.lat, lon: loc.lon, data: JSON.parse(r.body)};
+        S.wx[key] = c;
+        const keys = Object.keys(S.wx).sort((a, b) => S.wx[b].at - S.wx[a].at); keys.slice(4).forEach(k => delete S.wx[k]);
+        persist();
+      } catch (e) { c = null; }
+    }
+  }
+  const bar = wxBarometer();
+  if (c) return {ok: true, label: 'Weather: ' + c.label, text: wxFormat(c, false) + (bar ? '\n' + bar : '')};
+  const saved = S.wx[key];
+  if (saved) return {ok: true, label: 'Weather (saved forecast): ' + saved.label, text: wxFormat(saved, true) + (bar ? '\n' + bar : '')};
+  return {ok: !!bar, label: 'Weather: offline', text: 'No internet and no saved forecast for ' + (key === 'here' ? 'this place' : place) + '. Say you cannot give a forecast right now.' + (bar ? '\n' + bar : '')};
 }
 async function statPaths(paths) {
   const out = [], cache = {};
@@ -1477,13 +1581,18 @@ function bigFilesText(res, minMb) {
 const noAccess = () => ({text: 'Error: the app does not have permission to see files yet. Tell the person to open Settings > Files on this phone and allow access.', chip: {icon: '🔒', label: 'Needs permission to see your files', action: () => openFiles()}});
 /* runs one tool, returns {text for the AI, chip for the person, note for the history} */
 async function runTool(name, args) {
-  const filesTool = name !== 'search_web';
+  const filesTool = name !== 'search_web' && name !== 'get_weather';
   if (filesTool) {
     if (!settingOn('aiFiles') || typeof Android.fsAccess !== 'function') return {text: 'Error: file tools are switched off.', chip: {icon: '⚠️', label: 'File tools are off'}};
     if (!Android.fsAccess()) return noAccess();
   } else if (!settingOn('aiWeb')) return {text: 'Error: web search is switched off.', chip: {icon: '⚠️', label: 'Web search is off'}};
   const root = Android.fsRoot ? Android.fsRoot() : '/storage/emulated/0';
   try {
+    if (name === 'get_weather') {
+      setStatus('Checking the weather...');
+      const r = await weatherReport(args.place);
+      return {text: r.text, chip: {icon: r.ok ? '\u{1F326}\uFE0F' : '\u26A0\uFE0F', label: r.label || 'Weather'}};
+    }
     if (name === 'search_web') {
       const q = String(args.query || '').trim().slice(0, 200); if (!q) return {text: 'Error: no query given.', chip: {icon: '⚠️', label: 'Empty search'}};
       setStatus('Searching the web...');
@@ -1549,6 +1658,11 @@ function initSettings() {
   if (dev.cpu) $('cpuInfo').textContent = 'Speed mode: ' + dev.cpu + (dev.cpu === 'basic' ? ' (this phone has no extra speed features)' : '');
   ['ttsAuto', 'sttSend', 'convo'].forEach(k => { const el = $('s_' + k); el.checked = !!S.settings[k]; el.onchange = () => { S.settings[k] = el.checked; persist(); }; });
   wakeRefresh();
+  $('s_userName').value = S.settings.userName || ''; $('s_userName').oninput = () => { S.settings.userName = $('s_userName').value.trim(); persist(); };
+  $('s_city').value = S.settings.city || ''; $('s_city').oninput = () => { S.settings.city = $('s_city').value.trim(); persist(); };
+  $('s_greet').checked = S.settings.greet !== false; $('s_greet').onchange = () => { S.settings.greet = $('s_greet').checked; persist(); };
+  $('s_voice').onchange = () => { try { Android.voiceSet($('s_voice').value); } catch (e) {} testVoice(); };
+  $('voiceTest').onclick = testVoice;
   const th = $('s_theme'); th.value = S.settings.theme || 'auto'; th.onchange = () => { S.settings.theme = th.value; applyTheme(); persist(); };
   const rt = $('s_ttsRate'); rt.value = String(S.settings.ttsRate || 1); rt.onchange = () => { S.settings.ttsRate = parseFloat(rt.value) || 1; persist(); };
   const det = $('s_imgDetail');
@@ -1575,7 +1689,7 @@ function extraSystem(text, hasImg) {
 }
 // The start of this prompt stays the same from message to message, so the AI does not have to read it again (faster).
 function buildSystem(avail, text, hasImg) {
-  const parts = [BASE_SYSTEM];
+  const parts = [BASE_SYSTEM + (userName() ? ' The person\'s name is ' + userName() + '.' : '')];
   cur.skills.forEach(id => { const s = S.skills[id]; if (s) parts.push(s.prompt); });
   if (cur.files.length) parts.push(filesBlock(avail) + 'Answer from these project files when the question is about them; never ask the person to paste them again.');
   return parts.concat(extraSystem(text, hasImg)).filter(Boolean).join('\n\n');
@@ -1675,6 +1789,7 @@ async function send() {
       let pre = null;
       if (tools.includes('files') && storageIntent(text) && Android.fsAccess()) pre = ['find_big_files', {path: Android.fsRoot(), min_mb: 50}];
       else if (tools.includes('files') && pdfIntent(text) && lastAnswer()) pre = ['make_pdf', {title: '', content: lastAnswer()}];
+      else if (tools.includes('web') && weatherIntent(text)) pre = ['get_weather', {place: wxPlaceFromText(text)}];
       else if (tools.includes('web') && webIntent(text) && navigator.onLine !== false) pre = ['search_web', {query: cleanQuery(text)}];
       if (pre) {
         const r = await use(pre[0], pre[1]);
@@ -1745,7 +1860,7 @@ $('send').onclick = send;
 $('prompt').oninput = autosize;
 $('menuBtn').onclick = openDrawer;
 $('scrim').onclick = () => { closeDrawer(); $('settings').classList.remove('open'); };
-$('setBtn').onclick = () => $('settings').classList.toggle('open');
+$('setBtn').onclick = () => { $('settings').classList.toggle('open'); voicesRefresh(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
 
 (function init() {

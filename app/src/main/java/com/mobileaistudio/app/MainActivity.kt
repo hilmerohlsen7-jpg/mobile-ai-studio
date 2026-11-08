@@ -109,6 +109,13 @@ class MainActivity : Activity() {
         requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 8)
     }
 
+    fun hasLocation(): Boolean =
+        checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    fun askLocation() {
+        requestPermissions(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION), 10)
+    }
+
     fun hasFilesAccess(): Boolean =
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             android.os.Environment.isExternalStorageManager()
@@ -166,7 +173,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 8) bridge.onMicResult(grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED)
-        if (requestCode == 7) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
+        if (requestCode == 7 || requestCode == 10) web.evaluateJavascript("window.__onResume && window.__onResume()", null)
     }
 
     private var cameraFile: java.io.File? = null
