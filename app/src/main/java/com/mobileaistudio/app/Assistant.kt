@@ -17,6 +17,40 @@ import java.io.File
 import java.util.Locale
 import java.util.concurrent.Executors
 
+/** Silences the system's start and stop listening beeps while the phone is listening, then puts the volume back. */
+object Hush {
+    private val main = Handler(Looper.getMainLooper())
+    private val streams = intArrayOf(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.STREAM_NOTIFICATION)
+    private val mine = HashSet<Int>()
+    private var ctxRef: Context? = null
+    private val failSafe = Runnable { ctxRef?.let { off(it, 0) } }
+
+    @Synchronized fun on(ctx: Context) {
+        ctxRef = ctx.applicationContext
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        for (st in streams) {
+            if (st in mine) continue
+            try {
+                if (!am.isStreamMute(st)) { am.adjustStreamVolume(st, android.media.AudioManager.ADJUST_MUTE, 0); mine.add(st) }
+            } catch (e: Throwable) {
+            }
+        }
+        main.removeCallbacks(failSafe)
+        main.postDelayed(failSafe, 25000)
+    }
+
+    fun off(ctx: Context, delayMs: Long = 450) {
+        main.removeCallbacks(failSafe)
+        main.postDelayed({ release(ctx) }, delayMs)
+    }
+
+    @Synchronized private fun release(ctx: Context) {
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        for (st in mine) try { am.adjustStreamVolume(st, android.media.AudioManager.ADJUST_UNMUTE, 0) } catch (e: Throwable) {}
+        mine.clear()
+    }
+}
+
 /** The loaded model, shared by the screen and the background assistant so it is only in memory once. */
 object Shared {
     @JvmField val lock = Any()
@@ -145,8 +179,9 @@ object HeadlessAssistant {
             override fun onEndOfSpeech() {}
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
-            override fun onError(error: Int) { main.post { listenError(error) } }
+            override fun onError(error: Int) { Hush.off(app); main.post { listenError(error) } }
             override fun onResults(results: Bundle?) {
+                Hush.off(app)
                 val t = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
                 main.post { heard(t) }
             }
@@ -157,8 +192,10 @@ object HeadlessAssistant {
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, app.packageName)
         try {
+            Hush.on(app)
             r.startListening(i)
         } catch (e: Throwable) {
+            Hush.off(app, 0)
             end()
         }
     }
@@ -193,6 +230,7 @@ object HeadlessAssistant {
     }
 
     private fun end() {
+        Hush.off(app, 0)
         main.post {
             try { sr?.destroy() } catch (e: Throwable) {}
             sr = null

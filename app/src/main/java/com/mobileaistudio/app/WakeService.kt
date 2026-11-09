@@ -210,7 +210,12 @@ class WakeService : Service() {
             main.post { WakeCenter.onWake?.invoke() }
             return
         }
-        if (HeadlessAssistant.configured(this)) {
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val locked = km.isKeyguardLocked || !pm.isInteractive
+        val lockWake = getSharedPreferences("mai", Context.MODE_PRIVATE).getBoolean("lockWake", true)
+        // On a locked or sleeping phone: light the screen and show the app. Unlocked with the app closed: answer by voice only.
+        if (!(locked && lockWake) && HeadlessAssistant.configured(this)) {
             main.post { HeadlessAssistant.start(this) }
             return
         }
@@ -226,6 +231,7 @@ class WakeService : Service() {
         val pi = PendingIntent.getActivity(this, 5, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CH_ALERT) else Notification.Builder(this)
         b.setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle("I heard you").setContentText("Tap to start talking").setAutoCancel(true).setContentIntent(pi)
+            .setCategory(Notification.CATEGORY_CALL).setFullScreenIntent(pi, true)
         try { nm.notify(ALERT_ID, b.build()) } catch (e: Exception) {}
     }
 

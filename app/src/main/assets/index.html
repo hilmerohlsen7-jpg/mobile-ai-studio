@@ -197,6 +197,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <div id="wakeInfo" style="font-size:.75rem;color:var(--mute);margin:4px 0"></div>
   <button id="wakeDl" style="display:none">Download voice model (about 40 MB)</button>
   <label class="chk"><input type="checkbox" id="s_headless"> When the app is closed, answer by voice without opening it</label>
+  <label class="chk"><input type="checkbox" id="s_lockWake"> When the phone is locked, light the screen and show the app</label>
   <label class="chk"><input type="checkbox" id="s_spk" disabled> Only react to my voice</label>
   <label>Voice match<select id="s_spkLevel"><option value="0.75">Relaxed</option><option value="0.6">Normal</option><option value="0.45">Strict</option></select></label>
   <button id="spkGet" style="display:none">Download the voice-match model (about 13 MB)</button>
@@ -362,13 +363,16 @@ function permsRender() {
     ok ? h('span', {class: 'tag'}, 'Allowed') : h('button', {class: 'pri', onclick: () => Android.permRequest(key)}, 'Allow')));
   item('files', 'All files on this phone', 'Lets the AI find big files, read files and save PDFs.', st.files);
   item('loc', 'Location (approximate)', 'Lets the AI give the weather where you are. Without it, set your city in Settings.', st.loc);
+  item('overlay', 'Show over other apps and the lock screen', 'Lets the wake word bring the app up on its own, even when the phone is locked.', st.overlay);
   item('mic', 'Microphone', 'For talking to the AI and the wake word.', st.mic);
   item('notif', 'Notifications', 'Shows download progress and the wake-word listener.', st.notif);
   item('battery', 'Keep running in the background', 'Stops Android putting the app to sleep, so downloads and the wake word keep going.', st.battery);
   if (st.xiaomi) {
     o.append(h('div', {class: 'mrow sel'}, h('div', {class: 'nm'}, '\u{1F4F1} Keep it alive on Xiaomi / Redmi'),
       h('div', {class: 'nt'}, 'Xiaomi phones close background apps. For the wake word to work with the app closed: tap Open below and switch Autostart on for this app. Then open the recent-apps screen, hold on this app\'s card and choose Lock. Under Battery saver for this app choose No restrictions.'),
-      h('button', {class: 'pri', onclick: () => Android.permRequest('autostart')}, 'Open Autostart')));
+      h('button', {class: 'pri', onclick: () => Android.permRequest('autostart')}, 'Open Autostart'),
+      h('div', {class: 'nt'}, 'Also open this app\'s permissions and allow: Show on lock screen, and Display pop-up windows while running in the background.'),
+      h('button', {class: 'pri', onclick: () => Android.permRequest('miuiperms')}, 'Open permissions')));
   }
   if (st.sdk >= 33 && st.sideloaded) {
     o.append(h('div', {class: 'mrow sel'}, h('div', {class: 'nm'}, '\u{1F513} Unlock restricted settings'),
@@ -402,6 +406,7 @@ function wakeRefresh() {
   $('wakeInfo').textContent = wakeSt.model
     ? (wakeSt.on ? 'Listening for "Hey ' + (wakeSt.name || 'Ajax') + '". Uses some battery. English only. Works offline.' : 'Voice model ready. Switch it on to listen for "Hey ' + (wakeSt.name || 'Ajax') + '".')
     : 'First download the small offline voice model. English only.';
+  $('s_lockWake').checked = wakeSt.lockWake !== false;
   $('spkGet').style.display = wakeSt.spkModel ? 'none' : 'block';
   $('spkTeach').disabled = !wakeSt.spkModel || !wakeSt.on;
   $('spkClear').style.display = wakeSt.enrolled ? 'block' : 'none';
@@ -413,6 +418,7 @@ function wakeRefresh() {
 }
 function spkApply() { try { Android.spkSet($('s_spk').checked, parseFloat($('s_spkLevel').value)); } catch (e) {} }
 $('s_spk').onchange = spkApply; $('s_spkLevel').onchange = spkApply;
+$('s_lockWake').onchange = () => { try { Android.lockWakeSet($('s_lockWake').checked); } catch (e) {} };
 $('s_headless').onchange = () => { S.settings.headless = $('s_headless').checked; persist(); };
 $('spkGet').onclick = () => { $('spkGet').disabled = true; $('spkGet').textContent = 'Downloading 0%'; Android.spkDownloadModel(); };
 window.__onSpkModel = json => {
@@ -1678,6 +1684,7 @@ async function runTool(name, args) {
   const filesTool = name !== 'search_web' && name !== 'get_weather' && name !== 'read_url';
   if (filesTool) {
     if (!settingOn('aiFiles') || typeof Android.fsAccess !== 'function') return {text: 'Error: file tools are switched off.', chip: {icon: '⚠️', label: 'File tools are off'}};
+    if (Android.isLocked && Android.isLocked()) return {text: 'Error: the phone is locked, so file tools are off. Tell the person to unlock the phone first.', chip: {icon: '\u{1F512}', label: 'Phone is locked'}};
     if (!Android.fsAccess()) return noAccess();
   } else if (!settingOn('aiWeb')) return {text: 'Error: web search is switched off.', chip: {icon: '⚠️', label: 'Web search is off'}};
   const root = Android.fsRoot ? Android.fsRoot() : '/storage/emulated/0';

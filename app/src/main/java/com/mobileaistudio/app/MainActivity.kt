@@ -19,6 +19,7 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra("wake", false) == true) showOverLock(true)
         web = WebView(this)
         val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         web.setBackgroundColor(if (night) 0xFF262624.toInt() else 0xFFFAF9F5.toInt())
@@ -149,14 +150,30 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Opened by the wake word on a locked or sleeping phone: light the screen and show over the lock screen, for this visit only. */
+    private fun showOverLock(on: Boolean) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 27) {
+                setShowWhenLocked(on)
+                setTurnScreenOn(on)
+            } else {
+                val f = android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                if (on) window.addFlags(f) else window.clearFlags(f)
+            }
+        } catch (e: Throwable) {
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.getBooleanExtra("wake", false)) showOverLock(true)
         setIntent(intent)
         if (::bridge.isInitialized) bridge.onShare(intent)
     }
 
     override fun onPause() {
         WakeCenter.visible = false
+        showOverLock(false)
         super.onPause()
     }
 

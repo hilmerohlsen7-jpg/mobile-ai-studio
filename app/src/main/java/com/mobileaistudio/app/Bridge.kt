@@ -1542,6 +1542,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     private fun startListening(offline: Boolean = true) {
         WakeCenter.paused = true
+        Hush.on(activity)
         try { tts?.stop() } catch (e: Throwable) {}
         try { recognizer?.destroy() } catch (e: Throwable) {}
         val r = android.speech.SpeechRecognizer.createSpeechRecognizer(activity)
@@ -1553,6 +1554,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             override fun onBufferReceived(b: ByteArray?) {}
             override fun onEndOfSpeech() { js("__onSpeech", JSONObject().put("state", "thinking").toString()) }
             override fun onError(code: Int) {
+                Hush.off(activity)
                 // The recognizer service dropped or has no offline pack: try again online, then fall back to the phone's own voice window.
                 if (code == 11 || code == 12 || code == 13 || code == 5) {
                     ui.postDelayed({
@@ -1579,6 +1581,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 js("__onSpeech", JSONObject().put("state", "error").put("msg", msg).toString())
             }
             override fun onResults(b: android.os.Bundle?) {
+                Hush.off(activity)
                 WakeCenter.paused = false
                 val t = b?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
                 js("__onSpeech", JSONObject().put("state", "done").put("text", t).toString())
@@ -1611,6 +1614,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     @JavascriptInterface
     fun cancelListening() {
+        Hush.off(activity)
         ui.post { try { recognizer?.cancel() } catch (e: Throwable) {} }
     }
 
@@ -1638,6 +1642,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         .put("level", prefs.getFloat("spkLevel", 0.6f).toDouble())
         .put("lastDist", WakeCenter.lastDist)
         .put("lastConf", WakeCenter.lastConf)
+        .put("lockWake", prefs.getBoolean("lockWake", true))
         .toString()
 
     /** The settings the background assistant needs while the screen is closed (model, name, city, online key). */
@@ -1828,6 +1833,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             .put("notif", notif)
             .put("files", activity.hasFilesAccess())
             .put("loc", activity.hasLocation())
+            .put("overlay", android.provider.Settings.canDrawOverlays(activity))
             .put("battery", pm.isIgnoringBatteryOptimizations(activity.packageName))
             .put("xiaomi", android.os.Build.MANUFACTURER.lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") })
             .put("sdk", android.os.Build.VERSION.SDK_INT)
@@ -1912,6 +1918,14 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     @JavascriptInterface
+    fun isLocked(): Boolean = (activity.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager).isKeyguardLocked
+
+    @JavascriptInterface
+    fun lockWakeSet(on: Boolean) {
+        prefs.edit().putBoolean("lockWake", on).apply()
+    }
+
+    @JavascriptInterface
     fun permRequest(kind: String) {
         ui.post {
             when (kind) {
@@ -1920,6 +1934,16 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 "files" -> activity.requestFilesAccess()
                 "battery" -> activity.askBattery()
                 "loc" -> activity.askLocation()
+                "overlay" -> try {
+                    activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + activity.packageName)))
+                } catch (e: Exception) {
+                    activity.openAppInfo()
+                }
+                "miuiperms" -> try {
+                    activity.startActivity(android.content.Intent("miui.intent.action.APP_PERM_EDITOR").setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity").putExtra("extra_pkgname", activity.packageName))
+                } catch (e: Exception) {
+                    activity.openAppInfo()
+                }
                 "autostart" -> {
                     var done = false
                     for (cls in listOf("com.miui.permcenter.autostart.AutoStartManagementActivity", "com.miui.securitycenter.autostart.AutoStartManagementActivity")) {
