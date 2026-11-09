@@ -606,6 +606,59 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    /** Reads one web page the person pasted into the chat (any https site, never the phone's own network). The answer arrives in __onHttp. */
+    @JavascriptInterface
+    fun pageGet(reqId: String, url: String) {
+        httpPool.execute {
+            val o = JSONObject().put("id", reqId)
+            try {
+                var cur = java.net.URL(url)
+                var hops = 0
+                while (true) {
+                    if (cur.protocol != "https") throw Exception("Only https links can be read.")
+                    for (a in java.net.InetAddress.getAllByName(cur.host)) {
+                        if (a.isLoopbackAddress || a.isAnyLocalAddress || a.isSiteLocalAddress || a.isLinkLocalAddress || a.isMulticastAddress) throw Exception("That address is not allowed.")
+                    }
+                    val c = cur.openConnection() as java.net.HttpURLConnection
+                    c.instanceFollowRedirects = false
+                    c.connectTimeout = 15000
+                    c.readTimeout = 20000
+                    c.setRequestProperty("User-Agent", "Mozilla/5.0 (Android) MobileAIStudio/0.2")
+                    c.setRequestProperty("Accept", "text/html,text/plain,application/json;q=0.9,*/*;q=0.1")
+                    val code = c.responseCode
+                    if (code in 300..399 && hops < 4) {
+                        val loc = c.getHeaderField("Location") ?: throw Exception("The page redirected nowhere.")
+                        cur = java.net.URL(cur, loc)
+                        c.disconnect()
+                        hops++
+                        continue
+                    }
+                    val type = (c.contentType ?: "").lowercase()
+                    if (code in 200..299 && !(type.startsWith("text/") || type.contains("json") || type.contains("xml") || type.isEmpty())) throw Exception("That link is not a web page ($type).")
+                    val charset = Regex("charset=([\\w-]+)").find(type)?.groupValues?.get(1) ?: "UTF-8"
+                    val stream = if (code in 200..299) c.inputStream else c.errorStream
+                    val bytes = java.io.ByteArrayOutputStream()
+                    stream?.use { ins ->
+                        val buf = ByteArray(16384)
+                        while (true) {
+                            val n = ins.read(buf)
+                            if (n < 0) break
+                            bytes.write(buf, 0, n)
+                            if (bytes.size() > 1_500_000) break
+                        }
+                    }
+                    val body = try { bytes.toString(charset) } catch (e: Exception) { bytes.toString("UTF-8") }
+                    o.put("ok", code in 200..299).put("status", code).put("body", body).put("url", cur.toString())
+                    c.disconnect()
+                    break
+                }
+            } catch (e: Exception) {
+                o.put("ok", false).put("status", 0).put("body", "").put("msg", e.message ?: "Network problem.")
+            }
+            js("__onHttp", o.toString())
+        }
+    }
+
     @JavascriptInterface
     fun deleteModel(id: String) {
         val f = Catalog.fileFor(modelsDir, id) ?: return

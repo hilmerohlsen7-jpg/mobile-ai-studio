@@ -1028,6 +1028,28 @@ function httpGet(url) {
     setTimeout(() => { if (httpCbs[id]) { delete httpCbs[id]; resolve({ok: false, msg: 'The search took too long.'}); } }, 30000);
   });
 }
+function pageGet(url) {
+  return new Promise(resolve => {
+    if (!hasBridge || !Android.pageGet) { resolve({ok: false, msg: 'Not available here.'}); return; }
+    const id = uid(); httpCbs[id] = resolve; Android.pageGet(id, url);
+    setTimeout(() => { if (httpCbs[id]) { delete httpCbs[id]; resolve({ok: false, msg: 'The page took too long.'}); } }, 40000);
+  });
+}
+function htmlToText(html) {
+  let doc; try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch (e) { return html.slice(0, 6000); }
+  doc.querySelectorAll('script,style,noscript,svg,nav,footer,header,aside,form,iframe,button,select').forEach(e => e.remove());
+  const root = doc.querySelector('article') || doc.querySelector('main') || doc.body || doc.documentElement;
+  root.querySelectorAll('p,h1,h2,h3,h4,h5,li,br,tr,div,section,pre').forEach(e => e.append('\n'));
+  let t = (root.textContent || '').replace(/[ \t\u00A0]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const title = (doc.title || '').trim();
+  return (title ? title + '\n\n' : '') + t;
+}
+const BINARY_URL = /\.(pdf|zip|apk|jar|torrent|mp4|mp3|mkv|png|jpe?g|gif|webp|gguf|iso|exe|rar|7z)(\?|#|$)/i;
+function urlIn(t) {
+  const m = String(t).match(/https?:\/\/[^\s<>"')\]]+/i); if (!m) return '';
+  const u = m[0].replace(/^http:/i, 'https:').replace(/[.,;:!?]+$/, '');
+  return BINARY_URL.test(u) || /\bdownload\b/i.test(t) ? '' : u;
+}
 let findState = {q: '', results: null, busy: false, err: '', open: null, files: null, filesBusy: false, filesErr: ''};
 const added = new Set();
 const HF = 'https://huggingface.co';
@@ -1653,7 +1675,7 @@ function bigFilesText(res, minMb) {
 const noAccess = () => ({text: 'Error: the app does not have permission to see files yet. Tell the person to open Settings > Files on this phone and allow access.', chip: {icon: '🔒', label: 'Needs permission to see your files', action: () => openFiles()}});
 /* runs one tool, returns {text for the AI, chip for the person, note for the history} */
 async function runTool(name, args) {
-  const filesTool = name !== 'search_web' && name !== 'get_weather';
+  const filesTool = name !== 'search_web' && name !== 'get_weather' && name !== 'read_url';
   if (filesTool) {
     if (!settingOn('aiFiles') || typeof Android.fsAccess !== 'function') return {text: 'Error: file tools are switched off.', chip: {icon: '⚠️', label: 'File tools are off'}};
     if (!Android.fsAccess()) return noAccess();
@@ -1664,6 +1686,16 @@ async function runTool(name, args) {
       setStatus('Checking the weather...');
       const r = await weatherReport(args.place);
       return {text: r.text, chip: {icon: r.ok ? '\u{1F326}\uFE0F' : '\u26A0\uFE0F', label: r.label || 'Weather'}};
+    }
+    if (name === 'read_url') {
+      const u = String(args.url || ''); let host = u; try { host = new URL(u).hostname; } catch (e) {}
+      setStatus('Reading ' + host + '...');
+      const r = await pageGet(u);
+      if (!r.ok) return {text: 'Error: could not read the page (' + (r.msg || ('status ' + r.status)) + '). Tell the person, using "you".', chip: {icon: '\u26A0\uFE0F', label: 'Could not read ' + host}};
+      const LIM = 6000; let txt = /html/i.test(r.body.slice(0, 400)) || /<\/(p|div|body)>/i.test(r.body) ? htmlToText(r.body) : r.body.trim();
+      const cut = txt.length > LIM;
+      if (!txt) return {text: 'The page had no readable text. Tell the person.', chip: {icon: '\u26A0\uFE0F', label: 'Nothing to read on ' + host}};
+      return {text: 'Page text from ' + u + ':\n' + txt.slice(0, LIM) + (cut ? '\n[The page is longer; only the start was read. Say so.]' : '') + '\nAnswer the person using this text only.', chip: {icon: '\u{1F310}', label: 'Read ' + host}, note: 'Page ' + u + ':\n' + txt.slice(0, 700)};
     }
     if (name === 'search_web') {
       const q = String(args.query || '').trim().slice(0, 200); if (!q) return {text: 'Error: no query given.', chip: {icon: '⚠️', label: 'Empty search'}};
@@ -1869,6 +1901,7 @@ async function send() {
       let pre = null;
       if (tools.includes('files') && storageIntent(text) && Android.fsAccess()) pre = ['find_big_files', {path: Android.fsRoot(), min_mb: 50}];
       else if (tools.includes('files') && pdfIntent(text) && lastAnswer()) pre = ['make_pdf', {title: '', content: lastAnswer()}];
+      else if (tools.includes('web') && urlIn(text)) pre = ['read_url', {url: urlIn(text)}];
       else if (tools.includes('web') && wxAskedPlace && text.trim().split(/\s+/).length <= 4 && !/[?]/.test(text) && !weatherIntent(text)) { wxAskedPlace = false; pre = ['get_weather', {place: text.trim().replace(/^(in|for|at)\s+/i, '')}]; }
       else if (tools.includes('web') && weatherIntent(text)) pre = ['get_weather', {place: wxPlaceFromText(text)}];
       else if (tools.includes('web') && webIntent(text) && navigator.onLine !== false) pre = ['search_web', {query: cleanQuery(text)}];
