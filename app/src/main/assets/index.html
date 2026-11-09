@@ -198,6 +198,8 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
   <button id="wakeDl" style="display:none">Download voice model (about 40 MB)</button>
   <label class="chk"><input type="checkbox" id="s_headless"> When the app is closed, answer by voice without opening it</label>
   <label class="chk"><input type="checkbox" id="s_lockWake"> When the phone is locked, light the screen and show the app</label>
+  <button id="assistBtn">Make this the phone's assistant (hold the power button)</button>
+  <div id="assistInfo" style="font-size:.75rem;color:var(--mute);margin:4px 0"></div>
   <label class="chk"><input type="checkbox" id="s_spk" disabled> Only react to my voice</label>
   <label>Voice match<select id="s_spkLevel"><option value="0.75">Relaxed</option><option value="0.6">Normal</option><option value="0.45">Strict</option></select></label>
   <button id="spkGet" style="display:none">Download the voice-match model (about 13 MB)</button>
@@ -416,6 +418,13 @@ function wakeRefresh() {
     : !wakeSt.enrolled ? 'Not taught yet. Switch the wake word on, then tap "Teach it my voice" and say the wake phrase 5 times.'
     : 'Your voice is saved.' + (wakeSt.lastDist >= 0 ? ' Last try: distance ' + wakeSt.lastDist.toFixed(2) + ' (accepted when below ' + Number(wakeSt.level).toFixed(2) + ').' : '') + (wakeSt.lastConf >= 0 ? ' Clarity ' + Math.round(wakeSt.lastConf * 100) + '%.' : '');
 }
+function assistRefresh() {
+  if (!hasBridge || !Android.assistStatus) { $('assistBtn').style.display = 'none'; return; }
+  let r = {}; try { r = JSON.parse(Android.assistStatus()); } catch (e) {}
+  $('assistInfo').textContent = r.isDefault ? 'Done. Holding the power button (or your assistant gesture) now opens this app, even on the lock screen. No listening in between, so no mic light.'
+    : 'Not set yet. Tap the button, open "Digital assistant app" and choose Mobile AI Studio. You can also add the "Ask the AI" tile to your Quick Settings panel.';
+}
+$('assistBtn').onclick = () => { try { Android.assistOpenSettings(); } catch (e) {} };
 function spkApply() { try { Android.spkSet($('s_spk').checked, parseFloat($('s_spkLevel').value)); } catch (e) {} }
 $('s_spk').onchange = spkApply; $('s_spkLevel').onchange = spkApply;
 $('s_lockWake').onchange = () => { try { Android.lockWakeSet($('s_lockWake').checked); } catch (e) {} };
@@ -1339,7 +1348,7 @@ function openFiles() {
   renderFiles(); $('files').classList.add('open');
 }
 function closeFiles() { $('files').classList.remove('open'); }
-window.__onResume = () => { if ($('perms').classList.contains('open')) permsRender();  if ($('files').classList.contains('open')) { FS.access = !!Android.fsAccess(); if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); } };
+window.__onResume = () => { if ($('settings').classList.contains('open')) { try { assistRefresh(); wakeRefresh(); } catch (e) {} } if ($('perms').classList.contains('open')) permsRender();  if ($('files').classList.contains('open')) { FS.access = !!Android.fsAccess(); if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); } };
 function topbar(title, back) { return h('div', {class: 'topbar'}, h('h2', null, title), back ? h('button', {onclick: back}, 'Back') : null, h('button', {onclick: closeFiles}, 'Close')); }
 function renderFiles() {
   const o = $('files'); o.textContent = '';
@@ -1981,7 +1990,7 @@ $('send').onclick = send;
 $('prompt').oninput = autosize;
 $('menuBtn').onclick = openDrawer;
 $('scrim').onclick = () => { closeDrawer(); $('settings').classList.remove('open'); };
-$('setBtn').onclick = () => { $('settings').classList.toggle('open'); voicesRefresh(); wakeRefresh(); };
+$('setBtn').onclick = () => { $('settings').classList.toggle('open'); voicesRefresh(); wakeRefresh(); assistRefresh(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
 
 (function init() {

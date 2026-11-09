@@ -1920,6 +1920,31 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun isLocked(): Boolean = (activity.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager).isKeyguardLocked
 
+    /** Is this app the phone's chosen digital assistant? */
+    @JavascriptInterface
+    fun assistStatus(): String {
+        var cur = ""
+        for (k in listOf("voice_interaction_service", "assistant")) {
+            try { cur += " " + (android.provider.Settings.Secure.getString(activity.contentResolver, k) ?: "") } catch (e: Exception) {}
+        }
+        return JSONObject().put("isDefault", cur.contains(activity.packageName)).toString()
+    }
+
+    @JavascriptInterface
+    fun assistOpenSettings() {
+        ui.post {
+            try {
+                activity.startActivity(android.content.Intent("android.settings.VOICE_INPUT_SETTINGS"))
+            } catch (e: Exception) {
+                try {
+                    activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                } catch (e2: Exception) {
+                    activity.openAppInfo()
+                }
+            }
+        }
+    }
+
     @JavascriptInterface
     fun lockWakeSet(on: Boolean) {
         prefs.edit().putBoolean("lockWake", on).apply()
