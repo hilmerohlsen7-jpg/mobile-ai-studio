@@ -215,6 +215,10 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .aico.big{width:56px;height:56px;font-size:1.5rem}
 .arow{display:flex;align-items:center;gap:14px;text-align:left;border:0;border-radius:20px;background:var(--panel);padding:14px 16px}
 #sheet .sbox.add .st b{font-weight:500}
+.xtabs{display:flex;gap:6px;padding:6px 8px;background:#151515}
+.xtabs button{flex:1;background:#222;border:0;border-radius:10px;padding:8px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.xtabs button.on{background:#0f2f2f;color:#fff;outline:2px solid #1f9d9d}
+.xtabs button.swap{flex:0 0 44px;color:#fff;font-size:1.2rem}
 #files.x{padding:0;background:#0b0b0b;overflow:hidden}
 #files.x.open{display:flex;flex-direction:column}
 .xtop{display:flex;align-items:center;gap:6px;padding:10px 8px;background:#151515}
@@ -1493,7 +1497,9 @@ function renderFiles() {
   return renderXplore(o);
 }
 /* ---- X-plore style browser: tree rows, tick boxes, tool strip on the right ---- */
-FS.sel = new Set(); FS.open = new Set(); FS.clip = []; FS.hidden = false; FS.sort = 'name'; FS.filter = ''; FS.cnt = {};
+FS.panes = [{path: FS.path || '', sel: new Set(), open: new Set()}, {path: '', sel: new Set(), open: new Set()}]; FS.active = 0;
+['path', 'sel', 'open'].forEach(k => Object.defineProperty(FS, k, {get() { return FS.panes[FS.active][k]; }, set(v) { FS.panes[FS.active][k] = v; }, configurable: true}));
+FS.clip = []; FS.hidden = false; FS.sort = 'name'; FS.filter = ''; FS.cnt = {};
 function fsSortItems(items) {
   const f = FS.sort;
   return items.slice().sort((x, y) => (y.dir - x.dir) || (f === 'size' ? (y.size - x.size) : f === 'date' ? (y.mtime - x.mtime) : x.name.toLowerCase().localeCompare(y.name.toLowerCase())));
@@ -1510,9 +1516,17 @@ FS.kind = {}; FS.size = {};
 function renderXplore(o) {
   o.classList.add('x');
   o.append(h('div', {class: 'xtop'}, h('button', {onclick: fsBack, 'aria-label': 'Back'}, '←'), h('div', {class: 'xt'}, 'Files on this phone'), h('button', {onclick: closeFiles, 'aria-label': 'Close'}, '✕')));
+  if (!FS.panes[1].path) FS.panes[1].path = FS.root;
+  const tabs = h('div', {class: 'xtabs'});
+  [0, 1].forEach(i => tabs.append(h('button', {class: i === FS.active ? 'on' : '', onclick: () => { FS.active = i; renderFiles(); }}, (i + 1) + ': ' + (baseName(FS.panes[i].path) || '/'))));
+  tabs.append(h('button', {class: 'swap', onclick: () => { FS.active = 1 - FS.active; renderFiles(); }, 'aria-label': 'Swap panel'}, '\u21C4'));
+  o.append(tabs);
   o.append(h('div', {class: 'xpath'}, FS.path));
   const wrap = h('div', {class: 'xwrap'});
   const list = h('div', {class: 'xlist'});
+  let tx = null;
+  list.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, {passive: true});
+  list.addEventListener('touchend', e => { if (tx === null) return; const dx = e.changedTouches[0].clientX - tx; tx = null; if (Math.abs(dx) > 90) { FS.active = 1 - FS.active; renderFiles(); } });
   const root = fsListed(FS.path);
   if (!root) { list.append(h('div', {class: 'err'}, 'Could not open this folder.')); }
   else {
@@ -1543,7 +1557,25 @@ function renderXplore(o) {
   const tb = (ico, t, fn, off) => bar.append(h('button', {class: 'xtb' + (off ? ' off' : ''), onclick: off ? () => toast('Tick a file or folder first.') : fn}, h('span', null, ico), t));
   tb('⬆', 'Up dir', () => { if (FS.path !== FS.root) { FS.path = parentOf(FS.path); FS.sel.clear(); renderFiles(); } else toast('This is the top.'); });
   tb('✏', 'Rename', () => { const p = [...FS.sel][0]; fsRename({name: baseName(p), dir: FS.kind[p]}, p); FS.sel.clear(); }, !one);
-  tb('\u{1F4D1}', 'Copy', () => { FS.clip = [...FS.sel]; FS.sel.clear(); toast(FS.clip.length + ' copied. Open the target folder and tap Paste.'); renderFiles(); }, !n);
+  const other = FS.panes[1 - FS.active];
+  const xfer = async move => {
+    const its = fsSelItems(), dest = other.path;
+    if (dest === FS.path) { toast('Both panels show the same folder. Open another folder in the other panel first.'); return; }
+    const c = await askApproval({title: (move ? 'Move ' : 'Copy ') + its.length + ' item(s) to the other panel', path: dest, reason: 'You chose ' + (move ? 'Move' : 'Copy') + ' to the other panel.',
+      rows: [['From', FS.path], ['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]],
+      primary: {label: move ? 'Approve: move them' : 'Approve: copy them', value: 'ok'}, note: move ? 'Moving copies first, then sends the originals to the Trash. Undo brings both back.' : ''});
+    if (c === 'deny') return; const ids = [];
+    for (const x of its) {
+      const r = await fsOp({type: 'copy', path: x.p, destDir: dest, reason: 'Transfer to the other panel.'});
+      if (!r.ok) { toast(r.msg || 'Copy failed.'); continue; }
+      if (r.entryId) ids.push(r.entryId);
+      if (move) { const d = await fsOp({type: 'delete', path: x.p, reason: 'Moved to the other panel.'}); if (d.ok && d.entryId) ids.push(d.entryId); }
+    }
+    FS.sel.clear(); showUndo((move ? 'Moved ' : 'Copied ') + its.length + ' item(s).', ids); renderFiles();
+  };
+  tb('\u27A1', 'Copy to ' + (2 - FS.active), () => xfer(false), !n);
+  tb('\u2702', 'Move to ' + (2 - FS.active), () => xfer(true), !n);
+  tb('\u{1F4D1}', 'Clipboard', () => { FS.clip = [...FS.sel]; FS.sel.clear(); toast(FS.clip.length + ' copied. Open the target folder and tap Paste.'); renderFiles(); }, !n);
   if (FS.clip.length) tb('\u{1F4CB}', 'Paste (' + FS.clip.length + ')', async () => { const items = FS.clip.slice(); const c = await askApproval({title: 'Paste ' + items.length + ' item(s) here', path: FS.path, reason: 'You chose Paste in the file browser.', rows: [['Items', items.map(baseName).join(', ')]], primary: {label: 'Approve: copy here', value: 'ok'}}); if (c === 'deny') return; const ids = []; for (const q2 of items) { const r = await fsOp({type: 'copy', path: q2, destDir: FS.path, reason: 'You chose Paste in the file browser.'}); if (!r.ok) toast(r.msg || 'Copy failed.'); else if (r.entryId) ids.push(r.entryId); } FS.clip = []; showUndo('Pasted ' + items.length + ' item(s).', ids); renderFiles(); });
   tb('➕', 'Add to project', () => { [...FS.sel].filter(p => !FS.kind[p]).forEach(p => addFsFileToProject(p, baseName(p))); FS.sel.clear(); renderFiles(); }, !n);
   tb('\u{1F5D1}', 'Delete', async () => {
