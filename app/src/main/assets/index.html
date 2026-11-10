@@ -215,6 +215,28 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .aico.big{width:56px;height:56px;font-size:1.5rem}
 .arow{display:flex;align-items:center;gap:14px;text-align:left;border:0;border-radius:20px;background:var(--panel);padding:14px 16px}
 #sheet .sbox.add .st b{font-weight:500}
+#files.x{padding:0;background:#0b0b0b;overflow:hidden}
+#files.x.open{display:flex;flex-direction:column}
+.xtop{display:flex;align-items:center;gap:6px;padding:10px 8px;background:#151515}
+.xtop button{background:none;border:0;font-size:1.4rem;padding:6px 10px;color:var(--txt)}
+.xt{flex:1;font-family:Georgia,serif;font-size:1.1rem}
+.xpath{background:#3a3a3a;color:#fff;padding:6px 10px;font-size:.95rem;word-break:break-all}
+.xwrap{flex:1;display:flex;min-height:0}
+.xlist{flex:1;overflow-y:auto;min-width:0}
+.xbar{width:78px;overflow-y:auto;background:#151515;display:flex;flex-direction:column;padding-bottom:10px}
+.xtb{display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:0;border-bottom:1px solid #222;border-radius:0;padding:10px 2px;font-size:.68rem;color:var(--txt)}
+.xtb span{font-size:1.5rem}
+.xtb.off{opacity:.35}
+.xhead,.xrow{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #222}
+.xhead{background:#0f2f2f;border:2px solid #1f9d9d}
+.xrow.sel{background:#0f2f2f}
+.xarrow{width:18px;color:#2aa6e6;text-align:center;flex-shrink:0}
+.xic{font-size:1.6rem;flex-shrink:0}
+.xnm{flex:1;min-width:0;display:flex;flex-direction:column;word-break:break-all}
+.xnm b{font-weight:600;font-size:1rem}
+.xnm small{color:var(--mute);font-size:.75rem;white-space:pre-line}
+.xchk{font-size:1.5rem;color:#444;padding:6px 8px;flex-shrink:0}
+.xrow.sel .xchk{color:#3ddc84}
 </style></head>
 <body>
 <div id="app">
@@ -1453,7 +1475,7 @@ function closeFiles() { $('files').classList.remove('open'); }
 window.__onResume = () => { if ($('settings').classList.contains('open')) { try { assistRefresh(); wakeRefresh(); } catch (e) {} } if ($('perms').classList.contains('open')) permsRender();  if ($('files').classList.contains('open')) { FS.access = !!Android.fsAccess(); if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); } };
 function topbar(title, back) { return h('div', {class: 'topbar'}, h('h2', null, title), back ? h('button', {onclick: back}, 'Back') : null, h('button', {onclick: closeFiles}, 'Close')); }
 function renderFiles() {
-  const o = $('files'); o.textContent = '';
+  const o = $('files'); o.textContent = ''; o.classList.remove('x');
   if (!hasBridge) { o.append(topbar('Files on this phone')); o.append(h('div', {class: 'sub'}, 'The file browser only works in the app.')); return; }
   if (!FS.access) {
     o.append(topbar('Files on this phone'));
@@ -1468,28 +1490,77 @@ function renderFiles() {
   if (FS.view === 'history') return renderHistory(o);
   if (FS.view === 'trash') return renderTrash(o);
   if (FS.view === 'file') return renderFileView(o);
-  const res = fsJson('fsList', FS.path);
-  o.append(topbar('Files on this phone'));
-  const rel = FS.path === FS.root ? 'Phone storage' : 'Phone storage' + FS.path.slice(FS.root.length);
-  const bar = h('div', {class: 'crumbs'}, rel);
-  o.append(bar);
-  const tools = h('div', {class: 'chips'});
-  if (FS.path !== FS.root) tools.append(h('button', {onclick: () => { FS.path = parentOf(FS.path); renderFiles(); }}, '↑ Up'));
-  tools.append(h('button', {onclick: fsNewFolder}, '+ Folder'), h('button', {onclick: fsNewFile}, '+ File'),
-    h('button', {onclick: () => { FS.view = 'history'; renderFiles(); }}, 'History'), h('button', {onclick: () => { FS.view = 'trash'; renderFiles(); }}, 'Trash'));
-  o.append(tools);
-  if (!res.ok) { o.append(h('div', {class: 'err'}, res.msg || 'Could not open this folder.')); return; }
-  FS.items = res.items;
-  if (!res.items.length) o.append(h('div', {class: 'sub'}, 'This folder is empty.'));
-  res.items.forEach(it => {
-    const p = joinPath(FS.path, it.name);
-    const row = h('div', {class: 'frow'});
-    const main = h('div', {class: 'fmain', onclick: () => it.dir ? (FS.path = p, renderFiles(), o.scrollTop = 0) : openFileView(it, p)},
-      h('div', {class: 'nm'}, (it.dir ? '📁 ' : '📄 ') + it.name),
-      h('div', {class: 'meta'}, (it.dir ? 'Folder' : fmtSize(it.size)) + ' · ' + fmtDate(it.mtime)));
-    row.append(main, h('button', {'aria-label': 'Actions', onclick: () => fileActions(it, p)}, '⋯'));
-    o.append(row);
-  });
+  return renderXplore(o);
+}
+/* ---- X-plore style browser: tree rows, tick boxes, tool strip on the right ---- */
+FS.sel = new Set(); FS.open = new Set(); FS.clip = []; FS.hidden = false; FS.sort = 'name'; FS.filter = ''; FS.cnt = {};
+function fsSortItems(items) {
+  const f = FS.sort;
+  return items.slice().sort((x, y) => (y.dir - x.dir) || (f === 'size' ? (y.size - x.size) : f === 'date' ? (y.mtime - x.mtime) : x.name.toLowerCase().localeCompare(y.name.toLowerCase())));
+}
+function fsListed(path) {
+  const r = fsJson('fsList', path);
+  if (!r.ok) return null;
+  let it = r.items; if (!FS.hidden) it = it.filter(x => x.name[0] !== '.');
+  FS.cnt[path] = [it.filter(x => x.dir).length, it.filter(x => !x.dir).length];
+  return fsSortItems(it);
+}
+function fsSelItems() { return [...FS.sel].map(p => ({p: p, name: baseName(p), dir: !!FS.kind[p], size: (FS.size[p] || 0)})); }
+FS.kind = {}; FS.size = {};
+function renderXplore(o) {
+  o.classList.add('x');
+  o.append(h('div', {class: 'xtop'}, h('button', {onclick: fsBack, 'aria-label': 'Back'}, '←'), h('div', {class: 'xt'}, 'Files on this phone'), h('button', {onclick: closeFiles, 'aria-label': 'Close'}, '✕')));
+  o.append(h('div', {class: 'xpath'}, FS.path));
+  const wrap = h('div', {class: 'xwrap'});
+  const list = h('div', {class: 'xlist'});
+  const root = fsListed(FS.path);
+  if (!root) { list.append(h('div', {class: 'err'}, 'Could not open this folder.')); }
+  else {
+    if (FS.path === FS.root) list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F4F1}'), h('span', {class: 'xnm'}, h('b', null, 'Internal shared storage'), h('small', null, FS.root + (FS.cnt[FS.path] ? ' · ' + FS.cnt[FS.path][0] + ' folders · ' + FS.cnt[FS.path][1] + ' files' : '')))));
+    else list.append(h('div', {class: 'xhead', onclick: () => { FS.path = parentOf(FS.path); renderFiles(); }}, h('span', {class: 'xic'}, '↰'), h('span', {class: 'xnm'}, h('b', null, 'Up'), h('small', null, parentOf(FS.path)))));
+    const q = FS.filter.toLowerCase();
+    const draw = (items, base, depth) => {
+      items.forEach(it => {
+        const p = joinPath(base, it.name); FS.kind[p] = it.dir; FS.size[p] = it.size;
+        if (q && !it.dir && !it.name.toLowerCase().includes(q)) return;
+        const open = it.dir && FS.open.has(p);
+        const row = h('div', {class: 'xrow' + (FS.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (8 + depth * 18) + 'px'});
+        row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; if (open) FS.open.delete(p); else FS.open.add(p); renderFiles(); }}, it.dir ? (open ? '▼' : '▶') : ''));
+        row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'));
+        const cnt = FS.cnt[p];
+        row.append(h('span', {class: 'xnm', onclick: () => it.dir ? (FS.path = p, FS.sel.clear(), renderFiles(), o.scrollTop = 0) : openFileView(it, p)},
+          h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + ' · ' + fmtDate(it.mtime))));
+        row.append(h('span', {class: 'xchk', onclick: () => { if (FS.sel.has(p)) FS.sel.delete(p); else FS.sel.add(p); renderFiles(); }}, '✔'));
+        list.append(row);
+        if (open) { const sub = fsListed(p); if (sub) draw(sub, p, depth + 1); }
+      });
+    };
+    if (!root.length) list.append(h('div', {class: 'sub'}, 'This folder is empty.'));
+    draw(root, FS.path, 0);
+  }
+  const bar = h('div', {class: 'xbar'});
+  const n = FS.sel.size, one = n === 1;
+  const tb = (ico, t, fn, off) => bar.append(h('button', {class: 'xtb' + (off ? ' off' : ''), onclick: off ? () => toast('Tick a file or folder first.') : fn}, h('span', null, ico), t));
+  tb('⬆', 'Up dir', () => { if (FS.path !== FS.root) { FS.path = parentOf(FS.path); FS.sel.clear(); renderFiles(); } else toast('This is the top.'); });
+  tb('✏', 'Rename', () => { const p = [...FS.sel][0]; fsRename({name: baseName(p), dir: FS.kind[p]}, p); FS.sel.clear(); }, !one);
+  tb('\u{1F4D1}', 'Copy', () => { FS.clip = [...FS.sel]; FS.sel.clear(); toast(FS.clip.length + ' copied. Open the target folder and tap Paste.'); renderFiles(); }, !n);
+  if (FS.clip.length) tb('\u{1F4CB}', 'Paste (' + FS.clip.length + ')', async () => { const items = FS.clip.slice(); const c = await askApproval({title: 'Paste ' + items.length + ' item(s) here', path: FS.path, reason: 'You chose Paste in the file browser.', rows: [['Items', items.map(baseName).join(', ')]], primary: {label: 'Approve: copy here', value: 'ok'}}); if (c === 'deny') return; const ids = []; for (const q2 of items) { const r = await fsOp({type: 'copy', path: q2, destDir: FS.path, reason: 'You chose Paste in the file browser.'}); if (!r.ok) toast(r.msg || 'Copy failed.'); else if (r.entryId) ids.push(r.entryId); } FS.clip = []; showUndo('Pasted ' + items.length + ' item(s).', ids); renderFiles(); });
+  tb('➕', 'Add to project', () => { [...FS.sel].filter(p => !FS.kind[p]).forEach(p => addFsFileToProject(p, baseName(p))); FS.sel.clear(); renderFiles(); }, !n);
+  tb('\u{1F5D1}', 'Delete', async () => {
+    const its = fsSelItems(); const c = await askApproval({title: 'Delete ' + its.length + ' item(s)', path: FS.path, reason: 'You chose Delete in the file browser.',
+      rows: [['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]], primary: {label: 'Move to Trash', value: 'ok'}, note: 'Nothing is erased for good. You can restore it from the Trash or with Undo.'});
+    if (c === 'deny') return; const ids = [];
+    for (const x of its) { const r = await fsOp({type: 'delete', path: x.p, reason: 'You chose Delete in the file browser.'}); if (!r.ok) toast(r.msg || 'Delete failed.'); else if (r.entryId) ids.push(r.entryId); }
+    FS.sel.clear(); showUndo('Moved ' + ids.length + ' item(s) to Trash.', ids); renderFiles();
+  }, !n);
+  tb('\u{1F4C1}', 'New folder', fsNewFolder);
+  tb('\u{1F4DD}', 'New text file', fsNewFile);
+  tb(FS.hidden ? '\u{1F441}' : '\u{1F576}', FS.hidden ? 'Hide hidden' : 'Show hidden', () => { FS.hidden = !FS.hidden; renderFiles(); });
+  tb('↕', 'Sort by', async () => { const v = await choose('Sort by', [{label: 'Name', value: 'name'}, {label: 'Size (biggest first)', value: 'size'}, {label: 'Date (newest first)', value: 'date'}]); if (v) { FS.sort = v; renderFiles(); } });
+  tb('\u{1F50D}', FS.filter ? 'Clear find' : 'Find', async () => { if (FS.filter) { FS.filter = ''; renderFiles(); return; } const t = await askText('Show files whose name contains...', ''); if (t) { FS.filter = t.trim(); renderFiles(); } });
+  tb('\u{1F552}', 'History', () => { FS.view = 'history'; renderFiles(); });
+  tb('♻', 'Trash', () => { FS.view = 'trash'; renderFiles(); });
+  wrap.append(list, bar); o.append(wrap);
 }
 async function fileActions(it, p) {
   const opts = [];
