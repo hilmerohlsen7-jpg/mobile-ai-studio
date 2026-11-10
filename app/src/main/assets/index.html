@@ -198,6 +198,11 @@ footer button.pri{border-radius:20px;padding:9px 16px}
 #drawer button.pri{background:var(--acc);text-align:center;border-radius:22px}
 #drawer .row.sel{outline:2px solid var(--blue)}
 #drawer .skill.on{color:var(--blue);outline:2px solid var(--blue)}
+#setBtn{display:none}
+#drawer .setlink{margin-top:auto;text-align:center;border-radius:22px}
+#settings .srow2{display:flex;justify-content:space-between;align-items:center;background:var(--panel);border-radius:14px;padding:6px 8px 6px 16px;margin-top:8px}
+#settings .srow2 button{width:auto;margin:0;background:none;border:0}
+#settings #skillsBody>button.pri{margin-top:12px;background:var(--acc);color:var(--onacc);border:0}
 </style></head>
 <body>
 <div id="app">
@@ -230,6 +235,7 @@ footer button.pri{border-radius:20px;padding:9px 16px}
 <div class="avrow"><span class="av" id="setAv">?</span><span class="st"><b id="setName">You</b><small>Mobile AI Studio</small></span></div>
 <button class="srow" data-go="profile"><span class="si">&#128100;</span><span class="st"><b>Profile</b><small>Your name, wake word, city</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="cap"><span class="si">&#9889;</span><span class="st"><b>Capabilities</b><small>What the AI is allowed to do</small></span><span class="sc">&#8250;</span></button>
+<button class="srow" data-go="skills"><span class="si">&#10024;</span><span class="st"><b>Skills</b><small>Add, remove and create skills</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="conn"><span class="si">&#128268;</span><span class="st"><b>Connectors</b><small>Gemini, Claude, Grok keys</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" id="openPerms"><span class="si">&#128274;</span><span class="st"><b>Permissions</b><small>Mic, files, notifications</small></span><span class="sc">&#8250;</span></button>
 <div class="scard"><div class="sct">Color mode</div>
@@ -243,6 +249,10 @@ footer button.pri{border-radius:20px;padding:9px 16px}
 <button class="srow" id="openDl"><span class="si">&#11015;</span><span class="st"><b>Downloads</b><small>Downloads and torrents</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" id="openFiles"><span class="si">&#128193;</span><span class="st"><b>Files on this phone</b><small>Browse, undo, trash</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="eng"><span class="si">&#9881;</span><span class="st"><b>Model settings</b><small>Reply length, memory, threads</small></span><span class="sc">&#8250;</span></button>
+</div>
+<div class="pg" id="pg_skills" data-title="Skills" hidden>
+<div class="note">Skills tell the AI how to behave. Switch them on per project from the left menu.</div>
+<div id="skillsBody"></div>
 </div>
 <div class="pg" id="pg_profile" data-title="Profile" hidden>
   <label>Your name<input type="text" id="s_userName" placeholder="What should the AI call you?" maxlength="30" autocapitalize="words" autocomplete="off"></label>
@@ -748,12 +758,12 @@ async function newSkill() {
   const n = await askText('Skill name? (for example: Python tutor)', ''); if (!n || !n.trim()) return;
   const t = await askText('What should this skill tell the AI to do?', ''); if (!t || !t.trim()) return;
   const id = uid(); S.skills[id] = {id: id, name: n.trim().slice(0, 40), prompt: t.trim().slice(0, 2000)};
-  persist(); renderDrawer();
+  persist(); renderDrawer(); renderSkillsPage();
 }
 function delSkill(id) {
   delete S.skills[id];
   Object.values(S.projects).forEach(p => p.skills = p.skills.filter(x => x !== id));
-  persist(); renderDrawer();
+  persist(); renderDrawer(); renderSkillsPage();
 }
 async function addFileFromPicker(f) {
   try {
@@ -808,6 +818,8 @@ function renderDrawer() {
   if (cur) {
     d.append(h('h3', null, 'This project: ' + cur.name));
     d.append(h('button', {onclick: renameProject}, 'Rename'));
+    d.append(h('button', {onclick: clearChat}, 'Clear chat'));
+    d.append(h('button', {class: 'danger', onclick: delProject}, 'Delete project'));
     d.append(h('label', null, 'Skills (tap to switch on or off)'));
     Object.values(S.skills).forEach(sk => {
       const on = cur.skills.includes(sk.id);
@@ -815,14 +827,13 @@ function renderDrawer() {
     });
     d.append(h('label', null, 'Files in this project (' + cur.files.length + '). Use \u{1F4CE} to add more.'));
     cur.files.forEach((f, i) => d.append(h('div', {class: 'row'}, h('span', null, f.name), h('button', {onclick: () => delFile(i)}, '✕'))));
-    d.append(h('button', {onclick: clearChat}, 'Clear chat'));
-    d.append(h('button', {class: 'danger', onclick: delProject}, 'Delete project'));
   }
-  d.append(h('h3', null, 'All skills'));
-  Object.values(S.skills).forEach(sk => d.append(h('div', {class: 'row'}, h('span', null, sk.name), h('button', {onclick: () => delSkill(sk.id)}, '✕'))));
-  d.append(h('button', {onclick: newSkill}, '+ New skill'));
-  d.append(h('h3', null, 'AI models'));
-  d.append(h('button', {onclick: () => { closeDrawer(); openModels(); }}, 'Manage models...'));
+  d.append(h('button', {class: 'setlink', onclick: () => { closeDrawer(); $('setBtn').onclick(); }}, '\u2699  Settings'));
+}
+function renderSkillsPage() {
+  const b = $('skillsBody'); b.textContent = '';
+  Object.values(S.skills).forEach(sk => b.append(h('div', {class: 'srow2'}, h('span', null, sk.name), h('button', {onclick: () => delSkill(sk.id)}, '✕'))));
+  b.append(h('button', {class: 'pri', onclick: newSkill}, '+ New skill'));
 }
 function openDrawer() { renderDrawer(); $('drawer').classList.add('open'); $('scrim').classList.add('open'); }
 function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); }
@@ -2070,7 +2081,7 @@ $('menuBtn').onclick = openDrawer;
 $('scrim').onclick = () => { closeDrawer(); $('settings').classList.remove('open'); };
 $('setBtn').onclick = () => { setGo('home'); $('settings').classList.add('open'); setHome(); voicesRefresh(); wakeRefresh(); assistRefresh(); };
 let setPage = 'home';
-function setGo(p) { setPage = p; document.querySelectorAll('#settings .pg').forEach(e => e.hidden = e.id !== 'pg_' + p); $('setTitle').textContent = p === 'home' ? 'Settings' : $('pg_' + p).dataset.title; $('setBody').scrollTop = 0; }
+function setGo(p) { setPage = p; if (p === 'skills') renderSkillsPage(); document.querySelectorAll('#settings .pg').forEach(e => e.hidden = e.id !== 'pg_' + p); $('setTitle').textContent = p === 'home' ? 'Settings' : $('pg_' + p).dataset.title; $('setBody').scrollTop = 0; }
 function setHome() {
   const n = (S.settings.userName || '').trim(); $('setName').textContent = n || 'You'; $('setAv').textContent = (n || 'Y')[0].toUpperCase();
   const t = S.settings.theme || 'auto'; document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.m === t));
