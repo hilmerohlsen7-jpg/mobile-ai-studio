@@ -85,3 +85,7 @@ dependencies {
     implementation("com.frostwire:jlibtorrent:2.0.15.3")
     implementation("com.frostwire:jlibtorrent-android-arm64:2.0.15.3")
 }
+
+configurations.all {
+    exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
+}
