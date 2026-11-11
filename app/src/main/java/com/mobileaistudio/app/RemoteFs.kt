@@ -15,7 +15,7 @@ import java.io.FileOutputStream
 object RemoteFs {
     class NeedHostKey(val fp: String) : Exception("hostkey")
     class Conn(val type: String, val host: String, val port: Int, val user: String, val pass: String, val hostKey: String) {
-        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", if (o.optString("type") == "sftp") 22 else 21), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", "")) }
+        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", when (o.optString("type")) { "sftp" -> 22; "smb" -> 445; else -> 21 }), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", "")) }
     }
     class Item(val name: String, val dir: Boolean, val size: Long, val mtime: Long)
 
@@ -75,7 +75,38 @@ object RemoteFs {
         override fun close() { try { ch.disconnect(); sess.disconnect() } catch (e: Exception) {} }
     }
 
-    fun open(c: Conn): Client = if (c.type == "sftp") Sftp(c) else Ftp(c)
+    /** Windows / Samba shares. Path "/" lists the shares, "/share/folder" goes inside. */
+    private class Smb(val c: Conn) : Client {
+        val ctx: jcifs.CIFSContext
+        init {
+            val props = java.util.Properties()
+            props.setProperty("jcifs.smb.client.responseTimeout", "20000"); props.setProperty("jcifs.smb.client.connTimeout", "15000")
+            props.setProperty("jcifs.smb.client.minVersion", "SMB202"); props.setProperty("jcifs.smb.client.maxVersion", "SMB311")
+            val base = jcifs.context.BaseContext(jcifs.config.PropertyConfiguration(props))
+            val dom = if (c.user.contains('\\')) c.user.substringBefore('\\') else ""
+            val usr = c.user.substringAfter('\\')
+            ctx = if (c.user.isEmpty()) base.withGuestCredentials() else base.withCredentials(jcifs.smb.NtlmPasswordAuthenticator(dom, usr, c.pass))
+        }
+        private fun f(path: String, dir: Boolean = false): jcifs.smb.SmbFile {
+            var p = path.trim('/').split('/').filter { it.isNotEmpty() }.joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+            if (dir || p.isEmpty()) p += "/"
+            return jcifs.smb.SmbFile("smb://" + c.host + (if (c.port != 445) ":" + c.port else "") + "/" + p, ctx)
+        }
+        override fun list(path: String) = (f(path, true).listFiles() ?: emptyArray()).map {
+            val n = it.name.trimEnd('/')
+            Item(n, it.isDirectory, if (it.isDirectory) 0L else it.length(), it.lastModified())
+        }
+        override fun download(remote: String, local: File) { f(remote).inputStream.use { i -> FileOutputStream(local).use { i.copyTo(it, 65536) } } }
+        override fun upload(local: File, remote: String) { f(remote).outputStream.use { o -> local.inputStream().use { it.copyTo(o, 65536) } } }
+        override fun mkdir(path: String) { f(path, true).mkdir() }
+        override fun rename(from: String, to: String) { f(from).renameTo(f(to)) }
+        override fun deleteFile(path: String) { f(path).delete() }
+        override fun deleteDir(path: String) { f(path, true).delete() }
+        override fun isDir(path: String): Boolean = try { f(path).isDirectory } catch (e: Exception) { false }
+        override fun close() { try { ctx.close() } catch (e: Exception) {} }
+    }
+
+    fun open(c: Conn): Client = when (c.type) { "sftp" -> Sftp(c); "smb" -> Smb(c); else -> Ftp(c) }
     private fun join(a: String, b: String) = a.trimEnd('/') + "/" + b
     private fun unique(dir: File, name: String): File {
         var f = File(dir, name); var n = 1; val base = name.substringBeforeLast('.', name); val ext = name.substringAfterLast('.', "")
