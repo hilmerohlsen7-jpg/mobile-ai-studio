@@ -552,6 +552,144 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    // ---- extra file manager features: share, open with, info, zip, unzip, find ----
+    private fun uniqueFile(dir: File, name: String): File {
+        var f = File(dir, name); var n = 1
+        val base = name.substringBeforeLast('.', name); val ext = name.substringAfterLast('.', "")
+        while (f.exists()) { f = File(dir, if (ext.isEmpty() || base == name) "$name ($n)" else "$base ($n).$ext"); n++ }
+        return f
+    }
+
+    @JavascriptInterface
+    fun fsShare(pathsJson: String): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        return try {
+            val arr = JSONArray(pathsJson)
+            val files = (0 until arr.length()).map { File(arr.getString(it)) }.filter { it.isFile }
+            if (files.isEmpty()) return JSONObject().put("ok", false).put("msg", "Only files can be shared, not folders. Make a ZIP first.").toString()
+            val uris = ArrayList(files.map { ShareProvider.uriFor(it) })
+            val i = android.content.Intent(if (uris.size == 1) android.content.Intent.ACTION_SEND else android.content.Intent.ACTION_SEND_MULTIPLE)
+            i.type = if (files.size == 1) ShareProvider.mimeOf(files[0].name) else "*/*"
+            if (uris.size == 1) i.putExtra(android.content.Intent.EXTRA_STREAM, uris[0]) else i.putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+            i.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val ch = android.content.Intent.createChooser(i, "Share")
+            ch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ui.post { try { activity.startActivity(ch) } catch (e: Exception) {} }
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not share.").toString() }
+    }
+
+    @JavascriptInterface
+    fun fsOpenWith(path: String): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        return try {
+            val f = File(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("msg", "That is not a file.").toString()
+            val i = android.content.Intent(android.content.Intent.ACTION_VIEW)
+            i.setDataAndType(ShareProvider.uriFor(f), ShareProvider.mimeOf(f.name))
+            i.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            val ch = android.content.Intent.createChooser(i, "Open with")
+            ch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ui.post { try { activity.startActivity(ch) } catch (e: Exception) {} }
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not open it.").toString() }
+    }
+
+    @JavascriptInterface
+    fun fsInfo(path: String): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        return try {
+            val f = File(path)
+            if (!f.exists()) return JSONObject().put("ok", false).put("msg", "That does not exist.").toString()
+            var files = 0L; var dirs = 0L; var bytes = 0L; var partial = false
+            if (f.isDirectory) {
+                var seen = 0
+                val stack = ArrayDeque<File>(); stack.add(f)
+                while (stack.isNotEmpty()) {
+                    val d = stack.removeLast()
+                    for (c in d.listFiles() ?: emptyArray()) {
+                        if (++seen > 50000) { partial = true; break }
+                        if (c.isDirectory) { dirs++; stack.add(c) } else { files++; bytes += c.length() }
+                    }
+                    if (partial) break
+                }
+            } else bytes = f.length()
+            JSONObject().put("ok", true).put("name", f.name).put("path", f.absolutePath).put("dir", f.isDirectory)
+                .put("size", bytes).put("files", files).put("dirs", dirs).put("partial", partial).put("mtime", f.lastModified())
+                .put("mime", if (f.isFile) ShareProvider.mimeOf(f.name) else "folder")
+                .put("canRead", f.canRead()).put("canWrite", f.canWrite()).put("hidden", f.name.startsWith(".")).toString()
+        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not read it.").toString() }
+    }
+
+    /** Makes a new ZIP of the chosen files and folders next to them. The answer arrives in __onFs. */
+    @JavascriptInterface
+    fun fsZip(reqId: String, pathsJson: String, destDir: String, zipName: String, password: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val arr = JSONArray(pathsJson)
+                val items = (0 until arr.length()).map { File(arr.getString(it)) }.filter { it.exists() }
+                val dir = File(destDir)
+                val out = uniqueFile(dir, if (zipName.endsWith(".zip", true)) zipName else "$zipName.zip")
+                val zf = if (password.isNotEmpty()) net.lingala.zip4j.ZipFile(out, password.toCharArray()) else net.lingala.zip4j.ZipFile(out)
+                val prm = net.lingala.zip4j.model.ZipParameters()
+                if (password.isNotEmpty()) { prm.isEncryptFiles = true; prm.encryptionMethod = net.lingala.zip4j.model.enums.EncryptionMethod.AES }
+                for (f in items) { if (f.isDirectory) zf.addFolder(f, prm) else zf.addFile(f, prm) }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Made " + out.name).put("path", out.absolutePath))
+            } catch (e: Exception) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not make the ZIP."))
+            }
+        }
+    }
+
+    /** Unpacks a ZIP into a new folder beside it. A wrong password is reported as code "password". */
+    @JavascriptInterface
+    fun fsUnzip(reqId: String, zipPath: String, password: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val src = File(zipPath)
+                val zf = net.lingala.zip4j.ZipFile(src)
+                if (zf.isEncrypted) {
+                    if (password.isEmpty()) { fsReply(reqId, null, JSONObject().put("ok", false).put("code", "password").put("msg", "This ZIP needs a password.")); return@execute }
+                    zf.setPassword(password.toCharArray())
+                }
+                val dest = uniqueFile(src.parentFile ?: File("/"), src.name.substringBeforeLast('.'))
+                dest.mkdirs()
+                zf.extractAll(dest.absolutePath)
+                fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Unpacked into " + dest.name).put("path", dest.absolutePath))
+            } catch (e: net.lingala.zip4j.exception.ZipException) {
+                val wrong = (e.message ?: "").contains("password", true)
+                fsReply(reqId, null, JSONObject().put("ok", false).put("code", if (wrong) "password" else "").put("msg", if (wrong) "Wrong password." else (e.message ?: "Could not unpack it.")))
+            } catch (e: Exception) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not unpack it."))
+            }
+        }
+    }
+
+    /** Looks for names containing the text anywhere under a folder. The answer arrives in __onFs with "files". */
+    @JavascriptInterface
+    fun fsFind(reqId: String, path: String, query: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val q = query.lowercase(); val arr = JSONArray(); var seen = 0
+                val stack = ArrayDeque<File>(); stack.add(File(path))
+                while (stack.isNotEmpty() && arr.length() < 200 && seen < 200000) {
+                    val d = stack.removeLast()
+                    for (c in d.listFiles() ?: emptyArray()) {
+                        seen++
+                        if (c.name.lowercase().contains(q)) arr.put(JSONObject().put("path", c.absolutePath).put("dir", c.isDirectory).put("size", c.length()).put("mtime", c.lastModified()))
+                        if (c.isDirectory && !c.name.startsWith(".")) stack.add(c)
+                    }
+                }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("files", arr).put("partial", arr.length() >= 200 || seen >= 200000))
+            } catch (e: Exception) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not search."))
+            }
+        }
+    }
+
     @JavascriptInterface
     fun fsUndo(reqId: String, id: String, force: Boolean) {
         fsPool.execute { fsReply(reqId, fsOps.undo(id, force)) }

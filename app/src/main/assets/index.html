@@ -225,6 +225,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xhandle{display:flex;flex-direction:column;align-items:center;gap:6px;background:#2a2a2a;border:0;border-radius:0;padding:8px 2px;color:#ddd;height:130px;flex-shrink:0}
 .xarr{color:#2a6fe0;font-size:1.6rem}
 .xhl{writing-mode:vertical-rl;font-size:.8rem;max-height:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.irow{display:flex;justify-content:space-between;gap:12px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:.9rem}.irow b{font-weight:500;text-align:right;word-break:break-all}
 #files.x{padding:0;background:#0b0b0b;overflow:hidden}
 #files.x.open{display:flex;flex-direction:column}
 .xtop{display:flex;align-items:center;gap:6px;padding:10px 8px;background:#151515}
@@ -1499,6 +1500,7 @@ function renderFiles() {
   }
   if (FS.view === 'history') return renderHistory(o);
   if (FS.view === 'trash') return renderTrash(o);
+  if (FS.view === 'results') return renderResults(o);
   if (FS.view === 'file') return renderFileView(o);
   return renderXplore(o);
 }
@@ -1523,10 +1525,6 @@ function renderXplore(o) {
   o.classList.add('x');
   o.append(h('div', {class: 'xtop'}, h('button', {onclick: fsBack, 'aria-label': 'Back'}, '←'), h('div', {class: 'xt'}, 'Files on this phone'), h('button', {onclick: closeFiles, 'aria-label': 'Close'}, '✕')));
   if (!FS.panes[1].path) FS.panes[1].path = FS.root;
-  const tabs = h('div', {class: 'xtabs'});
-  [0, 1].forEach(i => tabs.append(h('button', {class: i === FS.active ? 'on' : '', onclick: () => xSwap(i)}, (i + 1) + ': ' + (baseName(FS.panes[i].path) || '/'))));
-  tabs.append(h('button', {class: 'swap', onclick: () => xSwap(), 'aria-label': 'Swap panel'}, '\u21C4'));
-  o.append(tabs);
   const clip = h('div', {class: 'xclip'}), slide = h('div', {class: 'xslide'});
   slide.style.transform = FS.active ? 'translateX(-50%)' : 'none';
   const keep = FS.active;
@@ -1606,15 +1604,73 @@ function buildPane(o, idx) {
     for (const x of its) { const r = await fsOp({type: 'delete', path: x.p, reason: 'You chose Delete in the file browser.'}); if (!r.ok) toast(r.msg || 'Delete failed.'); else if (r.entryId) ids.push(r.entryId); }
     FS.sel.clear(); showUndo('Moved ' + ids.length + ' item(s) to Trash.', ids); renderFiles();
   }, !n);
+  tb('\u2611', 'Select all', () => { const all = (root || []).map(it => joinPath(FS.path, it.name)); if (FS.sel.size >= all.length) FS.sel.clear(); else all.forEach(x => FS.sel.add(x)); renderFiles(); });
+  tb('\u2139', 'Info', () => fsInfoBox(one ? [...FS.sel][0] : FS.path), n > 1);
+  tb('\u{1F4E4}', 'Share', () => { const r = fsJson('fsShare', JSON.stringify([...FS.sel])); if (!r.ok) toast(r.msg || 'Could not share.'); }, !n);
+  tb('\u{1F4C2}', 'Open with', () => { const r = fsJson('fsOpenWith', [...FS.sel][0]); if (!r.ok) toast(r.msg || 'Could not open it.'); }, !one || FS.kind[[...FS.sel][0]]);
+  tb('\u{1F5DC}', 'Create ZIP', () => fsMakeZip(), !n);
+  tb('\u{1F4E6}', 'Extract ZIP', () => fsExtract([...FS.sel][0]), !one || !/\.zip$/i.test([...FS.sel][0]));
   tb('\u{1F4C1}', 'New folder', fsNewFolder);
   tb('\u{1F4DD}', 'New text file', fsNewFile);
   tb(FS.hidden ? '\u{1F441}' : '\u{1F576}', FS.hidden ? 'Hide hidden' : 'Show hidden', () => { FS.hidden = !FS.hidden; renderFiles(); });
   tb('↕', 'Sort by', async () => { const v = await choose('Sort by', [{label: 'Name', value: 'name'}, {label: 'Size (biggest first)', value: 'size'}, {label: 'Date (newest first)', value: 'date'}]); if (v) { FS.sort = v; renderFiles(); } });
-  tb('\u{1F50D}', FS.filter ? 'Clear find' : 'Find', async () => { if (FS.filter) { FS.filter = ''; renderFiles(); return; } const t = await askText('Show files whose name contains...', ''); if (t) { FS.filter = t.trim(); renderFiles(); } });
+  tb('\u{1F50D}', 'Find', async () => { const t = await askText('Find names containing... (searches this folder and everything inside)', ''); if (!t) return; toast('Searching...'); const r = await fsCall('fsFind', FS.path, t.trim()); if (!r.ok) { toast(r.msg || 'Search failed.'); return; } FS.results = {title: 'Found: ' + t.trim(), files: r.files, note: r.partial ? 'Showing the first matches only.' : ''}; FS.view = 'results'; renderFiles(); });
+  tb('\u{1F4CA}', 'Disk map', async () => { toast('Measuring...'); const r = await fsCall('fsLargest', FS.path, 1, 40); if (!r.ok) { toast(r.msg || 'Could not measure.'); return; } FS.results = {title: 'Biggest files here', files: r.files, note: r.partial ? 'Only part of this folder was scanned.' : '', bars: true}; FS.view = 'results'; renderFiles(); });
+  tb('\u{1F504}', 'Refresh', () => renderFiles());
   tb('\u{1F552}', 'History', () => { FS.view = 'history'; renderFiles(); });
   tb('♻', 'Trash', () => { FS.view = 'trash'; renderFiles(); });
   if (idx) wrap.style.flexDirection = 'row-reverse';
   wrap.append(list, bar); o.append(wrap);
+}
+function fsInfoBox(path) {
+  const r = fsJson('fsInfo', path); if (!r.ok) { toast(r.msg || 'No info.'); return; }
+  const o = $('sheet'); o.textContent = '';
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, r.name));
+  const line = (k, v) => box.append(h('div', {class: 'irow'}, h('span', null, k), h('b', null, v)));
+  line('Where', parentOf(r.path)); line('Kind', r.dir ? 'Folder' : r.mime); line('Size', fmtSize(r.size) + (r.partial ? '+' : ''));
+  if (r.dir) line('Contains', r.dirs + ' folders, ' + r.files + ' files' + (r.partial ? ' (at least)' : ''));
+  line('Changed', fmtDate(r.mtime)); line('Can read', r.canRead ? 'Yes' : 'No'); line('Can change', r.canWrite ? 'Yes' : 'No');
+  box.append(h('button', {onclick: () => o.classList.remove('open')}, 'Close'));
+  o.append(box); o.classList.add('open'); sheetDone = () => o.classList.remove('open');
+}
+async function fsMakeZip() {
+  const its = [...FS.sel]; if (!its.length) return;
+  const name = await askText('Name for the new ZIP file', (its.length === 1 ? baseName(its[0]) : baseName(FS.path) || 'archive') + '.zip'); if (!name) return;
+  const pw = await askText('Password (leave empty for none)', '');
+  const c = await askApproval({title: 'Create a ZIP file', path: FS.path, reason: 'You chose Create ZIP in the file browser.',
+    rows: [['New file', name], ['Packs', its.map(baseName).join('\n')], ['Password', pw ? 'Yes (AES)' : 'None']], primary: {label: 'Approve: create the ZIP', value: 'ok'},
+    note: 'Your originals are not touched. A new file is added next to them.'});
+  if (c === 'deny') return;
+  toast('Making the ZIP...');
+  const r = await fsCall('fsZip', JSON.stringify(its), FS.path, name, pw || '');
+  toast(r.msg || (r.ok ? 'Done.' : 'Could not make the ZIP.')); FS.sel.clear(); renderFiles();
+}
+async function fsExtract(zip) {
+  const c = await askApproval({title: 'Unpack a ZIP file', path: zip, reason: 'You chose Extract ZIP in the file browser.',
+    rows: [['Goes into', 'A new folder next to the ZIP']], primary: {label: 'Approve: unpack it', value: 'ok'}, note: 'Nothing existing is replaced.'});
+  if (c === 'deny') return;
+  let pw = '';
+  for (let tries = 0; tries < 3; tries++) {
+    toast('Unpacking...');
+    const r = await fsCall('fsUnzip', zip, pw);
+    if (r.ok) { toast(r.msg); FS.sel.clear(); renderFiles(); return; }
+    if (r.code === 'password') { pw = await askText((tries ? 'Wrong password. ' : '') + 'Password for this ZIP', ''); if (!pw) return; continue; }
+    toast(r.msg || 'Could not unpack it.'); return;
+  }
+}
+function renderResults(o) {
+  const R = FS.results || {title: 'Results', files: []};
+  o.append(topbar(R.title, () => { FS.view = 'list'; renderFiles(); }));
+  if (R.note) o.append(h('div', {class: 'sub'}, R.note));
+  if (!R.files.length) o.append(h('div', {class: 'sub'}, 'Nothing found.'));
+  const max = Math.max(1, ...R.files.map(f => f.size || 0));
+  R.files.forEach(f => {
+    const row = h('div', {class: 'frow'}, h('div', {class: 'fmain', onclick: () => { FS.path = f.dir ? f.path : parentOf(f.path); FS.view = 'list'; FS.sel.clear(); FS.sel.add(f.path); renderFiles(); }},
+      h('div', {class: 'nm'}, (f.dir ? '\u{1F4C1} ' : '\u{1F4C4} ') + baseName(f.path)),
+      h('div', {class: 'meta'}, parentOf(f.path) + ' \u00b7 ' + (f.dir ? 'Folder' : fmtSize(f.size)))));
+    if (R.bars) row.firstChild.append(h('div', {class: 'pbar'}, h('i', {style: 'width:' + Math.max(2, Math.round(100 * f.size / max)) + '%'})));
+    o.append(row);
+  });
 }
 async function fileActions(it, p) {
   const opts = [];

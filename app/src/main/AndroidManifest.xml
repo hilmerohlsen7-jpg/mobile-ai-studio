@@ -72,6 +72,12 @@
             android:exported="false"
             android:grantUriPermissions="true" />
 
+        <provider
+            android:name=".ShareProvider"
+            android:authorities="com.mobileaistudio.app.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <service
             android:name=".WakeService"
             android:exported="false"
