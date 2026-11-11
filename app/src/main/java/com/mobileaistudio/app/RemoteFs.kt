@@ -85,7 +85,7 @@ object RemoteFs {
             val base = jcifs.context.BaseContext(jcifs.config.PropertyConfiguration(props))
             val dom = if (c.user.contains('\\')) c.user.substringBefore('\\') else ""
             val usr = c.user.substringAfter('\\')
-            ctx = if (c.user.isEmpty()) base.withGuestCredentials() else base.withCredentials(jcifs.smb.NtlmPasswordAuthenticator(dom, usr, c.pass))
+            ctx = if (c.user.isEmpty()) base.withCredentials(jcifs.smb.NtlmPasswordAuthenticator("", "guest", "")) else base.withCredentials(jcifs.smb.NtlmPasswordAuthenticator(dom, usr, c.pass))
         }
         private fun f(path: String, dir: Boolean = false): jcifs.smb.SmbFile {
             var p = path.trim('/').split('/').filter { it.isNotEmpty() }.joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
