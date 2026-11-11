@@ -729,6 +729,25 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }.start()
     }
 
+    // ---- Wi-Fi file server ----
+    @JavascriptInterface
+    fun wifiStatus(): String {
+        val o = JSONObject().put("running", WifiServer.running).put("url", WifiServer.url).put("pin", WifiServer.pin)
+        val arr = JSONArray(); synchronized(WifiServer.log) { WifiServer.log.takeLast(8).forEach { arr.put(it) } }
+        return o.put("log", arr).put("ip", WifiServer.localIp() ?: "").toString()
+    }
+
+    /** Only called after the person approved it in the app: starts sharing the given folder. */
+    @JavascriptInterface
+    fun wifiStart(path: String, upload: Boolean): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        val err = WifiServer.start(File(path), upload)
+        return if (err != null) JSONObject().put("ok", false).put("msg", err).toString() else wifiStatus()
+    }
+
+    @JavascriptInterface
+    fun wifiStop(): String { WifiServer.stop(); return wifiStatus() }
+
     @JavascriptInterface
     fun fsUndo(reqId: String, id: String, force: Boolean) {
         fsPool.execute { fsReply(reqId, fsOps.undo(id, force)) }

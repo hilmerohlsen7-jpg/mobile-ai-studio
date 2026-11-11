@@ -1625,6 +1625,7 @@ function buildPane(o, idx) {
   tb('↕', 'Sort by', async () => { const v = await choose('Sort by', [{label: 'Name', value: 'name'}, {label: 'Size (biggest first)', value: 'size'}, {label: 'Date (newest first)', value: 'date'}]); if (v) { FS.sort = v; renderFiles(); } });
   tb('\u{1F50D}', 'Find', async () => { const t = await askText('Find names containing... (searches this folder and everything inside)', ''); if (!t) return; toast('Searching...'); const r = await fsCall('fsFind', FS.path, t.trim()); if (!r.ok) { toast(r.msg || 'Search failed.'); return; } FS.results = {title: 'Found: ' + t.trim(), files: r.files, note: r.partial ? 'Showing the first matches only.' : ''}; FS.view = 'results'; renderFiles(); });
   tb('\u{1F4CA}', 'Disk map', () => openDiskMap(FS.path));
+  tb('\u{1F4F6}', 'Wi-Fi server', () => wifiSheet());
   tb('\u{1F504}', 'Refresh', () => renderFiles());
   tb('\u{1F552}', 'History', () => { FS.view = 'history'; renderFiles(); });
   tb('♻', 'Trash', () => { FS.view = 'trash'; renderFiles(); });
@@ -1672,6 +1673,35 @@ async function openDiskMap(path) {
   const r = await fsCall('fsDiskMap', path);
   if (!r.ok) { toast(r.msg || 'Could not measure.'); return; }
   FS.map = {path: path, node: r.node, total: r.total, free: r.free, partial: r.partial}; FS.view = 'map'; renderFiles();
+}
+function wifiSheet() {
+  const o = $('sheet'); o.textContent = '';
+  const st = fsJson('wifiStatus');
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Wi-Fi file server'));
+  const close = () => o.classList.remove('open');
+  if (st.running) {
+    box.append(h('div', {class: 'note'}, 'On your computer (same Wi-Fi), open this address in a browser. When it asks for a password, type this PIN. Any user name works.'));
+    box.append(h('div', {class: 'irow'}, h('span', null, 'Address'), h('b', null, st.url)));
+    box.append(h('div', {class: 'irow'}, h('span', null, 'PIN'), h('b', null, st.pin)));
+    (st.log || []).forEach(l => box.append(h('div', {class: 'note'}, l)));
+    box.append(h('button', {class: 'danger', onclick: () => { fsJson('wifiStop'); wifiSheet(); }}, 'Stop sharing'));
+    box.append(h('button', {onclick: () => wifiSheet()}, 'Refresh'));
+  } else {
+    box.append(h('div', {class: 'note'}, 'Lets a computer on the same Wi-Fi browse and download the files in this folder. It asks for a PIN. It stops when you tap Stop or close the app.'));
+    const go = async up => {
+      close();
+      const c = await askApproval({title: 'Start the Wi-Fi file server', path: FS.path, reason: 'You chose Wi-Fi server in the file browser.',
+        rows: [['Shares', FS.path + ' and everything inside'], ['Who can connect', 'Anyone on this Wi-Fi who has the PIN'], ['Uploads', up ? 'Allowed: new files only, nothing is replaced' : 'Off (download only)']],
+        primary: {label: 'Approve: start sharing', value: 'ok'}, note: 'Only use this on a Wi-Fi network you trust. Nothing can be deleted or replaced from the computer.'});
+      if (c === 'deny') return;
+      const r = fsJson('wifiStart', FS.path, up); if (!r.running) { toast(r.msg || 'Could not start.'); return; }
+      wifiSheet();
+    };
+    box.append(h('button', {class: 'pri', onclick: () => go(false)}, 'Start (download only)'));
+    box.append(h('button', {onclick: () => go(true)}, 'Start and allow uploads'));
+  }
+  box.append(h('button', {onclick: close}, 'Close'));
+  o.append(box); o.classList.add('open'); sheetDone = close;
 }
 function renderMap(o) {
   const M = FS.map;
