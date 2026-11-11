@@ -756,6 +756,38 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     private fun androidx_start(i: Intent) { if (Build.VERSION.SDK_INT >= 26) activity.startForegroundService(i) else activity.startService(i) }
 
+    // ---- remote servers (FTP / SFTP) ----
+    /** op: list | download | upload | mkdir | rename | delete. The answer arrives in __onFs. Callers have already asked the person. */
+    @JavascriptInterface
+    fun rfsOp(reqId: String, connJson: String, opJson: String) {
+        Thread {
+            try {
+                val c = RemoteFs.Conn.of(JSONObject(connJson)); val o = JSONObject(opJson)
+                when (o.getString("type")) {
+                    "list" -> fsReply(reqId, null, JSONObject().put("ok", true).put("items", RemoteFs.list(c, o.getString("path"))))
+                    "download" -> {
+                        if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@Thread }
+                        val n = RemoteFs.download(c, o.getString("path"), File(o.getString("destDir")))
+                        fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Copied $n file(s) to this phone."))
+                    }
+                    "upload" -> {
+                        if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@Thread }
+                        val n = RemoteFs.upload(c, File(o.getString("path")), o.getString("destDir"))
+                        fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Sent $n file(s) to the server."))
+                    }
+                    "mkdir" -> { RemoteFs.mkdir(c, o.getString("path")); fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Folder created.")) }
+                    "rename" -> { RemoteFs.rename(c, o.getString("path"), o.getString("to")); fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Renamed.")) }
+                    "delete" -> { RemoteFs.delete(c, o.getString("path")); fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Deleted from the server.")) }
+                    else -> fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Unknown action."))
+                }
+            } catch (e: RemoteFs.NeedHostKey) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("code", "hostkey").put("fp", e.fp).put("msg", "New server. Check its key."))
+            } catch (e: Throwable) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", (e.message ?: "Could not reach the server.")))
+            }
+        }.start()
+    }
+
     @JavascriptInterface
     fun fsUndo(reqId: String, id: String, force: Boolean) {
         fsPool.execute { fsReply(reqId, fsOps.undo(id, force)) }

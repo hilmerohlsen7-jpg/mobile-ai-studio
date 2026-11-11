@@ -1563,6 +1563,13 @@ function fsSortItems(items) {
   return items.slice().sort((x, y) => (y.dir - x.dir) || (f === 'size' ? (y.size - x.size) : f === 'date' ? (y.mtime - x.mtime) : x.name.toLowerCase().localeCompare(y.name.toLowerCase())));
 }
 function fsListed(path) {
+  const pn = FS.panes[FS.active];
+  if (pn.remote) {
+    pn.cache = pn.cache || {}; pn.loading = pn.loading || {};
+    if (pn.cache[path]) { let it = pn.cache[path]; if (!FS.hidden) it = it.filter(x => x.name[0] !== '.'); FS.cnt[path] = [it.filter(x => x.dir).length, it.filter(x => !x.dir).length]; return fsSortItems(it); }
+    if (!pn.loading[path]) loadRemote(FS.active, path);
+    return null;
+  }
   const r = fsJson('fsList', path);
   if (!r.ok) return null;
   let it = r.items; if (!FS.hidden) it = it.filter(x => x.name[0] !== '.');
@@ -1595,9 +1602,11 @@ function buildPane(o, idx) {
   list.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, {passive: true});
   list.addEventListener('touchend', e => { if (tx === null) return; const dx = e.changedTouches[0].clientX - tx; tx = null; if (Math.abs(dx) > 90) xSwap(dx < 0 ? 1 : 0); });
   const root = fsListed(FS.path);
-  if (!root) { list.append(h('div', {class: 'err'}, 'Could not open this folder.')); }
+  if (!root) { const pr = FS.panes[FS.active]; list.append(h('div', {class: pr.remote && !pr.err ? 'sub' : 'err'}, pr.remote ? (pr.err || 'Connecting...') : 'Could not open this folder.')); }
   else {
-    if (FS.path === FS.root) list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F4F1}'), h('span', {class: 'xnm'}, h('b', null, 'Internal shared storage'), h('small', null, FS.root + (FS.cnt[FS.path] ? ' · ' + FS.cnt[FS.path][0] + ' folders · ' + FS.cnt[FS.path][1] + ' files' : '')))));
+    const prm = FS.panes[FS.active].remote;
+    if (prm && FS.path === (prm.path || '/')) list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F5A5}'), h('span', {class: 'xnm'}, h('b', null, prm.name), h('small', null, prm.type.toUpperCase() + ' \u00b7 ' + prm.host + ' \u00b7 ' + FS.path))));
+    else if (!prm && FS.path === FS.root) list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F4F1}'), h('span', {class: 'xnm'}, h('b', null, 'Internal shared storage'), h('small', null, FS.root + (FS.cnt[FS.path] ? ' · ' + FS.cnt[FS.path][0] + ' folders · ' + FS.cnt[FS.path][1] + ' files' : '')))));
     else list.append(h('div', {class: 'xhead', onclick: () => { FS.path = parentOf(FS.path); renderFiles(); }}, h('span', {class: 'xic'}, '↰'), h('span', {class: 'xnm'}, h('b', null, 'Up'), h('small', null, parentOf(FS.path)))));
     const q = FS.filter.toLowerCase();
     const draw = (items, base, depth) => {
@@ -1609,7 +1618,7 @@ function buildPane(o, idx) {
         row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; if (open) FS.open.delete(p); else FS.open.add(p); renderFiles(); }}, it.dir ? (open ? '▼' : '▶') : ''));
         row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'));
         const cnt = FS.cnt[p];
-        row.append(h('span', {class: 'xnm', onclick: () => it.dir ? (FS.path = p, FS.sel.clear(), renderFiles(), o.scrollTop = 0) : openFileView(it, p)},
+        row.append(h('span', {class: 'xnm', onclick: () => it.dir ? (FS.path = p, FS.sel.clear(), renderFiles(), o.scrollTop = 0) : (FS.panes[FS.active].remote ? (FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p), renderFiles()) : openFileView(it, p))},
           h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + ' · ' + fmtDate(it.mtime))));
         row.append(h('span', {class: 'xchk', onclick: () => { if (FS.sel.has(p)) FS.sel.delete(p); else FS.sel.add(p); renderFiles(); }}, '✔'));
         list.append(row);
@@ -1621,7 +1630,9 @@ function buildPane(o, idx) {
   }
   const bar = h('div', {class: 'xbar'});
   const oth = FS.panes[1 - idx];
+  const R = FS.panes[idx].remote;
   bar.append(h('button', {class: 'xhandle', onclick: () => xSwap(1 - idx)}, h('span', {class: 'xarr'}, idx ? '\u25C0' : '\u25B6'), h('span', {class: 'xhl'}, baseName(oth.path) || 'Storage')));
+  if (R) { buildRemoteBar(bar, idx, root); if (idx) wrap.style.flexDirection = 'row-reverse'; wrap.append(list, bar); o.append(wrap); return; }
   const n = FS.sel.size, one = n === 1;
   const tb = (ico, t, fn, off) => bar.append(h('button', {class: 'xtb' + (off ? ' off' : ''), onclick: off ? () => toast('Tick a file or folder first.') : fn}, h('span', null, ico), t));
   tb('⬆', 'Up dir', () => { if (FS.path !== FS.root) { FS.path = parentOf(FS.path); FS.sel.clear(); renderFiles(); } else toast('This is the top.'); });
@@ -1666,6 +1677,7 @@ function buildPane(o, idx) {
   tb('↕', 'Sort by', async () => { const v = await choose('Sort by', [{label: 'Name', value: 'name'}, {label: 'Size (biggest first)', value: 'size'}, {label: 'Date (newest first)', value: 'date'}]); if (v) { FS.sort = v; renderFiles(); } });
   tb('\u{1F50D}', 'Find', async () => { const t = await askText('Find names containing... (searches this folder and everything inside)', ''); if (!t) return; toast('Searching...'); const r = await fsCall('fsFind', FS.path, t.trim()); if (!r.ok) { toast(r.msg || 'Search failed.'); return; } FS.results = {title: 'Found: ' + t.trim(), files: r.files, note: r.partial ? 'Showing the first matches only.' : ''}; FS.view = 'results'; renderFiles(); });
   tb('\u{1F4CA}', 'Disk map', () => openDiskMap(FS.path));
+  tb('\u{1F310}', 'Network', () => networkSheet());
   tb('\u{1F4F6}', 'Wi-Fi server', () => wifiSheet());
   tb('\u{1F504}', 'Refresh', () => renderFiles());
   tb('\u{1F552}', 'History', () => { FS.view = 'history'; renderFiles(); });
@@ -1714,6 +1726,82 @@ async function openDiskMap(path) {
   const r = await fsCall('fsDiskMap', path);
   if (!r.ok) { toast(r.msg || 'Could not measure.'); return; }
   FS.map = {path: path, node: r.node, total: r.total, free: r.free, partial: r.partial}; FS.view = 'map'; renderFiles();
+}
+/* ---- FTP / SFTP servers ---- */
+const rconn = r => ({type: r.type, host: r.host, port: r.port, user: r.user, pass: r.pass, hostKey: r.hostKey || ''});
+function saveConns() { persist(); }
+async function remoteCall(pn, op) {
+  for (let i = 0; i < 2; i++) {
+    const r = await fsCall('rfsOp', JSON.stringify(rconn(pn.remote)), JSON.stringify(op));
+    if (r.ok || r.code !== 'hostkey') return r;
+    const c = await askApproval({title: 'Trust this server?', path: pn.remote.host + ':' + pn.remote.port, reason: 'First time connecting to this SFTP server.',
+      rows: [['Server key fingerprint', r.fp]], primary: {label: 'Approve: trust this server', value: 'ok'}, note: 'Only approve if you know this server. The app will refuse if the key ever changes.'});
+    if (c === 'deny') return {ok: false, msg: 'Not trusted. Connection cancelled.'};
+    pn.remote.hostKey = r.fp; const saved = (S.settings.conns || []).find(x => x.id === pn.remote.id); if (saved) saved.hostKey = r.fp; saveConns();
+  }
+  return {ok: false, msg: 'Could not connect.'};
+}
+async function loadRemote(idx, path) {
+  const pn = FS.panes[idx]; pn.loading[path] = true; pn.err = '';
+  const r = await remoteCall(pn, {type: 'list', path: path});
+  delete pn.loading[path];
+  if (!r.ok) { pn.err = r.msg || 'Could not open this folder.'; toast(pn.err); }
+  else pn.cache[path] = r.items;
+  if ($('files').classList.contains('open') && FS.view === 'list') renderFiles();
+}
+function remoteRefresh(pn) { pn.cache = {}; pn.err = ''; renderFiles(); }
+function remoteSel() { return [...FS.sel]; }
+function buildRemoteBar(bar, idx, root) {
+  const pn = FS.panes[idx], n = FS.sel.size, one = n === 1;
+  const tb = (ico, t, fn, off) => bar.append(h('button', {class: 'xtb' + (off ? ' off' : ''), onclick: off ? () => toast('Tick a file or folder first.') : fn}, h('span', null, ico), t));
+  tb('\u2B06', 'Up dir', () => { if (FS.path !== (pn.remote.path || '/')) { FS.path = parentOf(FS.path); FS.sel.clear(); renderFiles(); } else toast('This is the top.'); });
+  tb('\u2611', 'Select all', () => { const all = (root || []).map(it => joinPath(FS.path, it.name)); if (FS.sel.size >= all.length) FS.sel.clear(); else all.forEach(x => FS.sel.add(x)); renderFiles(); });
+  const other = FS.panes[1 - idx];
+  tb('\u27A1', 'Copy to ' + (2 - idx), async () => {
+    if (!other || other.remote) { toast('Open a folder on your phone in the other panel first.'); return; }
+    const items = remoteSel(); const dest = other.path;
+    const c = await askApproval({title: 'Copy ' + items.length + ' item(s) from the server to this phone', path: dest, reason: 'You chose Copy to the other panel.',
+      rows: [['From', pn.remote.name + ' ' + FS.path], ['Items', items.map(baseName).join('\n')]], primary: {label: 'Approve: copy to the phone', value: 'ok'}, note: 'Nothing on the phone is replaced. Name clashes get a number.'});
+    if (c === 'deny') return; toast('Copying...');
+    for (const it of items) { const r = await remoteCall(pn, {type: 'download', path: it, destDir: dest}); toast(r.msg || (r.ok ? 'Done.' : 'Failed.')); if (!r.ok) break; }
+    FS.sel.clear(); renderFiles();
+  }, !n);
+  tb('\u270F', 'Rename', async () => { const p = remoteSel()[0]; const nn = await askText('New name for ' + baseName(p), baseName(p)); if (!nn || nn === baseName(p)) return;
+    const c = await askApproval({title: 'Rename on the server', path: p, reason: 'You chose Rename.', rows: [['New name', nn]], primary: {label: 'Approve: rename', value: 'ok'}, note: 'Servers have no Trash. A rename cannot be undone automatically.'}); if (c === 'deny') return;
+    const r = await remoteCall(pn, {type: 'rename', path: p, to: joinPath(parentOf(p), nn)}); toast(r.msg || ''); FS.sel.clear(); remoteRefresh(pn); }, !one);
+  tb('\u{1F5D1}', 'Delete', async () => { const items = remoteSel();
+    const c = await askApproval({title: 'Delete ' + items.length + ' item(s) from the server', path: FS.path, reason: 'You chose Delete.', rows: [['Server', pn.remote.name], ['Items', items.map(baseName).join('\n')]],
+      primary: {label: 'Delete permanently', value: 'ok'}, note: 'THIS CANNOT BE UNDONE. Servers have no Trash and the app cannot bring these back.'}); if (c === 'deny') return;
+    for (const it of items) { const r = await remoteCall(pn, {type: 'delete', path: it}); if (!r.ok) { toast(r.msg || 'Delete failed.'); break; } }
+    FS.sel.clear(); remoteRefresh(pn); }, !n);
+  tb('\u{1F4C1}', 'New folder', async () => { const nn = await askText('Name of the new folder', ''); if (!nn) return; const p = joinPath(FS.path, nn);
+    const c = await askApproval({title: 'Create a folder on the server', path: p, reason: 'You chose New folder.', primary: {label: 'Approve: create folder', value: 'ok'}}); if (c === 'deny') return;
+    const r = await remoteCall(pn, {type: 'mkdir', path: p}); toast(r.msg || ''); remoteRefresh(pn); });
+  tb('\u{1F504}', 'Refresh', () => remoteRefresh(pn));
+  tb('\u{1F4F1}', 'Back to phone', () => { pn.remote = null; pn.cache = {}; pn.path = FS.root; pn.sel.clear(); renderFiles(); });
+}
+async function networkSheet() {
+  const o = $('sheet'); o.textContent = '';
+  const close = () => o.classList.remove('open');
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Servers (FTP and SFTP)'));
+  const conns = S.settings.conns || [];
+  if (!conns.length) box.append(h('div', {class: 'note'}, 'No servers yet. Add one, for example your PC or a NAS running FTP or SSH.'));
+  conns.forEach(cn => box.append(h('div', {class: 'srow2'}, h('button', {style: 'flex:1;text-align:left;width:auto', onclick: () => { close(); const pn = FS.panes[FS.active]; pn.remote = Object.assign({}, cn); pn.path = cn.path || '/'; pn.cache = {}; pn.err = ''; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }}, h('b', null, cn.name), h('br'), h('small', null, cn.type.toUpperCase() + ' \u00b7 ' + cn.host + ':' + cn.port)),
+    h('button', {onclick: async () => { if (await askConfirm('Remove "' + cn.name + '" from this phone?', 'Remove')) { S.settings.conns = (S.settings.conns || []).filter(x => x.id !== cn.id); saveConns(); networkSheet(); } }}, '\u2715'))));
+  box.append(h('button', {class: 'pri', onclick: async () => {
+    close();
+    const type = await choose('Server type', [{label: 'FTP', value: 'ftp'}, {label: 'SFTP (SSH)', value: 'sftp'}]); if (!type) return;
+    const host = await askText('Server address (for example 192.168.1.20)', ''); if (!host) return;
+    const port = await askText('Port', type === 'sftp' ? '22' : '21'); if (!port) return;
+    const user = await askText('User name' + (type === 'ftp' ? ' (anonymous if empty)' : ''), type === 'ftp' ? 'anonymous' : ''); if (user === null || user === undefined) return;
+    const pass = await askText('Password (stored only on this phone)', ''); if (pass === null || pass === undefined) return;
+    const name = await askText('A name for this server', host); if (!name) return;
+    (S.settings.conns = S.settings.conns || []).push({id: uid(), name: name, type: type, host: host.trim(), port: parseInt(port, 10) || (type === 'sftp' ? 22 : 21), user: user.trim(), pass: pass, path: '/', hostKey: ''});
+    saveConns(); networkSheet();
+  }}, '+ Add a server'));
+  box.append(h('div', {class: 'note'}, 'FTP sends your password and files without encryption. Use SFTP when you can, and only on networks you trust.'));
+  box.append(h('button', {onclick: close}, 'Close'));
+  o.append(box); o.classList.add('open'); sheetDone = close;
 }
 function wifiSheet() {
   const o = $('sheet'); o.textContent = '';

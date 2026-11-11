@@ -78,6 +78,8 @@ android {
 dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("net.lingala.zip4j:zip4j:2.11.5")
+    implementation("commons-net:commons-net:3.11.1")
+    implementation("com.github.mwiede:jsch:0.2.20")
     implementation("com.alphacephei:vosk-android:0.3.47")
     implementation("com.frostwire:jlibtorrent:2.0.15.3")
     implementation("com.frostwire:jlibtorrent-android-arm64:2.0.15.3")
