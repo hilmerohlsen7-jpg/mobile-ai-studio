@@ -274,6 +274,13 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .overlay .pbar{background:#3a3a37}
 .frow{border-top:0;background:var(--panel);border-radius:14px;padding:10px 12px;margin-bottom:6px}
 .crumbs{color:var(--mute)}
+.vcar,#voiceCar{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:6px 20px 10px;scrollbar-width:none}
+#voiceCar::-webkit-scrollbar{display:none}
+.vcard{flex:0 0 40%;aspect-ratio:1;scroll-snap-align:center;border:1px solid var(--line);border-radius:28px;background:var(--bg);color:var(--txt);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:8px}
+.vcard.on{border-color:var(--acc);background:linear-gradient(180deg,var(--bg) 55%,rgba(217,119,87,.25))}
+.vcard b{font-weight:500;font-size:1rem}.vcard small{color:var(--mute);font-size:.72rem}
+#voiceDots{display:flex;justify-content:center;gap:8px;margin-bottom:8px}
+#voiceDots i{width:7px;height:7px;border-radius:50%;background:#4a4a46}#voiceDots i.on{background:var(--txt)}
 </style></head>
 <body>
 <div id="app">
@@ -347,6 +354,8 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
   <label>Grok model name<input type="text" id="m_grok" autocomplete="off" autocapitalize="none"></label>
 </div>
 <div class="pg" id="pg_voice" data-title="Voice and dictation" hidden>
+<div class="sct" style="margin:10px 4px 8px">Voice mode</div>
+<div id="voiceCar"></div><div id="voiceDots"></div>
   <label>AI voice<select id="s_voice"><option value="">Phone default</option></select></label>
   <button id="voiceTest">Test the voice</button>
   <label>Voice speed<select id="s_ttsRate"><option value="0.7">Slow</option><option value="1">Normal</option><option value="1.3">Fast</option></select></label>
@@ -735,7 +744,21 @@ window.__onVoices = json => {
   const sel = $('s_voice'); sel.textContent = ''; sel.append(new Option('Phone default', ''));
   (r.voices || []).forEach(v => sel.append(new Option(voiceLabel(v), v.id)));
   sel.value = r.current || ''; if (sel.value !== (r.current || '')) sel.value = '';
+  buildVoiceCarousel();
 };
+function buildVoiceCarousel() {
+  const sel = $('s_voice'); sel.parentElement.hidden = true;
+  const host = $('voiceCar'); if (!host) return; host.textContent = '';
+  const opts = [...sel.options]; const dots = $('voiceDots'); dots.textContent = '';
+  opts.forEach((op, i) => {
+    const m = op.text.match(/^(.*?)(?: \((.*)\))?$/);
+    const card = h('button', {class: 'vcard' + (op.value === sel.value ? ' on' : ''), onclick: () => { sel.value = op.value; sel.onchange(); buildVoiceCarousel(); }},
+      h('b', null, m[1]), h('small', null, m[2] || ''));
+    host.append(card);
+    if (opts.length <= 9) dots.append(h('i', {class: op.value === sel.value ? 'on' : ''}));
+  });
+  const on = host.querySelector('.on'); if (on) host.scrollLeft = on.offsetLeft - (host.clientWidth - on.clientWidth) / 2;
+}
 function testVoice() { if (hasBridge && Android.speak) { stopSpeaking(); Android.speak('Hi' + (userName() ? ' ' + userName() : '') + ', this is how I sound.', S.settings.ttsRate || 1); } }
 window.__onVoiceError = m => toast(m);
 let listening = false;
