@@ -690,6 +690,45 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    /** Sizes of a folder tree for the disk map (3 levels deep). The answer arrives in __onFs with "node", "total", "free". */
+    @JavascriptInterface
+    fun fsDiskMap(reqId: String, path: String) {
+        Thread {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@Thread }
+            try {
+                val deadline = SystemClock.elapsedRealtime() + 45000
+                var visited = 0L; var partial = false
+                fun scan(f: File, depth: Int): JSONObject {
+                    var size = 0L
+                    val kids = ArrayList<JSONObject>()
+                    if (f.isFile) size = f.length()
+                    else for (c in f.listFiles() ?: emptyArray()) {
+                        if (++visited > 1500000 || SystemClock.elapsedRealtime() > deadline) { partial = true; break }
+                        val n = if (c.isDirectory && !java.nio.file.Files.isSymbolicLink(c.toPath())) scan(c, depth + 1)
+                            else JSONObject().put("name", c.name).put("size", if (c.isFile) c.length() else 0L).put("dir", false)
+                        size += n.getLong("size")
+                        if (depth < 3) kids.add(n)
+                    }
+                    val o = JSONObject().put("name", f.name.ifEmpty { f.path }).put("size", size).put("dir", f.isDirectory)
+                    if (depth < 3 && kids.isNotEmpty()) {
+                        kids.sortByDescending { it.getLong("size") }
+                        val arr = JSONArray(); var rest = 0L
+                        for ((i, k) in kids.withIndex()) { if (i < 14 && k.getLong("size") > 0) arr.put(k) else rest += k.getLong("size") }
+                        if (rest > 0) arr.put(JSONObject().put("name", "\u2026").put("size", rest).put("dir", false).put("other", true))
+                        o.put("kids", arr)
+                    }
+                    return o
+                }
+                val root = File(path)
+                val node = scan(root, 0)
+                val st = android.os.StatFs(root.path)
+                fsReply(reqId, null, JSONObject().put("ok", true).put("node", node).put("total", st.totalBytes).put("free", st.availableBytes).put("partial", partial))
+            } catch (e: Exception) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not measure."))
+            }
+        }.start()
+    }
+
     @JavascriptInterface
     fun fsUndo(reqId: String, id: String, force: Boolean) {
         fsPool.execute { fsReply(reqId, fsOps.undo(id, force)) }
