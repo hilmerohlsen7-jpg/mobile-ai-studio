@@ -1640,6 +1640,14 @@ function buildPane(o, idx) {
   const other = FS.panes[1 - FS.active];
   const xfer = async move => {
     const its = fsSelItems(), dest = other.path;
+    if (other.remote) {
+      if (move) { toast('Moving to a server is not supported. Use Copy to, then delete the originals yourself.'); return; }
+      const c = await askApproval({title: 'Send ' + its.length + ' item(s) to the server', path: other.remote.name + ' ' + dest, reason: 'You chose Copy to the other panel.',
+        rows: [['From', FS.path], ['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]], primary: {label: 'Approve: send them', value: 'ok'}, note: 'Nothing on the server is replaced. Name clashes get a number. Your phone files stay where they are.'});
+      if (c === 'deny') return; toast('Sending...');
+      for (const x of its) { const r = await remoteCall(other, {type: 'upload', path: x.p, destDir: dest}); toast(r.msg || (r.ok ? 'Done.' : 'Failed.')); if (!r.ok) break; }
+      FS.sel.clear(); other.cache = {}; renderFiles(); return;
+    }
     if (dest === FS.path) { toast('Both panels show the same folder. Open another folder in the other panel first.'); return; }
     const c = await askApproval({title: (move ? 'Move ' : 'Copy ') + its.length + ' item(s) to the other panel', path: dest, reason: 'You chose ' + (move ? 'Move' : 'Copy') + ' to the other panel.',
       rows: [['From', FS.path], ['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]],
