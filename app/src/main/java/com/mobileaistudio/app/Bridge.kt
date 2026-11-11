@@ -1,6 +1,7 @@
 package com.mobileaistudio.app
 
 import android.app.ActivityManager
+import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -742,11 +743,18 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     fun wifiStart(path: String, upload: Boolean): String {
         if (!activity.hasFilesAccess()) return fsNoAccess().toString()
         val err = WifiServer.start(File(path), upload)
+        if (err == null) ui.post { try { androidx_start(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
         return if (err != null) JSONObject().put("ok", false).put("msg", err).toString() else wifiStatus()
     }
 
     @JavascriptInterface
-    fun wifiStop(): String { WifiServer.stop(); return wifiStatus() }
+    fun wifiStop(): String {
+        WifiServer.stop()
+        ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        return wifiStatus()
+    }
+
+    private fun androidx_start(i: Intent) { if (Build.VERSION.SDK_INT >= 26) activity.startForegroundService(i) else activity.startService(i) }
 
     @JavascriptInterface
     fun fsUndo(reqId: String, id: String, force: Boolean) {
