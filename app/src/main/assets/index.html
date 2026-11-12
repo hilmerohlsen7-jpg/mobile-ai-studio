@@ -1856,7 +1856,12 @@ function openConn(cn) { const pn = FS.panes[FS.active]; pn.home = false; pn.remo
 function buildHome(o, idx) {
   const pn = FS.panes[idx];
   const wrap = h('div', {class: 'xwrap'}), list = h('div', {class: 'xlist'});
-  const q = FS.active; const row = (ico, title, sub, fn, ind) => list.append(h('div', {class: 'xrow', style: 'padding-left:' + (10 + (ind || 0) * 22) + 'px', onclick: fn}, h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null)));
+  pn.hopen = pn.hopen || new Set();
+  const row = (ico, title, sub, fn, ind, key, open) => list.append(h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
+    h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); }}, key ? (open ? '\u25BC' : '\u25B6') : ''),
+    h('span', {class: 'xic', onclick: fn}, ico), h('span', {class: 'xnm', onclick: fn}, h('b', null, title), sub ? h('small', null, sub) : null)));
+  const tree = (path, ind) => { const r = fsJson('fsList', path); if (!r.ok) return; fsSortItems(r.items.filter(x => x.dir && (FS.hidden || x.name[0] !== '.'))).forEach(it => { const p = joinPath(path, it.name), op = pn.hopen.has(p);
+    row('\u{1F4C1}', it.name, '', () => { FS.active = idx; openLocal(p); }, ind, p, op); if (op) tree(p, ind + 1); }); };
   if (pn.sub === 'apps') { buildApps(list, idx); }
   else {
     o.append(h('div', {class: 'xpath'}, 'Home'));
@@ -1864,8 +1869,7 @@ function buildHome(o, idx) {
     HOME_ITEMS.forEach(([k, t, ico]) => {
       if (!homeShown(k)) return;
       const act = () => { FS.active = idx; };
-      if (k === 'int') row(ico, t, FS.root, () => { act(); openLocal(FS.root); });
-      else if (k === 'root') row(ico, t, '/', () => { act(); openLocal('/'); });
+      if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k); row(ico, t, p, () => { act(); openLocal(p); }, 0, '~' + k, op); if (op) tree(p, 1); }
       else if (k === 'smb' || k === 'ftp' || k === 'sftp') {
         row(ico, t, conns.filter(c => c.type === k).length + ' saved', () => { act(); addServer(k); });
         conns.filter(c => c.type === k).forEach(c => row('•', c.name, c.host + ':' + c.port, () => { act(); openConn(c); }, 1));
