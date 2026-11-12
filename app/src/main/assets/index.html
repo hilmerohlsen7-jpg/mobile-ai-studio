@@ -1666,6 +1666,9 @@ function buildPane(o, idx) {
     if (!root.length) list.append(h('div', {class: 'sub'}, 'This folder is empty.'));
     draw(root, FS.path, 0);
   }
+  localBar(o, idx, wrap, list, root);
+}
+function localBar(o, idx, wrap, list, root) {
   const bar = h('div', {class: 'xbar'});
   const oth = FS.panes[1 - idx];
   const R = FS.panes[idx].remote;
@@ -1874,8 +1877,15 @@ function buildHome(o, idx) {
     h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null));
     if (tog && key) holdOpen(el, () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); }, fn); else el.onclick = fn;
     list.append(el); };
-  const tree = (path, ind) => { const r = fsJson('fsList', path); if (!r.ok) return; fsSortItems(r.items.filter(x => x.dir && (FS.hidden || x.name[0] !== '.'))).forEach(it => { const p = joinPath(path, it.name), op = pn.hopen.has(p);
-    row('\u{1F4C1}', it.name, '', () => { FS.active = idx; openLocal(p); }, ind, p, op, true); if (op) tree(p, ind + 1); }); };
+  const tree = (path, ind) => { const r = fsJson('fsList', path); if (!r.ok) return; fsSortItems(r.items.filter(x => FS.hidden || x.name[0] !== '.')).forEach(it => { const p = joinPath(path, it.name), op = pn.hopen.has(p);
+    FS.kind[p] = it.dir; FS.size[p] = it.size;
+    const el = h('div', {class: 'xrow' + (pn.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (6 + ind * 20) + 'px'},
+      h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; if (op) pn.hopen.delete(p); else pn.hopen.add(p); renderFiles(); }}, it.dir ? (op ? '\u25BC' : '\u25B6') : ''),
+      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? 'Folder' : fmtSize(it.size) + ' \u00b7 ' + fmtDate(it.mtime))),
+      h('span', {class: 'xchk', onclick: e => { e.stopPropagation(); if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); renderFiles(); }}, '\u2714'));
+    if (it.dir) holdOpen(el, () => { if (op) pn.hopen.delete(p); else pn.hopen.add(p); renderFiles(); }, () => { FS.active = idx; openLocal(p); });
+    else el.onclick = () => { FS.active = idx; openFileView(it, p); };
+    list.append(el); if (it.dir && op) tree(p, ind + 1); }); };
   if (pn.sub === 'apps') { buildApps(list, idx); }
   else if (pn.sub === 'vault') { buildVault(list, idx); }
   else if (pn.sub === 'dlna') { buildDlna(list, idx); }
@@ -1900,6 +1910,7 @@ function buildHome(o, idx) {
     });
     row('☑', 'Show...', 'Choose which entries appear here', () => homeShowSheet());
   }
+  if (!pn.sub) { if (!pn.path) pn.path = FS.root; const keep = FS.active; FS.active = idx; const rt = fsListed(pn.path) || []; FS.active = keep; localBar(o, idx, wrap, list, rt); return; }
   const bar = h('div', {class: 'xbar'});
   const oth = FS.panes[1 - idx];
   bar.append(h('button', {class: 'xhandle', onclick: () => xSwap(1 - idx)}, h('span', {class: 'xarr'}, idx ? '◀' : '▶'), h('span', {class: 'xhl'}, oth.home ? 'Home' : (baseName(oth.path) || 'Storage'))));
