@@ -1563,6 +1563,7 @@ function openFiles() {
   $('settings').classList.remove('open'); $('drawer').classList.remove('open'); $('scrim').classList.remove('open');
   FS.view = 'list'; FS.access = hasBridge ? !!Android.fsAccess() : false;
   if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; }
+  if (FS.access) FS.panes.forEach(p => { p.home = true; p.sub = ''; p.remote = null; p.cache = {}; if (!p.path) p.path = FS.root; });
   renderFiles(); $('files').classList.add('open');
 }
 function closeFiles() { $('files').classList.remove('open'); }
