@@ -692,8 +692,14 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     /** Sizes of a folder tree for the disk map (3 levels deep). The answer arrives in __onFs with "node", "total", "free". */
+    @Volatile private var diskCancel = false
+    @Volatile private var diskVisited = 0L
+    @Volatile private var diskCur = ""
+    @JavascriptInterface fun diskMapCancel() { diskCancel = true }
+    @JavascriptInterface fun diskMapProgress(): String = JSONObject().put("n", diskVisited).put("cur", diskCur).toString()
     @JavascriptInterface
     fun fsDiskMap(reqId: String, path: String) {
+        diskCancel = false; diskVisited = 0; diskCur = path
         Thread {
             if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@Thread }
             try {
@@ -704,7 +710,8 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                     val kids = ArrayList<JSONObject>()
                     if (f.isFile) size = f.length()
                     else for (c in f.listFiles() ?: emptyArray()) {
-                        if (++visited > 1500000 || SystemClock.elapsedRealtime() > deadline) { partial = true; break }
+                        if (++visited > 1500000 || diskCancel || SystemClock.elapsedRealtime() > deadline) { partial = true; break }
+                        diskVisited = visited; if (depth < 2 && c.isDirectory) diskCur = c.path
                         val n = if (c.isDirectory && !java.nio.file.Files.isSymbolicLink(c.toPath())) scan(c, depth + 1)
                             else JSONObject().put("name", c.name).put("size", if (c.isFile) c.length() else 0L).put("dir", false)
                         size += n.getLong("size")

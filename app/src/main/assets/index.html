@@ -1769,8 +1769,13 @@ async function fsExtract(zip) {
   }
 }
 async function openDiskMap(path) {
-  toast('Measuring... big folders take a little while.');
-  const r = await fsCall('fsDiskMap', path);
+  const ov = h('div', {class: 'scanov', style: 'position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center'});
+  const msg = h('div', {style: 'font-size:.8rem;color:var(--mute);word-break:break-all;margin:6px 0'}, path), cnt = h('b', null, 'Measuring...');
+  ov.append(h('div', {class: 'sbox', style: 'width:84%;position:static;transform:none'}, h('div', {class: 'mt'}, 'Scanning folders'), cnt, msg,
+    h('button', {class: 'danger', onclick: () => { try { Android.diskMapCancel(); } catch (e) {} cnt.textContent = 'Stopping...'; }}, 'Cancel (show what is measured so far)')));
+  document.body.append(ov);
+  const tm = setInterval(() => { try { const p = JSON.parse(Android.diskMapProgress()); cnt.textContent = p.n.toLocaleString() + ' items checked'; msg.textContent = p.cur; } catch (e) {} }, 300);
+  const r = await fsCall('fsDiskMap', path); clearInterval(tm); ov.remove(); FS.mapZoom = 1;
   if (!r.ok) { toast(r.msg || 'Could not measure.'); return; }
   FS.map = {path: path, node: r.node, total: r.total, free: r.free, partial: r.partial}; FS.view = 'map'; renderFiles();
 }
@@ -2140,22 +2145,27 @@ function renderMap(o) {
   o.classList.add('x');
   o.append(h('div', {class: 'xtop'}, h('button', {onclick: () => { if (M.path !== FS.root && M.path.length > FS.root.length) openDiskMap(parentOf(M.path)); else { FS.view = 'list'; renderFiles(); } }, 'aria-label': 'Back'}, '\u2190'), h('div', {class: 'xt'}, 'Disk map'), h('button', {onclick: () => { FS.view = 'list'; renderFiles(); }, 'aria-label': 'Close'}, '\u2715')));
   o.append(h('div', {class: 'xpath'}, M.path + (M.partial ? '  (partly measured)' : '')));
-  const box = h('div', {class: 'tmap'}); o.append(box);
+  const z = FS.mapZoom || 1; const box = h('div', {class: 'tmap', style: 'overflow:auto'}); const inner = h('div', {style: 'position:relative'}); box.append(inner);
+  const zb = h('div', {style: 'display:flex;gap:6px;padding:4px 10px'}, h('button', {onclick: () => { FS.mapZoom = Math.max(1, z / 1.5); renderFiles(); }}, '\u2212 Zoom out'), h('button', {onclick: () => { FS.mapZoom = Math.min(8, z * 1.5); renderFiles(); }}, '+ Zoom in'), h('span', {style: 'color:var(--mute);font-size:.8rem;align-self:center'}, Math.round(z * 100) + '%  \u00b7 tap a folder to open it'));
+  o.append(zb); o.append(box);
+  let pd = 0; box.addEventListener('touchstart', e => { if (e.touches.length === 2) pd = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }, {passive: true});
+  box.addEventListener('touchend', e => { if (pd && e.touches.length < 2) { pd = 0; } });
+  box.addEventListener('touchmove', e => { if (e.touches.length === 2 && pd) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); if (d > pd * 1.25) { FS.mapZoom = Math.min(8, z * 1.5); pd = 0; renderFiles(); } else if (d < pd * 0.8) { FS.mapZoom = Math.max(1, z / 1.5); pd = 0; renderFiles(); } } }, {passive: true});
   const fmt = n => n >= 1073741824 ? (n / 1073741824).toFixed(n >= 1.07e10 ? 1 : 2) + 'GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.round(n / 1024) + 'KB';
   requestAnimationFrame(() => {
-    const W = box.clientWidth, H = box.clientHeight, gap = 2;
+    const W = box.clientWidth * z, H = box.clientHeight * z, gap = 2; inner.style.width = W + 'px'; inner.style.height = H + 'px';
     const cols = [0.22, 0.26, 0.26, 0.26].map((f, i, a) => a.slice(0, i).reduce((x, y) => x + y, 0));
     const cw = [0.22, 0.26, 0.26, 0.26];
     const block = (x, y, w, h2, cls, name, size, click) => {
       if (h2 < 3) return;
       const d = h('div', {class: 'tb ' + cls, style: 'left:' + x + 'px;top:' + y + 'px;width:' + (w - gap) + 'px;height:' + (h2 - gap) + 'px'});
       if (h2 >= 30) d.append(h('span', null, name), h('br'), h('span', {class: 'ts'}, fmt(size)));
-      if (click) d.onclick = click; box.append(d);
+      if (click) d.onclick = click; inner.append(d);
     };
     // storage block: used share of this folder vs whole storage
     const usedH = Math.max(40, H * Math.min(1, M.node.size / Math.max(1, M.total)));
     block(0, 0, W * cw[0], H, 'tstore', '', 0);
-    const st = box.lastChild; if (st) { st.innerHTML = ''; st.append(h('span', null, M.node.name || 'Storage'), h('br'), h('span', {class: 'ts'}, fmt(M.node.size)), h('div', {class: 'tfree'}, 'Free ' + Math.round(100 * M.free / M.total) + '%\n' + fmt(M.free) + '\n/ ' + fmt(M.total))); }
+    const st = inner.lastChild; if (st) { st.innerHTML = ''; st.append(h('span', null, M.node.name || 'Storage'), h('br'), h('span', {class: 'ts'}, fmt(M.node.size)), h('div', {class: 'tfree'}, 'Free ' + Math.round(100 * M.free / M.total) + '%\n' + fmt(M.free) + '\n/ ' + fmt(M.total))); }
     const lay = (node, depth, y, span) => {
       if (!node.kids || depth > 3) return;
       const tot = node.kids.reduce((s2, k) => s2 + k.size, 0) || 1;
