@@ -1861,9 +1861,9 @@ async function addMenu(k, pn) {
 }
 async function lanScanUi(pn) {
   if (pn.lan && pn.lan.busy) return; pn.lan = {busy: true, pct: 0, found: 0, hosts: []}; pn.hopen.add('~smb'); renderFiles();
-  const tm = setInterval(() => { try { const p = JSON.parse(Android.lanScanProgress()); pn.lan.pct = Math.min(99, Math.round(p.done * 100 / 254)); pn.lan.found = p.found; const el = document.getElementById('lanpct'); if (el) el.textContent = pn.lan.pct + '%  ·  found ' + p.found; } catch (e) {} }, 300);
+  const tm = setInterval(() => { try { const p = JSON.parse(Android.lanProgress()); pn.lan.pct = Math.min(99, p.pct); pn.lan.found = p.found; const el = document.getElementById('lanpct'); if (el) el.textContent = pn.lan.pct + '%  ·  found ' + p.found; } catch (e) {} }, 300);
   const r = await fsCall('lanScan'); clearInterval(tm); pn.lan.busy = false;
-  if (!r.ok) { toast(r.msg || 'Scan failed.'); pn.lan = null; } else { pn.lan.hosts = r.hosts; toast(r.hosts.length ? 'Found ' + r.hosts.length + ' server(s). Tap one to add it.' : 'No servers found. Make sure sharing is on and you are on the same Wi-Fi.'); }
+  if (!r.ok) { toast(r.msg || 'Scan failed.'); pn.lan = null; } else { pn.lan.hosts = r.servers; toast(r.servers.length ? 'Found ' + r.servers.length + ' server(s). Tap one to add it.' : 'No servers found. Make sure sharing is on and you are on the same Wi-Fi.'); }
   renderFiles();
 }
 function serverForm(type, pre) {
@@ -1933,8 +1933,8 @@ function buildHome(o, idx) {
         if (op) {
           conns.filter(c => c.type === k).forEach(c => row('\u2022', c.name, c.host + ':' + c.port, () => { act(); openConn(c); }, 1));
           if (k === 'smb') {
-            if (pn.lan && pn.lan.busy) list.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanScanCancel(); } catch (e) {} }}, '\u2715')));
-            ((pn.lan && pn.lan.hosts) || []).filter(x => !conns.some(c => c.host === x.host)).forEach(x => row('\u{1F5A5}', x.host, 'Found on this Wi-Fi. Tap to add.', () => { act(); addServer('smb', null, {host: x.host}); }, 1));
+            if (pn.lan && pn.lan.busy) list.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanCancel(); } catch (e) {} }}, '\u2715')));
+            ((pn.lan && pn.lan.hosts) || []).filter(x => !conns.some(c => c.host === x.host)).forEach(x => row('\u{1F5A5}', x.name || x.host, x.host + '  \u00b7  found on this Wi-Fi. Tap to add.', () => { act(); addServer('smb', null, {host: x.host, name: x.name !== x.host ? x.name : ''}); }, 1));
           }
           row('+', 'Add server', '', () => { act(); addMenu(k, pn); }, 1);
         }

@@ -1106,40 +1106,6 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }.start()
     }
 
-    // ---- LAN scan: finds PCs / NAS on this Wi-Fi that offer Windows file sharing (port 445) ----
-    @Volatile private var lanCancel = false
-    @Volatile private var lanDone = 0
-    @Volatile private var lanFound = 0
-    @JavascriptInterface fun lanScanCancel() { lanCancel = true }
-    @JavascriptInterface fun lanScanProgress(): String = JSONObject().put("done", lanDone).put("found", lanFound).toString()
-    @JavascriptInterface
-    fun lanScan(reqId: String) {
-        lanCancel = false; lanDone = 0; lanFound = 0
-        fsPool.execute {
-            val hits = java.util.Collections.synchronizedList(ArrayList<JSONObject>())
-            try {
-                var base: String? = null; var mine = ""
-                for (ni in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
-                    if (!ni.isUp || ni.isLoopback) continue
-                    for (ia in ni.interfaceAddresses) { val a = ia.address; if (a is java.net.Inet4Address && a.isSiteLocalAddress) { mine = a.hostAddress ?: ""; base = mine.substringBeforeLast('.') } }
-                }
-                if (base == null) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Not on a Wi-Fi network.")); return@execute }
-                val pool = java.util.concurrent.Executors.newFixedThreadPool(48)
-                for (i in 1..254) pool.execute {
-                    if (!lanCancel) {
-                        val ip = "$base.$i"
-                        try { java.net.Socket().use { it.connect(java.net.InetSocketAddress(ip, 445), 400); lanFound++; hits.add(JSONObject().put("host", ip).put("self", ip == mine)) } } catch (e: Exception) {}
-                    }
-                    lanDone++
-                }
-                pool.shutdown(); pool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
-                val arr = JSONArray()
-                for (h in hits.sortedBy { it.getString("host").substringAfterLast('.').toInt() }) { if (!h.getBoolean("self")) arr.put(h) }
-                fsReply(reqId, null, JSONObject().put("ok", true).put("hosts", arr))
-            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Scan failed.")) }
-        }
-    }
-
     @JavascriptInterface
     fun appAction(pkg: String, action: String): String {
         return try {
