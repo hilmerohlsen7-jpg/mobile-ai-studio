@@ -705,26 +705,40 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             try {
                 val deadline = SystemClock.elapsedRealtime() + 45000
                 var visited = 0L; var partial = false
+                fun sizeOnly(f: File): Long {
+                    if (f.isFile) return f.length()
+                    var t = 0L
+                    for (c in f.listFiles() ?: emptyArray()) {
+                        if (++visited > 1500000 || diskCancel || SystemClock.elapsedRealtime() > deadline) { partial = true; break }
+                        diskVisited = visited
+                        t += if (c.isDirectory) { if (java.nio.file.Files.isSymbolicLink(c.toPath())) 0L else sizeOnly(c) } else c.length()
+                    }
+                    return t
+                }
                 fun scan(f: File, depth: Int): JSONObject {
                     var size = 0L
-                    val kids = ArrayList<JSONObject>()
-                    if (f.isFile) size = f.length()
-                    else for (c in f.listFiles() ?: emptyArray()) {
+                    val dirs = ArrayList<JSONObject>()
+                    val files = ArrayList<Pair<String, Long>>(); var fileRest = 0L
+                    for (c in f.listFiles() ?: emptyArray()) {
                         if (++visited > 1500000 || diskCancel || SystemClock.elapsedRealtime() > deadline) { partial = true; break }
                         diskVisited = visited; if (depth < 2 && c.isDirectory) diskCur = c.path
-                        val n = if (c.isDirectory && !java.nio.file.Files.isSymbolicLink(c.toPath())) scan(c, depth + 1)
-                            else JSONObject().put("name", c.name).put("size", if (c.isFile) c.length() else 0L).put("dir", false)
-                        size += n.getLong("size")
-                        if (depth < 3) kids.add(n)
+                        if (c.isDirectory) {
+                            if (java.nio.file.Files.isSymbolicLink(c.toPath())) continue
+                            val n = if (depth < 8) scan(c, depth + 1) else JSONObject().put("name", c.name).put("size", sizeOnly(c)).put("dir", true)
+                            size += n.getLong("size"); dirs.add(n)
+                        } else {
+                            val len = c.length(); size += len; files.add(Pair(c.name, len))
+                            if (files.size > 80) { files.sortByDescending { it.second }; while (files.size > 40) { fileRest += files.removeAt(files.size - 1).second } }
+                        }
                     }
-                    val o = JSONObject().put("name", f.name.ifEmpty { f.path }).put("size", size).put("dir", f.isDirectory)
-                    if (depth < 3 && kids.isNotEmpty()) {
-                        kids.sortByDescending { it.getLong("size") }
-                        val arr = JSONArray(); var rest = 0L
-                        for ((i, k) in kids.withIndex()) { if (i < 14 && k.getLong("size") > 0) arr.put(k) else rest += k.getLong("size") }
-                        if (rest > 0) arr.put(JSONObject().put("name", "\u2026").put("size", rest).put("dir", false).put("other", true))
-                        o.put("kids", arr)
-                    }
+                    val o = JSONObject().put("name", f.name.ifEmpty { f.path }).put("size", size).put("dir", true)
+                    val all = ArrayList<JSONObject>(dirs)
+                    for (fl in files) all.add(JSONObject().put("name", fl.first).put("size", fl.second).put("dir", false))
+                    all.sortByDescending { it.getLong("size") }
+                    val arr = JSONArray(); var rest = fileRest; val min = size * 0.01
+                    for ((i, k) in all.withIndex()) { if (i < 40 && k.getLong("size") > 0 && k.getLong("size") >= min) arr.put(k) else rest += k.getLong("size") }
+                    if (rest > 0) arr.put(JSONObject().put("name", "\u2026").put("size", rest).put("dir", false).put("other", true))
+                    if (arr.length() > 0) o.put("kids", arr)
                     return o
                 }
                 val root = File(path)

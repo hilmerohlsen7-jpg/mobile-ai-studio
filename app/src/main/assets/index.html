@@ -226,6 +226,10 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xarr{color:#2a6fe0;font-size:1.6rem}
 .xhl{writing-mode:vertical-rl;font-size:.8rem;max-height:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tmap{position:relative;flex:1;background:#000;overflow:hidden;margin:6px 0 0}
+.dmbody{display:flex;flex:1;min-height:0;background:#000}.dmstrip{width:52px;flex:none;background:#141414;display:flex;flex-direction:column;align-items:center;padding:4px 0}
+.dmstrip button{width:100%;background:none;border:0;color:var(--txt);font-size:.62rem;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:2px}.dmstrip button span{font-size:1.15rem}
+.dmlab{writing-mode:vertical-rl;transform:rotate(180deg);flex:1;min-height:70px;max-height:42%;overflow:hidden;color:var(--txt);font-size:.82rem;padding:6px 0;text-overflow:ellipsis;white-space:nowrap}
+.dmcw{flex:1;min-width:0;position:relative}.dmcv{display:block;position:absolute;inset:0}
 .tb{position:absolute;box-sizing:border-box;padding:4px 6px;font-size:.78rem;line-height:1.15;color:#fff;overflow:hidden;text-shadow:0 1px 2px #000;border-radius:2px}
 .ts{opacity:.8}
 .tstore{background:linear-gradient(180deg,#f2b13c,#a66d12);outline:3px solid #fff;outline-offset:-3px}
@@ -2152,46 +2156,76 @@ function wifiSheet() {
   o.append(box); o.classList.add('open'); sheetDone = close;
 }
 function renderMap(o) {
-  const M = FS.map;
-  o.classList.add('x');
-  o.append(h('div', {class: 'xtop'}, h('button', {onclick: () => { if (M.path !== FS.root && M.path.length > FS.root.length) openDiskMap(parentOf(M.path)); else { FS.view = 'list'; renderFiles(); } }, 'aria-label': 'Back'}, '\u2190'), h('div', {class: 'xt'}, 'Disk map'), h('button', {onclick: () => { FS.view = 'list'; renderFiles(); }, 'aria-label': 'Close'}, '\u2715')));
-  o.append(h('div', {class: 'xpath'}, M.path + (M.partial ? '  (partly measured)' : '')));
-  const z = FS.mapZoom || 1; const box = h('div', {class: 'tmap', style: 'overflow:auto'}); const inner = h('div', {style: 'position:relative'}); box.append(inner);
-  const zb = h('div', {style: 'display:flex;gap:6px;padding:4px 10px'}, h('button', {onclick: () => { FS.mapZoom = Math.max(1, z / 1.5); renderFiles(); }}, '\u2212 Zoom out'), h('button', {onclick: () => { FS.mapZoom = Math.min(8, z * 1.5); renderFiles(); }}, '+ Zoom in'), h('span', {style: 'color:var(--mute);font-size:.8rem;align-self:center'}, Math.round(z * 100) + '%  \u00b7 tap a folder to open it'));
-  o.append(zb); o.append(box);
-  let pd = 0; box.addEventListener('touchstart', e => { if (e.touches.length === 2) pd = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }, {passive: true});
-  box.addEventListener('touchend', e => { if (pd && e.touches.length < 2) { pd = 0; } });
-  box.addEventListener('touchmove', e => { if (e.touches.length === 2 && pd) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); if (d > pd * 1.25) { FS.mapZoom = Math.min(8, z * 1.5); pd = 0; renderFiles(); } else if (d < pd * 0.8) { FS.mapZoom = Math.max(1, z / 1.5); pd = 0; renderFiles(); } } }, {passive: true});
-  const fmt = n => n >= 1073741824 ? (n / 1073741824).toFixed(n >= 1.07e10 ? 1 : 2) + 'GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.round(n / 1024) + 'KB';
-  requestAnimationFrame(() => {
-    const W = box.clientWidth * z, H = box.clientHeight * z, gap = 2; inner.style.width = W + 'px'; inner.style.height = H + 'px';
-    const cols = [0.22, 0.26, 0.26, 0.26].map((f, i, a) => a.slice(0, i).reduce((x, y) => x + y, 0));
-    const cw = [0.22, 0.26, 0.26, 0.26];
-    const block = (x, y, w, h2, cls, name, size, click) => {
-      if (h2 < 3) return;
-      const d = h('div', {class: 'tb ' + cls, style: 'left:' + x + 'px;top:' + y + 'px;width:' + (w - gap) + 'px;height:' + (h2 - gap) + 'px'});
-      if (h2 >= 30) d.append(h('span', null, name), h('br'), h('span', {class: 'ts'}, fmt(size)));
-      if (click) d.onclick = click; inner.append(d);
+  const M = FS.map; o.classList.add('x');
+  const leave = () => { if (M.raf) cancelAnimationFrame(M.raf); M.raf = 0; FS.view = 'list'; renderFiles(); };
+  const fmt = n => n >= 1073741824 ? (n / 1073741824).toFixed(n >= 1.07e10 ? 1 : 2) + 'GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n >= 1024 ? Math.round(n / 1024) + 'KB' : n + 'B';
+  // lay out once: every node gets a vertical range y0..y1 (0..1) and a depth
+  if (!M.laid) { const lay = (n, y0, y1, d, par) => { n.y0 = y0; n.y1 = y1; n.d = d; n.par = par; if (n.kids) { const tot = n.kids.reduce((x, k) => x + k.size, 0) || 1; let y = y0; n.kids.forEach(k => { const hh = (y1 - y0) * k.size / tot; lay(k, y, y + hh, d + 1, n); y += hh; }); } }; lay(M.node, 0, 1, 0, null); M.laid = true; M.v = {z: 1, off: 0, xo: 0, xt: 0, anim: null}; M.focus = M.node; }
+  const V = M.v;
+  const nodePath = n => { const names = []; for (let x = n; x && x.par; x = x.par) names.unshift(x.name); return names.reduce((p, nm) => joinPath(p, nm), M.path); };
+  const pathBar = h('div', {class: 'xpath'}, M.path); const label = h('div', {class: 'dmlab'}, M.node.name);
+  const zoomTo = (n, quick) => { const H = cv.clientHeight; const span = Math.max(1e-6, n.y1 - n.y0), z = Math.min(1 / span, 20000); V.anim = {z0: V.z, f0: V.off / (H * V.z), z1: z, f1: n.y0, t0: performance.now(), dur: quick ? 1 : 380}; kick(); };
+  const parentZoom = () => { const f = M.focus; if (f && f.par) zoomTo(f.par); else toast('This is the top of the map.'); };
+  o.append(h('div', {class: 'xtop'}, h('button', {onclick: () => { if (M.focus && M.focus.par) parentZoom(); else leave(); }, 'aria-label': 'Back'}, '←'), h('div', {class: 'xt'}, 'Disk map'), h('button', {onclick: leave, 'aria-label': 'Close'}, '✕')));
+  o.append(pathBar);
+  const strip = h('div', {class: 'dmstrip'}, label,
+    h('button', {onclick: parentZoom}, h('span', null, '⬆'), 'Up dir'),
+    h('button', {onclick: () => { let n = M.focus; if (!n.dir && n.par) n = n.par; const p = nodePath(n); leave(); openLocal(p); }}, h('span', null, '\u{1F4C2}'), 'Open'),
+    h('button', {onclick: () => { V.z = 1; V.off = 0; V.anim = null; kick(); }}, h('span', null, '\u{1F50D}'), 'Reset'));
+  const cv = h('canvas', {class: 'dmcv'}); const body = h('div', {class: 'dmbody'}, strip, h('div', {class: 'dmcw'}, cv)); o.append(body);
+  const ctx = cv.getContext('2d'); let W = 0, H = 0, dpr = window.devicePixelRatio || 1, rects = [];
+  const colors = {root: '#c9861f', dir: '#8c8a24', file: '#2f86c8', other: '#b86a2c'};
+  const clamp = () => { V.z = Math.max(1, Math.min(20000, V.z)); V.off = Math.max(0, Math.min(V.off, H * V.z - H)); };
+  const draw = () => {
+    if (!cv.isConnected) return; const cw = cv.parentNode.clientWidth, ch = cv.parentNode.clientHeight; if (!cw || !ch) return;
+    if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; }
+    W = cw; H = ch; clamp();
+    const colW = W / 3.3; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.font = '12px sans-serif'; ctx.textBaseline = 'top'; rects = [];
+    const zH = H * V.z;
+    // focus = deepest node that covers the whole screen height
+    let f = M.node; for (;;) { let nx = null; if (f.kids) for (const k of f.kids) { const t = k.y0 * zH - V.off, b = k.y1 * zH - V.off; if (t <= 0.5 && b >= H - 0.5) { nx = k; break; } } if (!nx) break; f = nx; }
+    if (f !== M.focus) { M.focus = f; label.textContent = f.name + ' · ' + fmt(f.size); pathBar.textContent = nodePath(f) + (M.partial ? '   (partly measured)' : '') + '   free ' + fmt(M.free) + ' of ' + fmt(M.total); }
+    V.xt = f.d > 0 ? f.d + 1 : 0;
+    const walk = n => {
+      const t = n.y0 * zH - V.off, hh = (n.y1 - n.y0) * zH; if (t > H || t + hh < 0 || hh < 1.2) return;
+      const x = (n.d - V.xo) * colW; if (x + colW < 0 && !(n.kids)) return;
+      if (x + colW > 0 && x < W) {
+        ctx.fillStyle = n.other ? colors.other : n.par ? (n.dir ? colors.dir : colors.file) : colors.root; const y = Math.max(t, 0), y2 = Math.min(t + hh, H);
+        ctx.fillRect(x, y, colW - 1, y2 - y - 1); rects.push({n: n, x: x, y: y, w: colW, h: y2 - y});
+        if (hh >= 14 && colW > 40) {
+          ctx.fillStyle = '#fff'; const ty = Math.max(t, 0) + 3; let nm = n.name; const maxw = colW - 8;
+          while (nm.length > 2 && ctx.measureText(nm).width > maxw) nm = nm.slice(0, -2) + '…';
+          ctx.fillText(nm, x + 4, ty); if (hh >= 30 && y2 - y >= 30) { ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fillText(fmt(n.size), x + 4, ty + 14); }
+        }
+      }
+      if (n.kids && (n.d + 1 - V.xo) * colW < W) n.kids.forEach(walk);
     };
-    // storage block: used share of this folder vs whole storage
-    const usedH = Math.max(40, H * Math.min(1, M.node.size / Math.max(1, M.total)));
-    block(0, 0, W * cw[0], H, 'tstore', '', 0);
-    const st = inner.lastChild; if (st) { st.innerHTML = ''; st.append(h('span', null, M.node.name || 'Storage'), h('br'), h('span', {class: 'ts'}, fmt(M.node.size)), h('div', {class: 'tfree'}, 'Free ' + Math.round(100 * M.free / M.total) + '%\n' + fmt(M.free) + '\n/ ' + fmt(M.total))); }
-    const lay = (node, depth, y, span) => {
-      if (!node.kids || depth > 3) return;
-      const tot = node.kids.reduce((s2, k) => s2 + k.size, 0) || 1;
-      const x = W * (cols[depth] ), w = W * cw[depth];
-      let yy = y;
-      node.kids.forEach(k => {
-        const hh = span * k.size / Math.max(node.size, tot);
-        const cls = k.other ? 'tother' : k.dir ? 'tdir' : 'tfile';
-        block(x, yy, w, hh, cls, k.name, k.size, k.dir ? () => openDiskMap(joinPath(M.path, k.name)) : null);
-        if (k.dir) lay(k, depth + 1, yy, hh);
-        yy += hh;
-      });
-    };
-    lay(M.node, 1, 0, H);
-  });
+    walk(M.node);
+  };
+  let busy = false;
+  const frame = now => {
+    M.raf = 0; if (!cv.isConnected) return; let more = false;
+    if (V.anim) { const a = V.anim, p = Math.min(1, (now - a.t0) / a.dur), e = 1 - Math.pow(1 - p, 3); V.z = Math.exp(Math.log(a.z0) + (Math.log(a.z1) - Math.log(a.z0)) * e); V.off = (a.f0 + (a.f1 - a.f0) * e) * H * V.z; if (p >= 1) V.anim = null; else more = true; }
+    draw(); const dx = V.xt - V.xo; if (Math.abs(dx) > 0.004) { V.xo += dx * 0.18; more = true; } else V.xo = V.xt;
+    if (more) M.raf = requestAnimationFrame(frame);
+  };
+  const kick = () => { if (!M.raf) M.raf = requestAnimationFrame(frame); };
+  // touch: one finger drags, two fingers pinch, tap zooms to a block, hold opens its folder
+  const ptr = new Map(); let pinch = 0, moved = 0, downT = 0, holdT = 0, downPos = null, fired = false;
+  const hit = (px, py) => { for (let i = rects.length - 1; i >= 0; i--) { const r = rects[i]; if (px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h) return r.n; } return null; };
+  const zoomAt = (f, fy) => { const nz = Math.max(1, Math.min(20000, V.z * f)); V.off = (V.off + fy) * nz / V.z - fy; V.z = nz; V.anim = null; kick(); };
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, {x: e.offsetX, y: e.offsetY}); if (ptr.size === 1) { moved = 0; fired = false; downPos = {x: e.offsetX, y: e.offsetY}; V.anim = null;
+    holdT = setTimeout(() => { if (moved < 8 && ptr.size === 1) { const n = hit(downPos.x, downPos.y); if (n && !n.other) { fired = true; const t = n.dir ? n : n.par, p = nodePath(t); leave(); openLocal(p); } } }, 600); }
+    if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); clearTimeout(holdT); moved = 99; } });
+  cv.addEventListener('pointermove', e => { const p = ptr.get(e.pointerId); if (!p) return; const dy = e.offsetY - p.y, dx = e.offsetX - p.x; p.x = e.offsetX; p.y = e.offsetY;
+    if (ptr.size === 2) { const [a, b] = [...ptr.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); if (pinch > 0) zoomAt(d / pinch, (a.y + b.y) / 2); pinch = d; }
+    else { moved += Math.abs(dx) + Math.abs(dy); if (moved > 8) { clearTimeout(holdT); V.off -= dy; V.anim = null; kick(); } } });
+  const up = e => { const had = ptr.has(e.pointerId); ptr.delete(e.pointerId); clearTimeout(holdT); pinch = 0;
+    if (had && ptr.size === 0 && moved < 8 && !fired) { const n = hit(e.offsetX, e.offsetY); if (n && !n.other) { if (n === M.focus || n.y1 - n.y0 > 0.9999) { if (n.par) zoomTo(n.par); } else zoomTo(n); } } };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', e => { ptr.delete(e.pointerId); clearTimeout(holdT); });
+  cv.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.25 : 0.8, e.offsetY); }, {passive: false});
+  cv.style.touchAction = 'none';
+  requestAnimationFrame(() => { draw(); label.textContent = M.node.name + ' · ' + fmt(M.node.size); pathBar.textContent = M.path + (M.partial ? '   (partly measured)' : '') + '   free ' + fmt(M.free) + ' of ' + fmt(M.total); kick(); });
 }
 function renderResults(o) {
   const R = FS.results || {title: 'Results', files: []};
