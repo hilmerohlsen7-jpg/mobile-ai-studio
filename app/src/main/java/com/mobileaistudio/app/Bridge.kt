@@ -830,6 +830,28 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     /** action: info | uninstall | launch. Uninstall only opens Android's own confirmation. */
+    /** App icons as small PNGs (base64), for a list of package names. */
+    @JavascriptInterface
+    fun appIcons(reqId: String, pkgsJson: String) {
+        fsPool.execute {
+            val out = JSONObject()
+            try {
+                val pm = activity.packageManager; val arr = JSONArray(pkgsJson)
+                for (i in 0 until arr.length()) {
+                    val pkg = arr.getString(i)
+                    try {
+                        val d = pm.getApplicationIcon(pkg); val sz = 96
+                        val bmp = android.graphics.Bitmap.createBitmap(sz, sz, android.graphics.Bitmap.Config.ARGB_8888)
+                        val c = android.graphics.Canvas(bmp); d.setBounds(0, 0, sz, sz); d.draw(c)
+                        val bo = java.io.ByteArrayOutputStream(); bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, bo)
+                        out.put(pkg, android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP))
+                    } catch (e: Exception) {}
+                }
+            } catch (e: Exception) {}
+            fsReply(reqId, null, JSONObject().put("ok", true).put("icons", out))
+        }
+    }
+
     @JavascriptInterface
     fun appAction(pkg: String, action: String): String {
         return try {

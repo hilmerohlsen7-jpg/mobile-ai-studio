@@ -1913,6 +1913,7 @@ async function xMenu() {
 }
 function buildApps(list, idx) {
   const pn = FS.panes[idx];
+  pn.icons = pn.icons || {};
   if (!pn.apps) { try { pn.apps = JSON.parse(Android.appList()).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())); } catch (e) { pn.apps = []; } }
   list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F4E6}'), h('span', {class: 'xnm'}, h('b', null, 'App manager'), h('small', null, pn.apps.length + ' apps'))));
   const inp = h('input', {type: 'search', placeholder: 'Search apps', value: pn.q || '', style: 'margin:6px 10px;width:calc(100% - 20px)'});
@@ -1920,9 +1921,13 @@ function buildApps(list, idx) {
   list.append(inp); const holder = h('div'); list.append(holder);
   const drawApps = () => {
     holder.textContent = ''; const q = (pn.q || '').toLowerCase();
-    pn.apps.filter(a => !q || a.name.toLowerCase().includes(q) || a.pkg.includes(q)).forEach(a => holder.append(h('div', {class: 'xrow', onclick: () => appSheet(a)}, h('span', {class: 'xic'}, '\u{1F4E6}'), h('span', {class: 'xnm'}, h('b', null, a.name), h('small', null, fmtSize(a.size) + ' · ' + (a.version || '') + (a.system ? ' · system' : ''))))));
+    pn.apps.filter(a => !q || a.name.toLowerCase().includes(q) || a.pkg.includes(q)).forEach(a => holder.append(h('div', {class: 'xrow', onclick: () => appSheet(a)}, h('span', {class: 'xic'}, pn.icons[a.pkg] ? h('img', {src: 'data:image/png;base64,' + pn.icons[a.pkg], style: 'width:32px;height:32px;border-radius:7px'}) : '\u{1F4E6}'), h('span', {class: 'xnm'}, h('b', null, a.name), h('small', null, fmtSize(a.size) + ' · ' + (a.version || '') + (a.system ? ' · system' : ''))))));
   };
   drawApps();
+  if (!pn.iconsBusy) { pn.iconsBusy = true; (async () => { const todo = pn.apps.map(a => a.pkg).filter(k => !pn.icons[k]);
+    for (let i = 0; i < todo.length; i += 20) { const r = await fsCall('appIcons', JSON.stringify(todo.slice(i, i + 20))); if (r && r.icons) Object.assign(pn.icons, r.icons);
+      if (pn.sub === 'apps' && $('files').classList.contains('open') && !document.activeElement.matches('input')) drawApps(); }
+    pn.iconsBusy = false; })(); }
 }
 async function appSheet(a) {
   const v = await choose(a.name, [{label: 'Open', value: 'launch'}, {label: 'App info', value: 'info'}, {label: 'Back up APK to Download', value: 'backup'}, {label: 'Uninstall...', value: 'uninstall', danger: true}]);
