@@ -228,6 +228,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .tmap{position:relative;flex:1;background:#000;overflow:hidden;margin:6px 0 0}
 .dmbody{display:flex;flex:1;min-height:0;background:#000}.dmstrip{width:52px;flex:none;background:#141414;display:flex;flex-direction:column;align-items:center;padding:4px 0}
 .dmstrip button{width:100%;background:none;border:0;color:var(--txt);font-size:.62rem;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:2px}.dmstrip button span{font-size:1.15rem}
+.dmlab2{position:absolute;left:0;top:0;bottom:0;width:20px;background:rgba(20,20,20,.85);color:#fff;writing-mode:vertical-rl;transform:rotate(180deg);font-size:.74rem;padding:6px 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;pointer-events:none}
 .dmlab{writing-mode:vertical-rl;transform:rotate(180deg);flex:1;min-height:70px;max-height:42%;overflow:hidden;color:var(--txt);font-size:.82rem;padding:6px 0;text-overflow:ellipsis;white-space:nowrap}
 .dmcw{flex:1;min-width:0;position:relative}.dmcv{display:block;position:absolute;inset:0}
 .tb{position:absolute;box-sizing:border-box;padding:4px 6px;font-size:.78rem;line-height:1.15;color:#fff;overflow:hidden;text-shadow:0 1px 2px #000;border-radius:2px}
@@ -1557,6 +1558,7 @@ function fsBack() {
   if (!$('files').classList.contains('open')) return false;
   if (FS.view !== 'list') { FS.view = 'list'; renderFiles(); return true; }
   const pn = FS.panes[FS.active];
+  if (pn.mapOn) { pn.mapOn = false; renderFiles(); return true; }
   if (pn.home) { if (pn.sub) { pn.sub = ''; renderFiles(); return true; } closeFiles(); return true; }
   if (FS.access && FS.root && FS.path !== FS.root && !pn.remote) { FS.path = parentOf(FS.path); renderFiles(); return true; }
   if (pn.remote && FS.path !== (pn.remote.path || '/')) { FS.path = parentOf(FS.path); renderFiles(); return true; }
@@ -1589,7 +1591,6 @@ function renderFiles() {
   if (FS.view === 'history') return renderHistory(o);
   if (FS.view === 'trash') return renderTrash(o);
   if (FS.view === 'results') return renderResults(o);
-  if (FS.view === 'map') return renderMap(o);
   if (FS.view === 'file') return renderFileView(o);
   return renderXplore(o);
 }
@@ -1635,6 +1636,7 @@ function xSwap(to) {
 }
 function buildPane(o, idx) {
   if (FS.panes[idx].home) { buildHome(o, idx); return; }
+  if (FS.panes[idx].mapOn && FS.panes[idx].dm) { buildMapPane(o, idx); return; }
   o.append(h('div', {class: 'xpath'}, FS.path));
   const wrap = h('div', {class: 'xwrap'});
   const list = h('div', {class: 'xlist'});
@@ -1782,9 +1784,9 @@ async function openDiskMap(path) {
     h('button', {class: 'danger', onclick: () => { try { Android.diskMapCancel(); } catch (e) {} cnt.textContent = 'Stopping...'; }}, 'Cancel (show what is measured so far)')));
   document.body.append(ov);
   const tm = setInterval(() => { try { const p = JSON.parse(Android.diskMapProgress()); cnt.textContent = p.n.toLocaleString() + ' items checked'; msg.textContent = p.cur; } catch (e) {} }, 300);
-  const r = await fsCall('fsDiskMap', path); clearInterval(tm); ov.remove(); FS.mapZoom = 1;
+  const r = await fsCall('fsDiskMap', path); clearInterval(tm); ov.remove(); 
   if (!r.ok) { toast(r.msg || 'Could not measure.'); return; }
-  FS.map = {path: path, node: r.node, total: r.total, free: r.free, partial: r.partial}; FS.view = 'map'; renderFiles();
+  const pn = FS.panes[FS.active]; pn.dm = {path: path, node: r.node, total: r.total, free: r.free, partial: r.partial}; pn.mapOn = true; pn.home = false; renderFiles();
 }
 /* ---- FTP / SFTP servers ---- */
 const rconn = r => ({type: r.type, host: r.host, port: r.port, user: r.user, pass: r.pass, hostKey: r.hostKey || ''});
@@ -1869,8 +1871,8 @@ function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === u
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
-function goHome() { const pn = FS.panes[FS.active]; pn.home = true; pn.sub = ''; pn.remote = null; pn.cache = {}; FS.sel.clear(); renderFiles(); }
-function openLocal(path) { const pn = FS.panes[FS.active]; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
+function goHome() { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = true; pn.sub = ''; pn.remote = null; pn.cache = {}; FS.sel.clear(); renderFiles(); }
+function openLocal(path) { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
 function openConn(cn) { const pn = FS.panes[FS.active]; pn.home = false; pn.remote = Object.assign({}, cn); pn.path = cn.path || '/'; pn.cache = {}; pn.err = ''; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
 function buildHome(o, idx) {
   const pn = FS.panes[idx];
@@ -2155,77 +2157,90 @@ function wifiSheet() {
   box.append(h('button', {onclick: close}, 'Close'));
   o.append(box); o.classList.add('open'); sheetDone = close;
 }
-function renderMap(o) {
-  const M = FS.map; o.classList.add('x');
-  const leave = () => { if (M.raf) cancelAnimationFrame(M.raf); M.raf = 0; FS.view = 'list'; renderFiles(); };
-  const fmt = n => n >= 1073741824 ? (n / 1073741824).toFixed(n >= 1.07e10 ? 1 : 2) + 'GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n >= 1024 ? Math.round(n / 1024) + 'KB' : n + 'B';
-  // lay out once: every node gets a vertical range y0..y1 (0..1) and a depth
-  if (!M.laid) { const lay = (n, y0, y1, d, par) => { n.y0 = y0; n.y1 = y1; n.d = d; n.par = par; if (n.kids) { const tot = n.kids.reduce((x, k) => x + k.size, 0) || 1; let y = y0; n.kids.forEach(k => { const hh = (y1 - y0) * k.size / tot; lay(k, y, y + hh, d + 1, n); y += hh; }); } }; lay(M.node, 0, 1, 0, null); M.laid = true; M.v = {z: 1, off: 0, xo: 0, xt: 0, anim: null}; M.focus = M.node; }
+/* ---- disk map: lives inside the panel you are on ---- */
+const dmFmt = n => n >= 1073741824 ? (n / 1073741824).toFixed(n >= 1.07e10 ? 1 : 2) + 'GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n >= 1024 ? Math.round(n / 1024) + 'KB' : n + 'B';
+function buildMapPane(o, idx) {
+  const pn = FS.panes[idx], M = pn.dm;
+  if (!M.laid) {
+    const scanned = M.node; let top = scanned;
+    if (M.path === FS.root && M.total) { const kids = [scanned]; if (M.free) kids.push({name: 'Free space', size: M.free, dir: false, free: true}); const rest = M.total - M.free - scanned.size; if (rest > 0) kids.push({name: 'System and other', size: rest, dir: false, other: true}); top = {name: 'Internal shared storage', size: M.total, dir: true, kids: kids}; }
+    M.top = top; M.maxD = 0;
+    const lay = (n, y0, y1, d, par) => { n.y0 = y0; n.y1 = y1; n.d = d; n.par = par; if (d > M.maxD) M.maxD = d; if (n.kids) { const tot = n.kids.reduce((x, k) => x + k.size, 0) || 1; let y = y0; n.kids.forEach(k => { const hh = (y1 - y0) * k.size / tot; lay(k, y, y + hh, d + 1, n); y += hh; }); } };
+    lay(top, 0, 1, 0, null); M.laid = true; M.v = {z: 1, off: 0, xo: 0, xt: 0, anim: null, manual: false}; M.focus = top; M.tw = {};
+  }
   const V = M.v;
-  const nodePath = n => { const names = []; for (let x = n; x && x.par; x = x.par) names.unshift(x.name); return names.reduce((p, nm) => joinPath(p, nm), M.path); };
-  const pathBar = h('div', {class: 'xpath'}, M.path); const label = h('div', {class: 'dmlab'}, M.node.name);
-  const zoomTo = (n, quick) => { const H = cv.clientHeight; const span = Math.max(1e-6, n.y1 - n.y0), z = Math.min(1 / span, 20000); V.anim = {z0: V.z, f0: V.off / (H * V.z), z1: z, f1: n.y0, t0: performance.now(), dur: quick ? 1 : 380}; kick(); };
+  const nodePath = n => { const names = []; let x = n; while (x && x !== M.node) { if (!x.par) return M.path; names.unshift(x.name); x = x.par; } return names.reduce((p, nm) => joinPath(p, nm), M.path); };
+  o.append(h('div', {class: 'xpath'}, M.path));
+  const pathBar = o.lastChild;
+  const wrap = h('div', {class: 'xwrap'}); if (idx) wrap.style.flexDirection = 'row-reverse';
+  const cwrap = h('div', {class: 'dmcw', style: 'flex:1;min-width:0;position:relative;background:#000'});
+  const label = h('div', {class: 'dmlab2'}, M.top.name); const cv = h('canvas', {class: 'dmcv'}); cwrap.append(cv, label);
+  const leaveMap = () => { if (M.raf) cancelAnimationFrame(M.raf); M.raf = 0; pn.mapOn = false; renderFiles(); };
+  const zoomTo = (n) => { const Hh = cv.clientHeight; const span = Math.max(1e-6, n.y1 - n.y0), z = Math.min(1 / span, 20000); V.manual = false; V.anim = {z0: V.z, f0: V.off / (Hh * V.z), z1: z, f1: n.y0, t0: performance.now(), dur: 380}; kick(); };
   const parentZoom = () => { const f = M.focus; if (f && f.par) zoomTo(f.par); else toast('This is the top of the map.'); };
-  o.append(h('div', {class: 'xtop'}, h('button', {onclick: () => { if (M.focus && M.focus.par) parentZoom(); else leave(); }, 'aria-label': 'Back'}, '←'), h('div', {class: 'xt'}, 'Disk map'), h('button', {onclick: leave, 'aria-label': 'Close'}, '✕')));
-  o.append(pathBar);
-  const strip = h('div', {class: 'dmstrip'}, label,
-    h('button', {onclick: parentZoom}, h('span', null, '⬆'), 'Up dir'),
-    h('button', {onclick: () => { let n = M.focus; if (!n.dir && n.par) n = n.par; const p = nodePath(n); leave(); openLocal(p); }}, h('span', null, '\u{1F4C2}'), 'Open'),
-    h('button', {onclick: () => { V.z = 1; V.off = 0; V.anim = null; kick(); }}, h('span', null, '\u{1F50D}'), 'Reset'));
-  const cv = h('canvas', {class: 'dmcv'}); const body = h('div', {class: 'dmbody'}, strip, h('div', {class: 'dmcw'}, cv)); o.append(body);
-  const ctx = cv.getContext('2d'); let W = 0, H = 0, dpr = window.devicePixelRatio || 1, rects = [];
-  const colors = {root: '#c9861f', dir: '#8c8a24', file: '#2f86c8', other: '#b86a2c'};
+  const ctx = cv.getContext('2d', {alpha: false}); let W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2), rects = [];
+  const colors = {root: '#c9861f', dir: '#8c8a24', file: '#2f86c8', other: '#b86a2c', free: '#4a4a4a'};
+  const twid = t => { let w = M.tw[t]; if (w === undefined) { w = ctx.measureText(t).width; if (Object.keys(M.tw).length > 3000) M.tw = {}; M.tw[t] = w; } return w; };
   const clamp = () => { V.z = Math.max(1, Math.min(20000, V.z)); V.off = Math.max(0, Math.min(V.off, H * V.z - H)); };
+  let lastFocus = null;
   const draw = () => {
-    if (!cv.isConnected) return; const cw = cv.parentNode.clientWidth, ch = cv.parentNode.clientHeight; if (!cw || !ch) return;
+    if (!cv.isConnected) return; const cw = cwrap.clientWidth, ch = cwrap.clientHeight; if (!cw || !ch) return;
     if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; }
     W = cw; H = ch; clamp();
-    const colW = W / 3.3; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.font = '12px sans-serif'; ctx.textBaseline = 'top'; rects = [];
-    const zH = H * V.z;
-    // focus = deepest node that covers the whole screen height
-    let f = M.node; for (;;) { let nx = null; if (f.kids) for (const k of f.kids) { const t = k.y0 * zH - V.off, b = k.y1 * zH - V.off; if (t <= 0.5 && b >= H - 0.5) { nx = k; break; } } if (!nx) break; f = nx; }
-    if (f !== M.focus) { M.focus = f; label.textContent = f.name + ' · ' + fmt(f.size); pathBar.textContent = nodePath(f) + (M.partial ? '   (partly measured)' : '') + '   free ' + fmt(M.free) + ' of ' + fmt(M.total); }
-    V.xt = f.d > 0 ? f.d + 1 : 0;
+    const colW = (W - 20) / 2.8; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.font = '12px sans-serif'; ctx.textBaseline = 'top'; rects = [];
+    const zH = H * V.z; let f = M.top;
+    for (;;) { let nx = null; if (f.kids) for (const k of f.kids) { const t = k.y0 * zH - V.off, b = k.y1 * zH - V.off; if (t <= 0.5 && b >= H - 0.5) { nx = k; break; } } if (!nx) break; f = nx; }
+    if (f !== lastFocus) { lastFocus = f; M.focus = f; label.textContent = f.name + ' · ' + dmFmt(f.size); pathBar.textContent = nodePath(f) + (M.partial ? '  (partly measured)' : '') + '  free ' + dmFmt(M.free) + ' of ' + dmFmt(M.total); }
+    if (!V.manual) V.xt = f.d > 0 ? f.d + 1 : 0;
     const walk = n => {
-      const t = n.y0 * zH - V.off, hh = (n.y1 - n.y0) * zH; if (t > H || t + hh < 0 || hh < 1.2) return;
-      const x = (n.d - V.xo) * colW; if (x + colW < 0 && !(n.kids)) return;
-      if (x + colW > 0 && x < W) {
-        ctx.fillStyle = n.other ? colors.other : n.par ? (n.dir ? colors.dir : colors.file) : colors.root; const y = Math.max(t, 0), y2 = Math.min(t + hh, H);
-        ctx.fillRect(x, y, colW - 1, y2 - y - 1); rects.push({n: n, x: x, y: y, w: colW, h: y2 - y});
-        if (hh >= 14 && colW > 40) {
-          ctx.fillStyle = '#fff'; const ty = Math.max(t, 0) + 3; let nm = n.name; const maxw = colW - 8;
-          while (nm.length > 2 && ctx.measureText(nm).width > maxw) nm = nm.slice(0, -2) + '…';
-          ctx.fillText(nm, x + 4, ty); if (hh >= 30 && y2 - y >= 30) { ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fillText(fmt(n.size), x + 4, ty + 14); }
+      const t = n.y0 * zH - V.off, hh = (n.y1 - n.y0) * zH; if (t > H || t + hh < 0 || hh < 1.5) return;
+      const x = 20 + (n.d - V.xo) * colW;
+      if (x + colW > 20 && x < W) {
+        const y = t < 0 ? 0 : t, y2 = t + hh > H ? H : t + hh;
+        ctx.fillStyle = n.free ? colors.free : n.other ? colors.other : n.par ? (n.dir ? colors.dir : colors.file) : colors.root; ctx.fillRect(x, y, colW - 1, y2 - y - 1); rects.push({n: n, x: x, y: y, w: colW, h: y2 - y});
+        if (y2 - y >= 15 && colW > 40) {
+          ctx.fillStyle = '#fff'; let nm = n.name; const maxw = colW - 8;
+          if (twid(nm) > maxw) { const keep = Math.max(2, Math.floor(nm.length * maxw / twid(nm)) - 1); nm = nm.slice(0, keep) + '…'; }
+          ctx.fillText(nm, x + 4, y + 3); if (y2 - y >= 31) { ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fillText(dmFmt(n.size), x + 4, y + 17); }
         }
       }
-      if (n.kids && (n.d + 1 - V.xo) * colW < W) n.kids.forEach(walk);
+      if (n.kids && 20 + (n.d + 1 - V.xo) * colW < W) { for (let i = 0; i < n.kids.length; i++) walk(n.kids[i]); }
     };
-    walk(M.node);
+    walk(M.top);
   };
-  let busy = false;
   const frame = now => {
     M.raf = 0; if (!cv.isConnected) return; let more = false;
     if (V.anim) { const a = V.anim, p = Math.min(1, (now - a.t0) / a.dur), e = 1 - Math.pow(1 - p, 3); V.z = Math.exp(Math.log(a.z0) + (Math.log(a.z1) - Math.log(a.z0)) * e); V.off = (a.f0 + (a.f1 - a.f0) * e) * H * V.z; if (p >= 1) V.anim = null; else more = true; }
-    draw(); const dx = V.xt - V.xo; if (Math.abs(dx) > 0.004) { V.xo += dx * 0.18; more = true; } else V.xo = V.xt;
+    draw(); const dx = V.xt - V.xo; if (Math.abs(dx) > 0.004) { V.xo += dx * 0.22; more = true; } else V.xo = V.xt;
     if (more) M.raf = requestAnimationFrame(frame);
   };
   const kick = () => { if (!M.raf) M.raf = requestAnimationFrame(frame); };
-  // touch: one finger drags, two fingers pinch, tap zooms to a block, hold opens its folder
-  const ptr = new Map(); let pinch = 0, moved = 0, downT = 0, holdT = 0, downPos = null, fired = false;
+  const ptr = new Map(); let pinch = 0, moved = 0, holdT = 0, downPos = null, fired = false;
   const hit = (px, py) => { for (let i = rects.length - 1; i >= 0; i--) { const r = rects[i]; if (px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h) return r.n; } return null; };
-  const zoomAt = (f, fy) => { const nz = Math.max(1, Math.min(20000, V.z * f)); V.off = (V.off + fy) * nz / V.z - fy; V.z = nz; V.anim = null; kick(); };
+  const zoomAt = (f, fy) => { const nz = Math.max(1, Math.min(20000, V.z * f)); V.off = (V.off + fy) * nz / V.z - fy; V.z = nz; V.anim = null; V.manual = false; kick(); };
+  const openNode = n => { const t = n.dir ? n : n.par; if (!t || n.free) return; const p = nodePath(t); leaveMap(); openLocal(p); };
   cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, {x: e.offsetX, y: e.offsetY}); if (ptr.size === 1) { moved = 0; fired = false; downPos = {x: e.offsetX, y: e.offsetY}; V.anim = null;
-    holdT = setTimeout(() => { if (moved < 8 && ptr.size === 1) { const n = hit(downPos.x, downPos.y); if (n && !n.other) { fired = true; const t = n.dir ? n : n.par, p = nodePath(t); leave(); openLocal(p); } } }, 600); }
-    if (ptr.size === 2) { const [a, b] = [...ptr.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); clearTimeout(holdT); moved = 99; } });
+    holdT = setTimeout(() => { if (moved < 8 && ptr.size === 1) { const n = hit(downPos.x, downPos.y); if (n && !n.other && !n.free) { fired = true; openNode(n); } } }, 600); }
+    if (ptr.size === 2) { const v = [...ptr.values()]; pinch = Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y); clearTimeout(holdT); moved = 99; } });
   cv.addEventListener('pointermove', e => { const p = ptr.get(e.pointerId); if (!p) return; const dy = e.offsetY - p.y, dx = e.offsetX - p.x; p.x = e.offsetX; p.y = e.offsetY;
-    if (ptr.size === 2) { const [a, b] = [...ptr.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); if (pinch > 0) zoomAt(d / pinch, (a.y + b.y) / 2); pinch = d; }
-    else { moved += Math.abs(dx) + Math.abs(dy); if (moved > 8) { clearTimeout(holdT); V.off -= dy; V.anim = null; kick(); } } });
-  const up = e => { const had = ptr.has(e.pointerId); ptr.delete(e.pointerId); clearTimeout(holdT); pinch = 0;
-    if (had && ptr.size === 0 && moved < 8 && !fired) { const n = hit(e.offsetX, e.offsetY); if (n && !n.other) { if (n === M.focus || n.y1 - n.y0 > 0.9999) { if (n.par) zoomTo(n.par); } else zoomTo(n); } } };
-  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', e => { ptr.delete(e.pointerId); clearTimeout(holdT); });
+    if (ptr.size === 2) { const v = [...ptr.values()]; const d = Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y); if (pinch > 0 && e.pointerId === [...ptr.keys()][0]) { zoomAt(d / pinch, (v[0].y + v[1].y) / 2); pinch = d; } }
+    else { moved += Math.abs(dx) + Math.abs(dy); if (moved > 8) { clearTimeout(holdT); V.off -= dy; V.xo = Math.max(0, Math.min(M.maxD, V.xo - dx / ((W - 20) / 2.8))); V.xt = V.xo; V.manual = true; V.anim = null; kick(); } } });
+  cv.addEventListener('pointerup', e => { const had = ptr.has(e.pointerId); ptr.delete(e.pointerId); clearTimeout(holdT); pinch = 0;
+    if (had && ptr.size === 0 && moved < 8 && !fired) { const n = hit(e.offsetX, e.offsetY); if (n && !n.other && !n.free) { if (n === M.focus || n.y1 - n.y0 > 0.9999) { if (n.par) zoomTo(n.par); } else zoomTo(n); } } });
+  cv.addEventListener('pointercancel', e => { ptr.delete(e.pointerId); clearTimeout(holdT); pinch = 0; });
   cv.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.25 : 0.8, e.offsetY); }, {passive: false});
   cv.style.touchAction = 'none';
-  requestAnimationFrame(() => { draw(); label.textContent = M.node.name + ' · ' + fmt(M.node.size); pathBar.textContent = M.path + (M.partial ? '   (partly measured)' : '') + '   free ' + fmt(M.free) + ' of ' + fmt(M.total); kick(); });
+  const bar = h('div', {class: 'xbar'}); const oth = FS.panes[1 - idx];
+  bar.append(h('button', {class: 'xhandle', onclick: () => xSwap(1 - idx)}, h('span', {class: 'xarr'}, idx ? '◀' : '▶'), h('span', {class: 'xhl'}, oth.home ? 'Home' : oth.mapOn ? 'Map' : (baseName(oth.path) || 'Storage'))));
+  const tb = (ico, t, fn) => bar.append(h('button', {class: 'xtb', onclick: fn}, h('span', null, ico), t));
+  tb('⬆', 'Up dir', parentZoom);
+  tb('\u{1F4CA}', 'Disk map', () => openDiskMap(M.path));
+  tb('✏', 'Rename', () => toast('Close the map (File list) to rename.'));
+  tb('\u{1F4C2}', 'Open', () => { if (M.focus) openNode(M.focus); });
+  tb('\u{1F50D}', 'Reset', () => { V.manual = false; zoomTo(M.top); });
+  tb('\u{1F4C4}', 'File list', leaveMap);
+  wrap.append(cwrap, bar); o.append(wrap);
+  requestAnimationFrame(() => { draw(); kick(); });
 }
 function renderResults(o) {
   const R = FS.results || {title: 'Results', files: []};
