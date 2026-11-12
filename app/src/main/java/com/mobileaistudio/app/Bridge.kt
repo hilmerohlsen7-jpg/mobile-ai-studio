@@ -917,6 +917,52 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    // ---- File sync: compare two folders, copy what is missing. Never deletes or overwrites. ----
+    private fun walkRel(root: File, cap: Int): Map<String, File> {
+        val out = LinkedHashMap<String, File>(); val stack = ArrayDeque<File>(); stack.add(root)
+        while (stack.isNotEmpty() && out.size < cap) {
+            val d = stack.removeLast()
+            for (c in d.listFiles() ?: emptyArray()) { if (c.isDirectory) stack.add(c) else out[c.relativeTo(root).path] = c }
+        }
+        return out
+    }
+    @JavascriptInterface
+    fun fsSyncPlan(reqId: String, src: String, dst: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val a = walkRel(File(src), 20000); val b = walkRel(File(dst), 20000)
+                val missing = JSONArray(); val changed = JSONArray(); var same = 0
+                for ((rel, f) in a) { val g = b[rel]
+                    if (g == null) missing.put(JSONObject().put("rel", rel).put("size", f.length()))
+                    else if (g.length() != f.length()) changed.put(JSONObject().put("rel", rel).put("size", f.length()).put("dstSize", g.length()))
+                    else same++ }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("missing", missing).put("changed", changed).put("same", same).put("partial", a.size >= 20000 || b.size >= 20000))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not compare.")) }
+        }
+    }
+    /** relsJson: files to copy. asCopy=true writes changed files under a new name instead of replacing. */
+    @JavascriptInterface
+    fun fsSyncRun(reqId: String, src: String, dst: String, relsJson: String, asCopy: Boolean) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            var done = 0; var failed = 0
+            try {
+                val arr = JSONArray(relsJson)
+                for (i in 0 until arr.length()) {
+                    try {
+                        val rel = arr.getString(i); if (rel.contains("..")) { failed++; continue }
+                        val from = File(src, rel); var to = File(dst, rel); to.parentFile?.mkdirs()
+                        if (to.exists()) { if (!asCopy) { failed++; continue }; to = uniqueFile(to.parentFile!!, to.name) }
+                        from.inputStream().use { x -> to.outputStream().use { x.copyTo(it, 65536) } }
+                        to.setLastModified(from.lastModified()); done++
+                    } catch (e: Exception) { failed++ }
+                }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Copied $done file(s)" + if (failed > 0) ", $failed could not be copied." else "."))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Sync failed.")) }
+        }
+    }
+
     @JavascriptInterface
     fun appAction(pkg: String, action: String): String {
         return try {

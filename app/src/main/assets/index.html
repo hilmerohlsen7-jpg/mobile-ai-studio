@@ -1853,7 +1853,7 @@ async function addServer(type, after) {
 }
 /* ---- X-plore style home screen ---- */
 const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
-function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web' && k !== 'dlna' && k !== 'sync') : v; }
+function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web' && k !== 'dlna') : v; }
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
@@ -1888,6 +1888,7 @@ function buildHome(o, idx) {
       else if (k === 'recent') row(ico, t, 'Files changed in the last 7 days', async () => { act(); toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); });
       else if (k === 'apps') row(ico, t, 'Installed apps: open, info, uninstall, back up', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); });
       else if (k === 'vault') row(ico, t, 'Password-locked files', () => { pn.sub = 'vault'; pn.vault = null; renderFiles(); });
+      else if (k === 'sync') row(ico, t, 'Compare two folders and copy what is missing', () => { act(); syncUi(); });
       else row(ico, t, 'Coming soon', () => toast(t + ' is not built yet.'));
     });
     row('☑', 'Show...', 'Choose which entries appear here', () => homeShowSheet());
@@ -2004,6 +2005,41 @@ async function vaultLock(paths) {
   const r = await vcall({type: 'add', name: name, password: pw, paths: paths}); toast(r.msg || ''); if (!r.ok) return;
   if (c === 'move') { const ids = []; for (const p of paths) { const d = await fsOp({type: 'delete', path: p, reason: 'Locked in a vault.'}); if (d.ok && d.entryId) ids.push(d.entryId); } showUndo('Originals moved to Trash.', ids); }
   FS.sel.clear(); renderFiles();
+}
+
+/* ---- File sync ---- */
+async function folderPick(title, start) {
+  let p = start || FS.root;
+  for (;;) {
+    const r = fsJson('fsList', p); const kids = r.ok ? r.items.filter(x => x.dir && x.name[0] !== '.').sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())) : [];
+    const opts = [{label: '✔ Use this folder', value: '#use'}]; if (p !== '/' && p !== FS.root) opts.push({label: '⬆ Up', value: '#up'});
+    kids.forEach(k => opts.push({label: '\u{1F4C1} ' + k.name, value: k.name}));
+    const v = await choose(title + ': ' + p, opts); if (!v) return null;
+    if (v === '#use') return p; if (v === '#up') p = parentOf(p); else p = joinPath(p, v);
+  }
+}
+async function syncUi() {
+  const src = await folderPick('Copy FROM this folder', FS.root); if (!src) return;
+  const dst = await folderPick('Copy TO this folder', FS.root); if (!dst) return;
+  if (src === dst || dst.startsWith(src + '/') || src.startsWith(dst + '/')) { toast('Pick two separate folders (not one inside the other).'); return; }
+  toast('Comparing...'); const r = await fsCall('fsSyncPlan', src, dst); if (!r.ok) { toast(r.msg || 'Could not compare.'); return; }
+  const o = $('sheet'); o.textContent = ''; const close = () => o.classList.remove('open');
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'File sync'));
+  const line = (k, v) => box.append(h('div', {class: 'irow'}, h('span', null, k), h('b', null, v)));
+  line('From', src); line('To', dst); line('Already the same', String(r.same)); line('Missing in destination', r.missing.length + ' file(s)'); line('Different size', r.changed.length + ' file(s)');
+  if (r.partial) box.append(h('div', {class: 'note'}, 'Very large folders: only the first 20000 files were compared.'));
+  if (!r.missing.length && !r.changed.length) box.append(h('div', {class: 'note'}, 'Nothing to copy. The folders match.'));
+  const run = async (rels, asCopy) => {
+    close();
+    const c = await askApproval({title: 'Sync: copy ' + rels.length + ' file(s)', path: dst, reason: 'You chose File sync.', rows: [['From', src], ['Files', rels.slice(0, 12).join('\n') + (rels.length > 12 ? '\n... and ' + (rels.length - 12) + ' more' : '')]],
+      primary: {label: 'Approve: copy them', value: 'ok'}, note: 'Nothing is deleted or replaced. ' + (asCopy ? 'Changed files are saved under a new name next to the old one.' : 'Only files missing at the destination are copied.')});
+    if (c === 'deny') return; toast('Copying...');
+    const x = await fsCall('fsSyncRun', src, dst, JSON.stringify(rels), asCopy); toast(x.msg || 'Done.');
+  };
+  if (r.missing.length) box.append(h('button', {class: 'pri', onclick: () => run(r.missing.map(m => m.rel), false)}, 'Copy the ' + r.missing.length + ' missing files'));
+  if (r.changed.length) box.append(h('button', {onclick: () => run(r.changed.map(m => m.rel), true)}, 'Copy the ' + r.changed.length + ' different files as extra copies'));
+  box.append(h('button', {onclick: close}, 'Close'));
+  o.append(box); o.classList.add('open'); sheetDone = close;
 }
 function wifiSheet() {
   const o = $('sheet'); o.textContent = '';
