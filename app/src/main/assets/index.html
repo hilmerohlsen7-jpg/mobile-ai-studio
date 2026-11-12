@@ -1653,8 +1653,10 @@ function buildPane(o, idx) {
         row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; if (open) FS.open.delete(p); else FS.open.add(p); renderFiles(); }}, it.dir ? (open ? '▼' : '▶') : ''));
         row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'));
         const cnt = FS.cnt[p];
-        row.append(h('span', {class: 'xnm', onclick: () => it.dir ? (FS.path = p, FS.sel.clear(), renderFiles(), o.scrollTop = 0) : (FS.panes[FS.active].remote ? (FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p), renderFiles()) : openFileView(it, p))},
-          h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + ' · ' + fmtDate(it.mtime))));
+        const nm = h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + ' · ' + fmtDate(it.mtime)));
+        if (it.dir) holdOpen(nm, () => { if (open) FS.open.delete(p); else FS.open.add(p); renderFiles(); }, () => { FS.path = p; FS.sel.clear(); renderFiles(); o.scrollTop = 0; });
+        else nm.onclick = () => FS.panes[FS.active].remote ? (FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p), renderFiles()) : openFileView(it, p);
+        row.append(nm);
         row.append(h('span', {class: 'xchk', onclick: () => { if (FS.sel.has(p)) FS.sel.delete(p); else FS.sel.add(p); renderFiles(); }}, '✔'));
         list.append(row);
         if (open) { const sub = fsListed(p); if (sub) draw(sub, p, depth + 1); }
@@ -1850,6 +1852,9 @@ async function addServer(type, after) {
 /* ---- X-plore style home screen ---- */
 const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
 function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web' && k !== 'dlna' && k !== 'vault' && k !== 'sync') : v; }
+function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
+  el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
+  el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
 function goHome() { const pn = FS.panes[FS.active]; pn.home = true; pn.sub = ''; pn.remote = null; pn.cache = {}; FS.sel.clear(); renderFiles(); }
 function openLocal(path) { const pn = FS.panes[FS.active]; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
 function openConn(cn) { const pn = FS.panes[FS.active]; pn.home = false; pn.remote = Object.assign({}, cn); pn.path = cn.path || '/'; pn.cache = {}; pn.err = ''; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
@@ -1857,11 +1862,13 @@ function buildHome(o, idx) {
   const pn = FS.panes[idx];
   const wrap = h('div', {class: 'xwrap'}), list = h('div', {class: 'xlist'});
   pn.hopen = pn.hopen || new Set();
-  const row = (ico, title, sub, fn, ind, key, open) => list.append(h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
+  const row = (ico, title, sub, fn, ind, key, open, tog) => { const el = h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
     h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); }}, key ? (open ? '\u25BC' : '\u25B6') : ''),
-    h('span', {class: 'xic', onclick: fn}, ico), h('span', {class: 'xnm', onclick: fn}, h('b', null, title), sub ? h('small', null, sub) : null)));
+    h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null));
+    if (tog && key) holdOpen(el, () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); }, fn); else el.onclick = fn;
+    list.append(el); };
   const tree = (path, ind) => { const r = fsJson('fsList', path); if (!r.ok) return; fsSortItems(r.items.filter(x => x.dir && (FS.hidden || x.name[0] !== '.'))).forEach(it => { const p = joinPath(path, it.name), op = pn.hopen.has(p);
-    row('\u{1F4C1}', it.name, '', () => { FS.active = idx; openLocal(p); }, ind, p, op); if (op) tree(p, ind + 1); }); };
+    row('\u{1F4C1}', it.name, '', () => { FS.active = idx; openLocal(p); }, ind, p, op, true); if (op) tree(p, ind + 1); }); };
   if (pn.sub === 'apps') { buildApps(list, idx); }
   else {
     o.append(h('div', {class: 'xpath'}, 'Home'));
@@ -1869,7 +1876,7 @@ function buildHome(o, idx) {
     HOME_ITEMS.forEach(([k, t, ico]) => {
       if (!homeShown(k)) return;
       const act = () => { FS.active = idx; };
-      if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k); row(ico, t, p, () => { act(); openLocal(p); }, 0, '~' + k, op); if (op) tree(p, 1); }
+      if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k); row(ico, t, p, () => { act(); openLocal(p); }, 0, '~' + k, op, true); if (op) tree(p, 1); }
       else if (k === 'smb' || k === 'ftp' || k === 'sftp') {
         row(ico, t, conns.filter(c => c.type === k).length + ' saved', () => { act(); addServer(k); });
         conns.filter(c => c.type === k).forEach(c => row('•', c.name, c.host + ':' + c.port, () => { act(); openConn(c); }, 1));
@@ -1884,7 +1891,7 @@ function buildHome(o, idx) {
   const bar = h('div', {class: 'xbar'});
   const oth = FS.panes[1 - idx];
   bar.append(h('button', {class: 'xhandle', onclick: () => xSwap(1 - idx)}, h('span', {class: 'xarr'}, idx ? '◀' : '▶'), h('span', {class: 'xhl'}, oth.home ? 'Home' : (baseName(oth.path) || 'Storage'))));
-  bar.append(h('button', {class: 'xtb', onclick: () => { if (pn.sub) { pn.sub = ''; renderFiles(); } else toast('You are at Home.'); }}, h('span', null, '⬆'), 'Back'));
+  bar.append(h('button', {class: 'xtb', onclick: () => { if (pn.sub) { pn.sub = ''; renderFiles(); } else if (pn.hopen && pn.hopen.size) { pn.hopen.clear(); renderFiles(); } else toast('You are at Home.'); }}, h('span', null, '⬆'), 'Back'));
   bar.append(h('button', {class: 'xtb', onclick: () => homeShowSheet()}, h('span', null, '☑'), 'Show'));
   bar.append(h('button', {class: 'xtb', onclick: () => renderFiles()}, h('span', null, '\u{1F504}'), 'Refresh'));
   if (idx) wrap.style.flexDirection = 'row-reverse';
