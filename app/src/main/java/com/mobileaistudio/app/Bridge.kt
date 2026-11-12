@@ -963,6 +963,90 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    // ---- DLNA / UPnP media servers: find them on the Wi-Fi, browse, download a copy ----
+    private fun xmlDoc(text: String): org.w3c.dom.Document {
+        val f = javax.xml.parsers.DocumentBuilderFactory.newInstance(); f.isNamespaceAware = false
+        try { f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) } catch (e: Exception) {}
+        return f.newDocumentBuilder().parse(org.xml.sax.InputSource(java.io.StringReader(text)))
+    }
+    private fun httpText(url: String, method: String = "GET", body: String? = null, headers: Map<String, String> = emptyMap()): String {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 4000; c.readTimeout = 8000; c.requestMethod = method
+        headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
+        if (body != null) { c.doOutput = true; c.outputStream.use { it.write(body.toByteArray()) } }
+        return c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+    }
+    @JavascriptInterface
+    fun dlnaScan(reqId: String) {
+        fsPool.execute {
+            val found = LinkedHashMap<String, String>() // location -> usn
+            var lock: android.net.wifi.WifiManager.MulticastLock? = null
+            try {
+                val wm = activity.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                lock = wm.createMulticastLock("dlna"); lock.setReferenceCounted(false); lock.acquire()
+                val sock = java.net.DatagramSocket(); sock.soTimeout = 1200
+                val msg = ("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaServer:1\r\n\r\n").toByteArray()
+                val grp = java.net.InetAddress.getByName("239.255.255.250")
+                repeat(2) { sock.send(java.net.DatagramPacket(msg, msg.size, grp, 1900)) }
+                val end = System.currentTimeMillis() + 3500; val buf = ByteArray(2048)
+                while (System.currentTimeMillis() < end) {
+                    try {
+                        val pk = java.net.DatagramPacket(buf, buf.size); sock.receive(pk)
+                        val t = String(pk.data, 0, pk.length)
+                        val loc = Regex("(?im)^location:\\s*(\\S+)").find(t)?.groupValues?.get(1) ?: continue
+                        found[loc] = loc
+                    } catch (e: java.net.SocketTimeoutException) {}
+                }
+                sock.close()
+            } catch (e: Exception) {} finally { try { lock?.release() } catch (e: Exception) {} }
+            val arr = JSONArray()
+            for (loc in found.keys) {
+                try {
+                    val d = xmlDoc(httpText(loc)); val name = d.getElementsByTagName("friendlyName").item(0)?.textContent ?: loc
+                    val svcs = d.getElementsByTagName("service"); var ctl: String? = null
+                    for (i in 0 until svcs.length) { val sv = svcs.item(i) as org.w3c.dom.Element
+                        if ((sv.getElementsByTagName("serviceType").item(0)?.textContent ?: "").contains("ContentDirectory")) ctl = sv.getElementsByTagName("controlURL").item(0)?.textContent }
+                    if (ctl != null) arr.put(JSONObject().put("name", name).put("control", java.net.URL(java.net.URL(loc), ctl).toString()))
+                } catch (e: Exception) {}
+            }
+            fsReply(reqId, null, JSONObject().put("ok", true).put("devices", arr))
+        }
+    }
+    @JavascriptInterface
+    fun dlnaBrowse(reqId: String, control: String, objectId: String) {
+        fsPool.execute {
+            try {
+                val body = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:Browse xmlns:u=\"urn:schemas-upnp-org:service:ContentDirectory:1\"><ObjectID>" +
+                    objectId.replace("&", "&amp;").replace("<", "&lt;") + "</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>*</Filter><StartingIndex>0</StartingIndex><RequestedCount>300</RequestedCount><SortCriteria></SortCriteria></u:Browse></s:Body></s:Envelope>"
+                val resp = httpText(control, "POST", body, mapOf("Content-Type" to "text/xml; charset=\"utf-8\"", "SOAPACTION" to "\"urn:schemas-upnp-org:service:ContentDirectory:1#Browse\""))
+                val result = xmlDoc(resp).getElementsByTagName("Result").item(0)?.textContent ?: ""
+                val didl = xmlDoc(result); val arr = JSONArray()
+                fun title(e: org.w3c.dom.Element) = e.getElementsByTagName("dc:title").item(0)?.textContent ?: "?"
+                val cs = didl.getElementsByTagName("container")
+                for (i in 0 until cs.length) { val e = cs.item(i) as org.w3c.dom.Element; arr.put(JSONObject().put("id", e.getAttribute("id")).put("title", title(e)).put("container", true)) }
+                val its = didl.getElementsByTagName("item")
+                for (i in 0 until its.length) { val e = its.item(i) as org.w3c.dom.Element
+                    val res = e.getElementsByTagName("res").item(0) as? org.w3c.dom.Element ?: continue
+                    arr.put(JSONObject().put("id", e.getAttribute("id")).put("title", title(e)).put("container", false).put("url", res.textContent).put("size", res.getAttribute("size").toLongOrNull() ?: 0L)) }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("items", arr))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Could not read this server: " + (e.message ?: ""))) }
+        }
+    }
+    @JavascriptInterface
+    fun dlnaDownload(reqId: String, url: String, title: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection; c.connectTimeout = 5000; c.readTimeout = 20000
+                val ext = when { (c.contentType ?: "").contains("video") -> ".mp4"; (c.contentType ?: "").contains("audio/mpeg") -> ".mp3"; (c.contentType ?: "").contains("image/jpeg") -> ".jpg"; else -> "" }
+                var nm = title.replace(Regex("[^A-Za-z0-9._ -]"), "_"); if (!nm.contains('.') ) nm += ext
+                val out = uniqueFile(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), nm)
+                c.inputStream.use { i -> out.outputStream().use { i.copyTo(it, 65536) } }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Saved " + out.name + " in Download"))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Download failed.")) }
+        }
+    }
+
     @JavascriptInterface
     fun appAction(pkg: String, action: String): String {
         return try {

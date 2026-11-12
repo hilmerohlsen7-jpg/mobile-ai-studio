@@ -1853,7 +1853,7 @@ async function addServer(type, after) {
 }
 /* ---- X-plore style home screen ---- */
 const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
-function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web' && k !== 'dlna') : v; }
+function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web') : v; }
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
@@ -1873,6 +1873,7 @@ function buildHome(o, idx) {
     row('\u{1F4C1}', it.name, '', () => { FS.active = idx; openLocal(p); }, ind, p, op, true); if (op) tree(p, ind + 1); }); };
   if (pn.sub === 'apps') { buildApps(list, idx); }
   else if (pn.sub === 'vault') { buildVault(list, idx); }
+  else if (pn.sub === 'dlna') { buildDlna(list, idx); }
   else {
     o.append(h('div', {class: 'xpath'}, 'Home'));
     const conns = S.settings.conns || [];
@@ -1889,6 +1890,7 @@ function buildHome(o, idx) {
       else if (k === 'apps') row(ico, t, 'Installed apps: open, info, uninstall, back up', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); });
       else if (k === 'vault') row(ico, t, 'Password-locked files', () => { pn.sub = 'vault'; pn.vault = null; renderFiles(); });
       else if (k === 'sync') row(ico, t, 'Compare two folders and copy what is missing', () => { act(); syncUi(); });
+      else if (k === 'dlna') row(ico, t, 'TVs, PCs and NAS sharing media on your Wi-Fi', () => { pn.sub = 'dlna'; pn.dl = null; renderFiles(); });
       else row(ico, t, 'Coming soon', () => toast(t + ' is not built yet.'));
     });
     row('☑', 'Show...', 'Choose which entries appear here', () => homeShowSheet());
@@ -2040,6 +2042,34 @@ async function syncUi() {
   if (r.changed.length) box.append(h('button', {onclick: () => run(r.changed.map(m => m.rel), true)}, 'Copy the ' + r.changed.length + ' different files as extra copies'));
   box.append(h('button', {onclick: close}, 'Close'));
   o.append(box); o.classList.add('open'); sheetDone = close;
+}
+
+/* ---- DLNA ---- */
+function buildDlna(list, idx) {
+  const pn = FS.panes[idx];
+  const head = (t, sub) => list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F4FA}'), h('span', {class: 'xnm'}, h('b', null, t), h('small', null, sub))));
+  if (!pn.dl) { pn.dl = {devs: null, stack: []}; fsCall('dlnaScan').then(r => { pn.dl.devs = r.devices || []; if (pn.sub === 'dlna') renderFiles(); }); }
+  const D = pn.dl;
+  if (!D.devs) { head('DLNA', 'Looking for servers on your Wi-Fi...'); return; }
+  if (!D.cur) {
+    head('DLNA', D.devs.length + ' server(s) found');
+    D.devs.forEach(d => list.append(h('div', {class: 'xrow', onclick: () => dlnaOpen(pn, d, '0', d.name)}, h('span', {class: 'xic'}, '\u{1F5A5}'), h('span', {class: 'xnm'}, h('b', null, d.name)))));
+    if (!D.devs.length) list.append(h('div', {class: 'sub'}, 'None found. Your phone and the server must be on the same Wi-Fi, and the server must have media sharing (DLNA) turned on.'));
+    list.append(h('div', {class: 'xrow', onclick: () => { pn.dl = null; renderFiles(); }}, h('span', {class: 'xic'}, '\u{1F504}'), h('span', {class: 'xnm'}, h('b', null, 'Search again'))));
+    return;
+  }
+  head(D.cur.title, D.items ? D.items.length + ' entries' : 'Loading...');
+  list.append(h('div', {class: 'xrow', onclick: () => { const st = D.stack; st.pop(); if (!st.length) { D.cur = null; renderFiles(); } else { const t = st[st.length - 1]; st.pop(); dlnaOpen(pn, D.cur.dev, t.id, t.title); } }}, h('span', {class: 'xic'}, '\u21B0'), h('span', {class: 'xnm'}, h('b', null, 'Up'))));
+  (D.items || []).forEach(it => list.append(h('div', {class: 'xrow', onclick: () => it.container ? dlnaOpen(pn, D.cur.dev, it.id, it.title) : dlnaGet(it)},
+    h('span', {class: 'xic'}, it.container ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.title), it.container ? null : h('small', null, it.size ? fmtSize(it.size) : 'Media file')))));
+}
+async function dlnaOpen(pn, dev, id, title) {
+  const D = pn.dl; D.cur = {dev: dev, id: id, title: title}; D.items = null; D.stack.push({id: id, title: title}); renderFiles();
+  const r = await fsCall('dlnaBrowse', dev.control, id); if (!r.ok) { toast(r.msg || 'Could not read.'); D.items = []; } else D.items = r.items; if (pn.sub === 'dlna') renderFiles();
+}
+async function dlnaGet(it) {
+  const c = await askApproval({title: 'Download ' + it.title, path: 'Download', reason: 'You tapped a file on a DLNA server.', rows: [['File', it.title], ['Size', it.size ? fmtSize(it.size) : 'unknown']], primary: {label: 'Approve: save a copy', value: 'ok'}, note: 'The file is copied to your Download folder. Nothing is replaced. Big videos can take a while.'});
+  if (c === 'deny') return; toast('Downloading...'); const r = await fsCall('dlnaDownload', it.url, it.title); toast(r.msg || (r.ok ? 'Done.' : 'Failed.'));
 }
 function wifiSheet() {
   const o = $('sheet'); o.textContent = '';
