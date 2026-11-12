@@ -1715,6 +1715,7 @@ function buildPane(o, idx) {
   tb('\u2139', 'Info', () => fsInfoBox(one ? [...FS.sel][0] : FS.path), n > 1);
   tb('\u{1F4E4}', 'Share', () => { const r = fsJson('fsShare', JSON.stringify([...FS.sel])); if (!r.ok) toast(r.msg || 'Could not share.'); }, !n);
   tb('\u{1F4C2}', 'Open with', () => { const r = fsJson('fsOpenWith', [...FS.sel][0]); if (!r.ok) toast(r.msg || 'Could not open it.'); }, !one || FS.kind[[...FS.sel][0]]);
+  tb('\u{1F512}', 'Lock in vault', () => vaultLock([...FS.sel]), !n);
   tb('\u{1F5DC}', 'Create ZIP', () => fsMakeZip(), !n);
   tb('\u{1F4E6}', 'Extract ZIP', () => fsExtract([...FS.sel][0]), !one || !/\.zip$/i.test([...FS.sel][0]));
   tb('\u{1F4C1}', 'New folder', fsNewFolder);
@@ -1852,7 +1853,7 @@ async function addServer(type, after) {
 }
 /* ---- X-plore style home screen ---- */
 const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
-function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web' && k !== 'dlna' && k !== 'vault' && k !== 'sync') : v; }
+function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web' && k !== 'dlna' && k !== 'sync') : v; }
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
@@ -1871,6 +1872,7 @@ function buildHome(o, idx) {
   const tree = (path, ind) => { const r = fsJson('fsList', path); if (!r.ok) return; fsSortItems(r.items.filter(x => x.dir && (FS.hidden || x.name[0] !== '.'))).forEach(it => { const p = joinPath(path, it.name), op = pn.hopen.has(p);
     row('\u{1F4C1}', it.name, '', () => { FS.active = idx; openLocal(p); }, ind, p, op, true); if (op) tree(p, ind + 1); }); };
   if (pn.sub === 'apps') { buildApps(list, idx); }
+  else if (pn.sub === 'vault') { buildVault(list, idx); }
   else {
     o.append(h('div', {class: 'xpath'}, 'Home'));
     const conns = S.settings.conns || [];
@@ -1885,6 +1887,7 @@ function buildHome(o, idx) {
       else if (k === 'wifi') row(ico, t, 'Browse this phone from a computer', () => { act(); wifiSheet(); });
       else if (k === 'recent') row(ico, t, 'Files changed in the last 7 days', async () => { act(); toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); });
       else if (k === 'apps') row(ico, t, 'Installed apps: open, info, uninstall, back up', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); });
+      else if (k === 'vault') row(ico, t, 'Password-locked files', () => { pn.sub = 'vault'; pn.vault = null; renderFiles(); });
       else row(ico, t, 'Coming soon', () => toast(t + ' is not built yet.'));
     });
     row('☑', 'Show...', 'Choose which entries appear here', () => homeShowSheet());
@@ -1938,6 +1941,69 @@ async function appSheet(a) {
   }
   if (v === 'uninstall') { const c = await askApproval({title: 'Uninstall ' + a.name, path: a.pkg, reason: 'You chose Uninstall in the app manager.', rows: [['App', a.name]], primary: {label: 'Continue to Android', value: 'ok'}, note: 'Android asks you once more. The app is not touched until you confirm there.'}); if (c === 'deny') return; }
   const r = JSON.parse(Android.appAction(a.pkg, v)); if (!r.ok) toast(r.msg || 'Could not.');
+}
+
+/* ---- Vault ---- */
+const vcall = op => fsCall('vaultOp', JSON.stringify(op));
+async function vaultAsk(name) { const pw = await askText('Password for vault "' + name + '" (never stored)', ''); return pw || null; }
+function buildVault(list, idx) {
+  const pn = FS.panes[idx];
+  const head = (t, sub) => list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F512}'), h('span', {class: 'xnm'}, h('b', null, t), h('small', null, sub))));
+  if (pn.vault) {
+    const V = pn.vault; head('Vault: ' + V.name, V.entries ? V.entries.length + ' locked files' : 'Opening...');
+    list.append(h('div', {class: 'xrow', onclick: () => { pn.vault = null; renderFiles(); }}, h('span', {class: 'xic'}, '↰'), h('span', {class: 'xnm'}, h('b', null, 'Lock and leave'), h('small', null, 'Forgets the password'))));
+    (V.entries || []).forEach(e => list.append(h('div', {class: 'xrow', onclick: () => vaultEntry(pn, e)}, h('span', {class: 'xic'}, '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, e.name), h('small', null, fmtSize(e.size))))));
+    if (V.entries && !V.entries.length) list.append(h('div', {class: 'sub'}, 'Empty. In the normal file list, tick files and tap "Lock in vault".'));
+    return;
+  }
+  head('Vault', 'Files locked with a password (AES-256)');
+  if (!pn.vlist) { vcall({type: 'list'}).then(r => { pn.vlist = r.vaults || []; if (pn.sub === 'vault') renderFiles(); }); list.append(h('div', {class: 'sub'}, 'Loading...')); }
+  else (pn.vlist).forEach(v => list.append(h('div', {class: 'xrow', onclick: () => vaultOpenUi(pn, v.name)}, h('span', {class: 'xic'}, '\u{1F512}'), h('span', {class: 'xnm'}, h('b', null, v.name), h('small', null, fmtSize(v.size))),
+    h('span', {class: 'xchk', style: 'display:inline-block', onclick: e => { e.stopPropagation(); vaultDelete(pn, v.name); }}, '\u{1F5D1}'))));
+  list.append(h('div', {class: 'xrow', onclick: async () => {
+    const name = await askText('Name for the new vault', ''); if (!name) return;
+    const pw = await askText('Choose a password (at least 4 characters). If you forget it, nobody can open the vault, not even this app.', ''); if (!pw) return;
+    const r = await vcall({type: 'create', name: name.trim(), password: pw}); toast(r.msg || ''); pn.vlist = null; renderFiles(); }}, h('span', {class: 'xic'}, '+'), h('span', {class: 'xnm'}, h('b', null, 'New vault'))));
+}
+async function vaultOpenUi(pn, name) {
+  for (let i = 0; i < 3; i++) {
+    const pw = await vaultAsk(name); if (!pw) return;
+    const r = await vcall({type: 'contents', name: name, password: pw});
+    if (r.ok) { pn.vault = {name: name, pw: pw, entries: r.entries}; renderFiles(); return; }
+    toast(r.msg || 'Could not open.'); if (r.code !== 'password') return;
+  }
+}
+async function vaultDelete(pn, name) {
+  const c = await askApproval({title: 'Delete the vault "' + name + '"', path: 'App private storage', reason: 'You tapped the bin next to a vault.', rows: [['Vault', name]], primary: {label: 'Cancel (keep it)', value: 'keep'}, others: [{label: 'Delete it for good', value: 'del', danger: true}], note: 'Everything inside is erased and cannot be brought back. Open the vault and save copies out first if you need them.'});
+  if (c !== 'del') return; const r = await vcall({type: 'delete', name: name}); toast(r.msg || ''); pn.vlist = null; renderFiles();
+}
+async function vaultEntry(pn, e) {
+  const V = pn.vault;
+  const v = await choose(e.name, [{label: 'Save a copy to Download', value: 'copy'}, {label: 'Remove from the vault...', value: 'rm', danger: true}]); if (!v) return;
+  if (v === 'copy') {
+    const dest = Android.fsRoot() + '/Download';
+    const c = await askApproval({title: 'Unlock a copy of ' + baseName(e.name), path: dest, reason: 'You chose to save a copy out of the vault.', rows: [['File', e.name], ['Size', fmtSize(e.size)]], primary: {label: 'Approve: save the copy', value: 'ok'}, note: 'The copy is NOT protected. The vault keeps its own copy. Nothing is replaced.'});
+    if (c === 'deny') return; const r = await vcall({type: 'extract', name: V.name, password: V.pw, entry: e.name, destDir: dest}); toast(r.msg || ''); return;
+  }
+  const c = await askApproval({title: 'Remove from the vault', path: V.name, reason: 'You chose Remove.', rows: [['File', e.name]], primary: {label: 'Save a copy to Download first', value: 'copy'}, others: [{label: 'Remove without a copy', value: 'rm', danger: true}], note: 'Removing erases the locked file. It cannot be undone.'});
+  if (c === 'deny') return;
+  if (c === 'copy') { const r = await vcall({type: 'extract', name: V.name, password: V.pw, entry: e.name, destDir: Android.fsRoot() + '/Download'}); toast(r.msg || ''); if (!r.ok) return;
+    const c2 = await askApproval({title: 'Now remove it from the vault?', path: V.name, reason: 'A copy is saved in Download.', rows: [['File', e.name]], primary: {label: 'Keep it in the vault', value: 'keep'}, others: [{label: 'Remove from the vault', value: 'rm', danger: true}]}); if (c2 !== 'rm') return; }
+  const r = await vcall({type: 'remove', name: V.name, password: V.pw, entry: e.name}); toast(r.msg || '');
+  const r2 = await vcall({type: 'contents', name: V.name, password: V.pw}); if (r2.ok) V.entries = r2.entries; renderFiles();
+}
+async function vaultLock(paths) {
+  const l = await vcall({type: 'list'}); const vs = l.vaults || [];
+  if (!vs.length) { toast('Make a vault first: Home, then Vault, then New vault.'); return; }
+  const name = await choose('Lock into which vault?', vs.map(v => ({label: v.name, value: v.name}))); if (!name) return;
+  const pw = await vaultAsk(name); if (!pw) return;
+  const chk = await vcall({type: 'contents', name: name, password: pw}); if (!chk.ok) { toast(chk.msg || 'Wrong password.'); return; }
+  const c = await askApproval({title: 'Lock ' + paths.length + ' item(s) in vault "' + name + '"', path: FS.path, reason: 'You chose Lock in vault.', rows: [['Items', paths.map(baseName).join('\n')]],
+    primary: {label: 'Approve: lock a copy (keep originals)', value: 'copy'}, others: [{label: 'Lock, then move originals to Trash', value: 'move'}], note: 'Moved originals go to the Trash, so Undo can bring them back.'});
+  if (c === 'deny') return;
+  const r = await vcall({type: 'add', name: name, password: pw, paths: paths}); toast(r.msg || ''); if (!r.ok) return;
+  if (c === 'move') { const ids = []; for (const p of paths) { const d = await fsOp({type: 'delete', path: p, reason: 'Locked in a vault.'}); if (d.ok && d.entryId) ids.push(d.entryId); } showUndo('Originals moved to Trash.', ids); }
+  FS.sel.clear(); renderFiles();
 }
 function wifiSheet() {
   const o = $('sheet'); o.textContent = '';

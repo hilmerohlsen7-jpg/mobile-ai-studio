@@ -852,6 +852,71 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    // ---- Vault: AES-256 encrypted ZIPs kept in the app's private folder. The password is never stored. ----
+    private fun vaultDir(): File { val d = File(activity.filesDir, "vaults"); d.mkdirs(); return d }
+    private fun vaultFile(name: String) = File(vaultDir(), name.replace(Regex("[^A-Za-z0-9._ -]"), "_") + ".zip")
+    private fun vaultOpen(name: String, pw: String): net.lingala.zip4j.ZipFile? {
+        val f = vaultFile(name); if (!f.exists()) return null
+        val zf = net.lingala.zip4j.ZipFile(f, pw.toCharArray())
+        val h = zf.getFileHeader(".vault") ?: return null
+        zf.getInputStream(h).use { it.read() } // throws on a wrong password
+        return zf
+    }
+    @JavascriptInterface
+    fun vaultOp(reqId: String, opJson: String) {
+        fsPool.execute {
+            val r = JSONObject()
+            try {
+                val op = JSONObject(opJson); val t = op.getString("type")
+                if (t == "list") {
+                    val arr = JSONArray(); vaultDir().listFiles()?.filter { it.name.endsWith(".zip") }?.sortedBy { it.name }?.forEach { arr.put(JSONObject().put("name", it.name.removeSuffix(".zip")).put("size", it.length())) }
+                    r.put("ok", true).put("vaults", arr)
+                } else if (t == "create") {
+                    val name = op.getString("name"); val pw = op.getString("password")
+                    if (pw.length < 4) throw Exception("Use a password of at least 4 characters.")
+                    val f = vaultFile(name); if (f.exists()) throw Exception("A vault with that name already exists.")
+                    val zf = net.lingala.zip4j.ZipFile(f, pw.toCharArray())
+                    val prm = net.lingala.zip4j.model.ZipParameters(); prm.isEncryptFiles = true
+                    prm.encryptionMethod = net.lingala.zip4j.model.enums.EncryptionMethod.AES; prm.fileNameInZip = ".vault"
+                    zf.addStream("ok".byteInputStream(), prm)
+                    r.put("ok", true).put("msg", "Vault created.")
+                } else {
+                    val name = op.getString("name")
+                    if (t == "delete") { val f = vaultFile(name); r.put("ok", f.delete()).put("msg", "Vault deleted. Its contents are gone for good.") }
+                    else {
+                        val zf = try { vaultOpen(name, op.getString("password")) } catch (e: net.lingala.zip4j.exception.ZipException) { null }
+                        if (zf == null) { r.put("ok", false).put("code", "password").put("msg", "Wrong password.") }
+                        else when (t) {
+                            "contents" -> {
+                                val arr = JSONArray()
+                                for (h in zf.fileHeaders) if (!h.isDirectory && h.fileName != ".vault") arr.put(JSONObject().put("name", h.fileName).put("size", h.uncompressedSize))
+                                r.put("ok", true).put("entries", arr)
+                            }
+                            "add" -> {
+                                if (!activity.hasFilesAccess()) throw Exception("Files access is off.")
+                                val prm = net.lingala.zip4j.model.ZipParameters(); prm.isEncryptFiles = true; prm.encryptionMethod = net.lingala.zip4j.model.enums.EncryptionMethod.AES
+                                val ps = op.getJSONArray("paths"); var n = 0
+                                for (i in 0 until ps.length()) { val f = File(ps.getString(i)); if (!f.exists()) continue; if (f.isDirectory) zf.addFolder(f, prm) else zf.addFile(f, prm); n++ }
+                                r.put("ok", true).put("msg", "Locked $n item(s) in the vault.")
+                            }
+                            "extract" -> {
+                                if (!activity.hasFilesAccess()) throw Exception("Files access is off.")
+                                val entry = op.getString("entry"); val dest = File(op.getString("destDir")); dest.mkdirs()
+                                val h = zf.getFileHeader(entry) ?: throw Exception("Not found in the vault.")
+                                val tmp = File(activity.cacheDir, "vx" + System.nanoTime()); tmp.mkdirs()
+                                try { zf.extractFile(h, tmp.absolutePath); val src = File(tmp, entry); val out = uniqueFile(dest, File(entry).name); src.copyTo(out); r.put("ok", true).put("msg", "Saved " + out.name + " in " + dest.name) }
+                                finally { tmp.deleteRecursively() }
+                            }
+                            "remove" -> { zf.removeFile(op.getString("entry")); r.put("ok", true).put("msg", "Removed from the vault.") }
+                            else -> r.put("ok", false).put("msg", "Unknown action.")
+                        }
+                    }
+                }
+            } catch (e: Exception) { r.put("ok", false).put("msg", e.message ?: "Vault problem.") }
+            fsReply(reqId, null, r)
+        }
+    }
+
     @JavascriptInterface
     fun appAction(pkg: String, action: String): String {
         return try {
