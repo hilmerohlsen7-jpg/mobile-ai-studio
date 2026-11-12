@@ -788,6 +788,79 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }.start()
     }
 
+    // ---- home screen extras: recent files and app manager ----
+    /** Newest files under a folder (last [days] days, at most 150). The answer arrives in __onFs with "files". */
+    @JavascriptInterface
+    fun fsRecent(reqId: String, path: String, days: Int) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val since = System.currentTimeMillis() - days * 86400000L
+                val found = ArrayList<File>(); var seen = 0
+                val stack = ArrayDeque<File>(); stack.add(File(path))
+                while (stack.isNotEmpty() && seen < 250000) {
+                    val d = stack.removeLast()
+                    for (c in d.listFiles() ?: emptyArray()) {
+                        seen++
+                        if (c.isDirectory) { if (!c.name.startsWith(".") && !(d.name == "Android" && (c.name == "data" || c.name == "obb"))) stack.add(c) }
+                        else if (c.lastModified() >= since) found.add(c)
+                    }
+                }
+                found.sortByDescending { it.lastModified() }
+                val arr = JSONArray()
+                for (f in found.take(150)) arr.put(JSONObject().put("path", f.absolutePath).put("dir", false).put("size", f.length()).put("mtime", f.lastModified()))
+                fsReply(reqId, null, JSONObject().put("ok", true).put("files", arr).put("partial", found.size > 150))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not look.")) }
+        }
+    }
+
+    @JavascriptInterface
+    fun appList(): String {
+        val pm = activity.packageManager; val arr = JSONArray()
+        try {
+            for (a in pm.getInstalledApplications(0)) {
+                val system = (a.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+                if (system && pm.getLaunchIntentForPackage(a.packageName) == null) continue
+                val vn = try { pm.getPackageInfo(a.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
+                arr.put(JSONObject().put("pkg", a.packageName).put("name", pm.getApplicationLabel(a).toString()).put("size", File(a.sourceDir).length())
+                    .put("version", vn).put("system", system).put("splits", (a.splitSourceDirs?.size ?: 0)))
+            }
+        } catch (e: Exception) {}
+        return arr.toString()
+    }
+
+    /** action: info | uninstall | launch. Uninstall only opens Android's own confirmation. */
+    @JavascriptInterface
+    fun appAction(pkg: String, action: String): String {
+        return try {
+            val i = when (action) {
+                "info" -> android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$pkg"))
+                "uninstall" -> android.content.Intent(android.content.Intent.ACTION_DELETE, android.net.Uri.parse("package:$pkg"))
+                else -> activity.packageManager.getLaunchIntentForPackage(pkg) ?: return JSONObject().put("ok", false).put("msg", "This app has no screen to open.").toString()
+            }
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ui.post { try { activity.startActivity(i) } catch (e: Exception) {} }
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not.").toString() }
+    }
+
+    /** Copies an app's APK into the Download folder as a new file (never replaces). */
+    @JavascriptInterface
+    fun appBackup(reqId: String, pkg: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val a = activity.packageManager.getApplicationInfo(pkg, 0)
+                val label = activity.packageManager.getApplicationLabel(a).toString().replace(Regex("[^A-Za-z0-9._ -]"), "_")
+                val dir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "")
+                val out = uniqueFile(dir, "$label.apk")
+                File(a.sourceDir).inputStream().use { i -> out.outputStream().use { i.copyTo(it, 65536) } }
+                val extra = if ((a.splitSourceDirs?.size ?: 0) > 0) " (this app has split parts; only the base part was saved)" else ""
+                fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Saved " + out.name + " in Download" + extra))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not save it.")) }
+        }
+    }
+
     @JavascriptInterface
     fun fsUndo(reqId: String, id: String, force: Boolean) {
         fsPool.execute { fsReply(reqId, fsOps.undo(id, force)) }
