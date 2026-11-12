@@ -1911,8 +1911,9 @@ function homeShowSheet() {
   box.append(h('button', {onclick: close}, 'Done')); o.append(box); o.classList.add('open'); sheetDone = close;
 }
 async function xMenu() {
-  const v = await choose('Menu', [{label: 'Home', value: 'home'}, {label: 'Show on home screen...', value: 'show'}, {label: 'Settings', value: 'set'}, {label: 'About', value: 'about'}, {label: 'Exit file manager', value: 'exit'}]);
+  const v = await choose('Menu', [{label: 'Home', value: 'home'}, {label: 'Show on home screen...', value: 'show'}, {label: 'Export settings', value: 'exp'}, {label: 'Import settings', value: 'imp'}, {label: 'Help', value: 'help'}, {label: 'Settings', value: 'set'}, {label: 'About', value: 'about'}, {label: 'Exit file manager', value: 'exit'}]);
   if (v === 'home') goHome(); else if (v === 'show') homeShowSheet();
+  else if (v === 'exp') exportSettings(); else if (v === 'imp') importSettings(); else if (v === 'help') fmHelp();
   else if (v === 'set') { closeFiles(); $('setBtn').onclick(); }
   else if (v === 'about') toast('Mobile AI Studio file manager. Every change asks you first.');
   else if (v === 'exit') closeFiles();
@@ -2070,6 +2071,40 @@ async function dlnaOpen(pn, dev, id, title) {
 async function dlnaGet(it) {
   const c = await askApproval({title: 'Download ' + it.title, path: 'Download', reason: 'You tapped a file on a DLNA server.', rows: [['File', it.title], ['Size', it.size ? fmtSize(it.size) : 'unknown']], primary: {label: 'Approve: save a copy', value: 'ok'}, note: 'The file is copied to your Download folder. Nothing is replaced. Big videos can take a while.'});
   if (c === 'deny') return; toast('Downloading...'); const r = await fsCall('dlnaDownload', it.url, it.title); toast(r.msg || (r.ok ? 'Done.' : 'Failed.'));
+}
+
+/* ---- settings export / import / help ---- */
+function stripSecrets(o) { if (Array.isArray(o)) return o.map(stripSecrets); if (o && typeof o === 'object') { const r = {}; Object.keys(o).forEach(k => { if (!/key|pass|token|secret|hostkey/i.test(k)) r[k] = stripSecrets(o[k]); }); return r; } return o; }
+async function exportSettings() {
+  const txt = JSON.stringify({app: 'mobile-ai-studio', version: 1, settings: stripSecrets(S.settings)}, null, 2);
+  const ok = await fsSaveText(FS.root + '/Download/mobile-ai-studio-settings.json', txt, 'You chose Export settings in the file manager.');
+  if (ok !== false) toast('Exported. Passwords and API keys are NOT included.');
+}
+async function importSettings() {
+  const dir = FS.root + '/Download'; const r = fsJson('fsList', dir); const files = r.ok ? r.items.filter(x => !x.dir && /\.json$/i.test(x.name)) : [];
+  if (!files.length) { toast('No .json files in Download.'); return; }
+  const f = await choose('Import which file?', files.map(x => ({label: x.name, value: x.name}))); if (!f) return;
+  const rd = fsJson('fsRead', joinPath(dir, f)); let data; try { data = JSON.parse(rd.text); } catch (e) { toast('That is not a valid settings file.'); return; }
+  if (!data || data.app !== 'mobile-ai-studio' || !data.settings) { toast('That file is not from this app.'); return; }
+  const keys = Object.keys(data.settings);
+  const c = await askApproval({title: 'Import settings', path: f, reason: 'You chose Import settings.', rows: [['Changes', keys.join(', ') || 'nothing']], primary: {label: 'Approve: apply them', value: 'ok'}, note: 'Matching settings on this phone are replaced. Your passwords and API keys here are kept.'});
+  if (c === 'deny') return;
+  const keep = {}; Object.keys(S.settings).forEach(k => { if (/key|pass|token|secret/i.test(k)) keep[k] = S.settings[k]; });
+  const oldConns = S.settings.conns || [];
+  Object.assign(S.settings, data.settings, keep);
+  if (data.settings.conns) S.settings.conns = data.settings.conns.map(c2 => Object.assign({pass: (oldConns.find(o => o.id === c2.id) || {}).pass || ''}, c2));
+  persistNow(); toast('Imported. Restarting the screen...'); setTimeout(() => location.reload(), 600);
+}
+function fmHelp() {
+  const o = $('sheet'); o.textContent = ''; const close = () => o.classList.remove('open');
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'File manager help'));
+  ['Tap a folder to open or close it like the arrow. Press and hold a folder to open it as the main view.',
+   'Tick the box on the right of a row to select it, then use the tool strip.',
+   'Swipe sideways, or tap the little handle, to switch between the two panels. Copy to / Move to send files to the other panel.',
+   'Up dir at the top of a storage goes to Home. Home lists storage, servers, Vault, File sync, DLNA, App manager and Recent files. Use Show to hide or show entries.',
+   'Every delete, replace or copy asks you first. Deleted files go to the Trash and Undo brings them back.',
+   'Vault locks files with a password that is never stored. File sync copies missing files and never deletes.'].forEach(t => box.append(h('div', {class: 'note'}, t)));
+  box.append(h('button', {onclick: close}, 'Close')); o.append(box); o.classList.add('open'); sheetDone = close;
 }
 function wifiSheet() {
   const o = $('sheet'); o.textContent = '';
