@@ -1856,11 +1856,39 @@ async function networkSheet() {
   o.append(box); o.classList.add('open'); sheetDone = close;
 }
 
+
+async function gdriveKeys() {
+  const have = S.settings.gcreds; if (have && have.id && have.secret) return have;
+  return new Promise(res => {
+    const o = $('sheet'); o.textContent = ''; const close = () => { o.classList.remove('open'); res(null); };
+    const idI = h('input', {type: 'text', placeholder: 'xxxx.apps.googleusercontent.com', autocapitalize: 'off', style: 'width:100%'}), seI = h('input', {type: 'password', placeholder: 'GOCSPX-...', style: 'width:100%'});
+    const box = h('div', {class: 'sbox', style: 'max-height:86vh;overflow:auto'}, h('div', {class: 'mt'}, 'Google Drive setup (once)'));
+    ['1. On a computer or this phone open console.cloud.google.com and sign in with the Google account that will own the key.',
+     '2. Make a new project. Search for "Google Drive API" and press Enable.',
+     '3. APIs and Services, then OAuth consent screen: User type External. Fill the app name and your email. Leave it in Testing.',
+     '4. On that screen add every person who will use the app as a Test user (their Gmail address).',
+     '5. Credentials, Create credentials, OAuth client ID, Application type: Desktop app. Create.',
+     '6. Copy the Client ID and Client secret into the boxes below. Everyone who uses the app can enter the same two.'].forEach(t => box.append(h('div', {class: 'note'}, t)));
+    box.append(h('label', {style: 'display:block;font-size:.78rem;color:var(--mute);margin:6px 0 2px'}, 'Client ID', idI), h('label', {style: 'display:block;font-size:.78rem;color:var(--mute);margin:6px 0 2px'}, 'Client secret (kept only on this phone)', seI),
+      h('div', {style: 'display:flex;gap:8px;margin-top:10px'}, h('button', {onclick: close}, 'CANCEL'), h('button', {class: 'pri', onclick: () => { const id = idI.value.trim(), se = seI.value.trim(); if (!id || !se) { toast('Enter both.'); return; } S.settings.gcreds = {id: id, secret: se}; persist(); o.classList.remove('open'); res(S.settings.gcreds); }}, 'SAVE')));
+    o.append(box); o.classList.add('open'); sheetDone = close;
+  });
+}
+async function gdriveAdd() {
+  const k = await gdriveKeys(); if (!k) return;
+  toast('Opening Google. Sign in there, then come back to this app.');
+  const r = await fsCall('gdriveAuth', k.id, k.secret);
+  if (!r.ok) { toast(r.msg || 'Sign-in failed.'); return; }
+  (S.settings.conns = S.settings.conns || []).push({id: uid(), name: r.email, type: 'gdrive', host: 'drive.google.com', port: 443, user: k.id + '|' + k.secret, pass: r.refresh, path: '/', hostKey: ''});
+  saveConns(); toast('Added ' + r.email); S.settings.homeShow = S.settings.homeShow || {}; renderFiles();
+}
 async function addMenu(k, pn) {
   if (k === 'web') {
     const P = {nc: ['Nextcloud / ownCloud', 'https://YOUR-SERVER/remote.php/dav/files/YOUR-USER/'], box: ['Box', 'https://dav.box.com/dav'], koofr: ['Koofr', 'https://app.koofr.net/dav/Koofr'], pcloud: ['pCloud (EU)', 'https://ewebdav.pcloud.com'], yandex: ['Yandex Disk', 'https://webdav.yandex.com'], other: ['Other WebDAV server', 'https://']};
-    const v = await choose('Web storage', Object.keys(P).map(x => ({label: P[x][0], value: x})).concat([{label: 'Google Drive, Dropbox, OneDrive...', value: 'oauth'}])); if (!v) return;
-    if (v === 'oauth') { toast('These need a developer key from each company. Not built yet. Use a WebDAV storage for now.'); return; }
+    const v = await choose('Web storage', Object.keys(P).map(x => ({label: P[x][0], value: x})).concat([{label: 'Google Drive', value: 'gdrive'}, {label: 'Dropbox, OneDrive (not built yet)', value: 'oauth'}, {label: 'Change my Google Drive keys', value: 'gkeys'}])); if (!v) return;
+    if (v === 'oauth') { toast('These need their own developer keys. Not built yet. Use a WebDAV storage for now.'); return; }
+    if (v === 'gdrive') { gdriveAdd(); return; }
+    if (v === 'gkeys') { S.settings.gcreds = null; persist(); gdriveAdd(); return; }
     addServer('dav', null, {host: P[v][1], name: P[v][0] === 'Other WebDAV server' ? '' : P[v][0]}); return;
   }
   if (k !== 'smb') { addServer(k); return; }
@@ -1940,10 +1968,11 @@ function buildHome(o, idx) {
       else if (k === 'smb' || k === 'ftp' || k === 'sftp' || k === 'web') {
         const T = k === 'web' ? 'dav' : k;
         const op = pn.hopen.has('~' + k), tg = () => { if (pn.hopen.has('~' + k)) pn.hopen.delete('~' + k); else pn.hopen.add('~' + k); renderFiles(); };
-        row(ico, t, conns.filter(c => c.type === T).length + ' saved', tg, 0, '~' + k, op);
+        const mine = conns.filter(c => c.type === T || (T === 'dav' && c.type === 'gdrive'));
+        row(ico, t, mine.length + ' saved', tg, 0, '~' + k, op);
         if (op) {
           if (k === 'ftp') ftpServerRow(list);
-          conns.filter(c => c.type === T).forEach(c => row('\u2022', c.name, T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => { act(); openConn(c); }, 1, null, false, false, () => connMenu(c)));
+          mine.forEach(c => row(c.type === 'gdrive' ? '\u2601' : '\u2022', c.name, c.type === 'gdrive' ? 'Google Drive' : T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => { act(); openConn(c); }, 1, null, false, false, () => connMenu(c)));
           if (k === 'smb') {
             if (pn.lan && pn.lan.busy) list.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanCancel(); } catch (e) {} }}, '\u2715')));
             ((pn.lan && pn.lan.hosts) || []).filter(x => !conns.some(c => c.host === x.host)).forEach(x => row('\u{1F5A5}', x.name || x.host, x.host + '  \u00b7  found on this Wi-Fi. Tap to add.', () => { act(); addServer('smb', null, {host: x.host, name: x.name !== x.host ? x.name : ''}); }, 1));
@@ -2143,7 +2172,7 @@ async function dlnaGet(it) {
 /* ---- settings export / import / help ---- */
 function stripSecrets(o) { if (Array.isArray(o)) return o.map(stripSecrets); if (o && typeof o === 'object') { const r = {}; Object.keys(o).forEach(k => { if (!/key|pass|token|secret|hostkey/i.test(k)) r[k] = stripSecrets(o[k]); }); return r; } return o; }
 async function exportSettings() {
-  const txt = JSON.stringify({app: 'mobile-ai-studio', version: 1, settings: stripSecrets(S.settings)}, null, 2);
+  const txt = JSON.stringify({app: 'mobile-ai-studio', version: 1, settings: stripSecrets(Object.assign({}, S.settings, {conns: (S.settings.conns || []).filter(c => c.type !== 'gdrive'), gcreds: undefined}))}, null, 2);
   const ok = await fsSaveText(FS.root + '/Download/mobile-ai-studio-settings.json', txt, 'You chose Export settings in the file manager.');
   if (ok !== false) toast('Exported. Passwords and API keys are NOT included.');
 }

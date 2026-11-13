@@ -150,7 +150,81 @@ object RemoteFs {
         override fun close() { http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll() }
     }
 
-    fun open(c: Conn): Client = when (c.type) { "dav" -> Dav(c); "sftp" -> Sftp(c); "smb" -> Smb(c); else -> Ftp(c) }
+    /** Google Drive. user = "clientId|clientSecret", pass = refresh token. Deleting only moves things to the Drive trash. */
+    private class Gdrive(val c: Conn) : Client {
+        val http = okhttp3.OkHttpClient.Builder().connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS).readTimeout(90, java.util.concurrent.TimeUnit.SECONDS).build()
+        val token: String
+        private val folder = "application/vnd.google-apps.folder"
+        init {
+            val id = c.user.substringBefore('|'); val sec = c.user.substringAfter('|', "")
+            val body = okhttp3.FormBody.Builder().add("client_id", id).add("client_secret", sec).add("refresh_token", c.pass).add("grant_type", "refresh_token").build()
+            http.newCall(okhttp3.Request.Builder().url("https://oauth2.googleapis.com/token").post(body).build()).execute().use {
+                val j = JSONObject(it.body?.string() ?: "{}")
+                if (!it.isSuccessful || !j.has("access_token")) throw Exception("Google sign-in expired. Remove this storage and add it again (in Testing mode Google signs you out after 7 days).")
+                token = j.getString("access_token")
+            }
+        }
+        private fun call(url: String, method: String = "GET", body: okhttp3.RequestBody? = null): String {
+            val r = okhttp3.Request.Builder().url(url).header("Authorization", "Bearer $token").method(method, if (method == "GET") null else (body ?: "".toRequestBody(null))).build()
+            http.newCall(r).execute().use { if (!it.isSuccessful) throw Exception("Google Drive said " + it.code + ": " + (try { JSONObject(it.body?.string() ?: "{}").optJSONObject("error")?.optString("message") } catch (e: Exception) { "" })); return it.body?.string() ?: "" }
+        }
+        private fun esc(s: String) = s.replace("\\", "\\\\").replace("'", "\\'")
+        private fun q(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
+        private val exts = mapOf(".pdf" to "application/vnd.google-apps.document", ".xlsx" to "application/vnd.google-apps.spreadsheet", ".pptx" to "application/vnd.google-apps.presentation")
+        private fun child(parent: String, name: String): JSONObject? {
+            var r = JSONObject(call("https://www.googleapis.com/drive/v3/files?pageSize=5&fields=files(id,mimeType)&q=" + q("name='" + esc(name) + "' and '" + parent + "' in parents and trashed=false"))).getJSONArray("files")
+            if (r.length() > 0) return r.getJSONObject(0)
+            for ((e, mt) in exts) if (name.endsWith(e)) {
+                r = JSONObject(call("https://www.googleapis.com/drive/v3/files?pageSize=5&fields=files(id,mimeType)&q=" + q("name='" + esc(name.removeSuffix(e)) + "' and '" + parent + "' in parents and mimeType='" + mt + "' and trashed=false"))).getJSONArray("files")
+                if (r.length() > 0) return r.getJSONObject(0)
+            }
+            return null
+        }
+        private fun idOf(path: String): String {
+            var cur = "root"
+            for (seg in path.split('/').filter { it.isNotEmpty() }) cur = child(cur, seg)?.getString("id") ?: throw Exception("Not found in Google Drive: $seg")
+            return cur
+        }
+        private fun parentOf(path: String) = path.trimEnd('/').substringBeforeLast('/', "")
+        private fun nameOf(path: String) = path.trimEnd('/').substringAfterLast('/')
+        private fun time(s: String) = try { val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US); f.timeZone = java.util.TimeZone.getTimeZone("UTC"); f.parse(s.take(19))?.time ?: 0L } catch (e: Exception) { 0L }
+        override fun list(path: String): List<Item> {
+            val id = idOf(path); val out = ArrayList<Item>(); var page = ""
+            do {
+                val j = JSONObject(call("https://www.googleapis.com/drive/v3/files?pageSize=1000&fields=nextPageToken,files(name,mimeType,size,modifiedTime)&q=" + q("'" + id + "' in parents and trashed=false") + (if (page.isNotEmpty()) "&pageToken=" + q(page) else "")))
+                val a = j.getJSONArray("files")
+                for (i in 0 until a.length()) { val f = a.getJSONObject(i); val mt = f.getString("mimeType"); val dir = mt == folder
+                    val ext = exts.entries.firstOrNull { it.value == mt }?.key ?: ""
+                    out.add(Item(f.getString("name") + ext, dir, f.optString("size", "0").toLongOrNull() ?: 0L, time(f.optString("modifiedTime", "")))) }
+                page = j.optString("nextPageToken", "")
+            } while (page.isNotEmpty())
+            return out
+        }
+        override fun download(remote: String, local: File) {
+            val f = child(idOf(parentOf(remote)), nameOf(remote)) ?: throw Exception("Not found in Google Drive.")
+            val mt = f.getString("mimeType"); val id = f.getString("id")
+            val url = if (mt.startsWith("application/vnd.google-apps.")) { val exp = when (mt) { "application/vnd.google-apps.spreadsheet" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; "application/vnd.google-apps.presentation" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"; else -> "application/pdf" }
+                "https://www.googleapis.com/drive/v3/files/$id/export?mimeType=" + q(exp) } else "https://www.googleapis.com/drive/v3/files/$id?alt=media"
+            http.newCall(okhttp3.Request.Builder().url(url).header("Authorization", "Bearer $token").build()).execute().use { if (!it.isSuccessful) throw Exception("Download failed (" + it.code + ")"); FileOutputStream(local).use { o -> it.body!!.byteStream().copyTo(o, 65536) } }
+        }
+        override fun upload(local: File, remote: String) {
+            val meta = JSONObject().put("name", nameOf(remote)).put("parents", JSONArray().put(idOf(parentOf(remote)))).toString()
+            val body = okhttp3.MultipartBody.Builder().setType("multipart/related".toMediaType()).addPart(meta.toRequestBody("application/json; charset=UTF-8".toMediaType())).addPart(local.asRequestBody("application/octet-stream".toMediaType())).build()
+            call("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", "POST", body)
+        }
+        override fun mkdir(path: String) { call("https://www.googleapis.com/drive/v3/files", "POST", JSONObject().put("name", nameOf(path)).put("mimeType", folder).put("parents", JSONArray().put(idOf(parentOf(path)))).toString().toRequestBody("application/json".toMediaType())) }
+        override fun rename(from: String, to: String) {
+            val id = idOf(from); val np = idOf(parentOf(to)); val op = idOf(parentOf(from))
+            call("https://www.googleapis.com/drive/v3/files/$id" + (if (np != op) "?addParents=$np&removeParents=$op" else ""), "PATCH", JSONObject().put("name", nameOf(to)).toString().toRequestBody("application/json".toMediaType()))
+        }
+        private fun trash(path: String) { call("https://www.googleapis.com/drive/v3/files/" + idOf(path), "PATCH", JSONObject().put("trashed", true).toString().toRequestBody("application/json".toMediaType())) }
+        override fun deleteFile(path: String) = trash(path)
+        override fun deleteDir(path: String) = trash(path)
+        override fun isDir(path: String): Boolean = try { if (path.trim('/').isEmpty()) true else child(idOf(parentOf(path)), nameOf(path))?.getString("mimeType") == folder } catch (e: Exception) { false }
+        override fun close() { http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll() }
+    }
+
+    fun open(c: Conn): Client = when (c.type) { "gdrive" -> Gdrive(c); "dav" -> Dav(c); "sftp" -> Sftp(c); "smb" -> Smb(c); else -> Ftp(c) }
     private fun join(a: String, b: String) = a.trimEnd('/') + "/" + b
     private fun unique(dir: File, name: String): File {
         var f = File(dir, name); var n = 1; val base = name.substringBeforeLast('.', name); val ext = name.substringAfterLast('.', "")

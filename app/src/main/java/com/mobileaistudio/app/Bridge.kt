@@ -796,6 +796,44 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         return ftpStatus()
     }
 
+    // ---- Google Drive sign-in: opens Google in the browser, catches the answer on a loopback address ----
+    @JavascriptInterface
+    fun gdriveAuth(reqId: String, clientId: String, clientSecret: String) {
+        fsPool.execute {
+            var ss: java.net.ServerSocket? = null
+            try {
+                val rnd = java.security.SecureRandom(); val vb = ByteArray(48); rnd.nextBytes(vb)
+                val verifier = android.util.Base64.encodeToString(vb, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+                val challenge = android.util.Base64.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+                val state = java.math.BigInteger(80, rnd).toString(16)
+                ss = java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")); ss.soTimeout = 300000
+                val redirect = "http://127.0.0.1:" + ss.localPort
+                val url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + java.net.URLEncoder.encode(clientId, "UTF-8") + "&redirect_uri=" + java.net.URLEncoder.encode(redirect, "UTF-8") +
+                    "&response_type=code&scope=" + java.net.URLEncoder.encode("https://www.googleapis.com/auth/drive openid email", "UTF-8") + "&access_type=offline&prompt=consent&code_challenge=" + challenge + "&code_challenge_method=S256&state=" + state
+                ui.post { try { activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+                var code: String? = null
+                while (code == null) {
+                    val s = ss.accept(); s.soTimeout = 5000
+                    val line = try { s.getInputStream().bufferedReader().readLine() ?: "" } catch (e: Exception) { "" }
+                    val q = line.substringAfter("GET /?", "").substringBefore(" HTTP")
+                    val m = q.split('&').filter { it.contains('=') }.associate { it.substringBefore('=') to java.net.URLDecoder.decode(it.substringAfter('='), "UTF-8") }
+                    val okc = m["code"] != null && m["state"] == state
+                    val html = if (okc) "<h2>Done. You can go back to Mobile AI Studio.</h2>" else if (m["error"] != null) "<h2>Google said: " + (m["error"] ?: "").replace("<", "") + ". Go back to the app.</h2>" else "<h2>Waiting...</h2>"
+                    try { val o = s.getOutputStream(); val b = ("<html><head><meta name=viewport content='width=device-width'></head><body style='font-family:sans-serif;padding:24px'>$html</body></html>").toByteArray(); o.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + b.size + "\r\nConnection: close\r\n\r\n").toByteArray()); o.write(b); o.flush(); s.close() } catch (e: Exception) {}
+                    if (okc) code = m["code"] else if (m["error"] != null) throw Exception("Google refused the sign-in: " + m["error"])
+                }
+                val http = okhttp3.OkHttpClient()
+                val body = okhttp3.FormBody.Builder().add("code", code).add("client_id", clientId).add("client_secret", clientSecret).add("redirect_uri", redirect).add("grant_type", "authorization_code").add("code_verifier", verifier).build()
+                val tj = http.newCall(okhttp3.Request.Builder().url("https://oauth2.googleapis.com/token").post(body).build()).execute().use { JSONObject(it.body?.string() ?: "{}") }
+                if (!tj.has("refresh_token")) throw Exception(tj.optString("error_description", "Google did not give a sign-in token. Check the Client ID and secret."))
+                val about = http.newCall(okhttp3.Request.Builder().url("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)").header("Authorization", "Bearer " + tj.getString("access_token")).build()).execute().use { JSONObject(it.body?.string() ?: "{}") }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("refresh", tj.getString("refresh_token")).put("email", about.optJSONObject("user")?.optString("emailAddress") ?: "Google Drive"))
+            } catch (e: java.net.SocketTimeoutException) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Sign-in timed out."))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Sign-in failed."))
+            } finally { try { ss?.close() } catch (e: Exception) {} }
+        }
+    }
+
     private fun androidx_start(i: Intent) { if (Build.VERSION.SDK_INT >= 26) activity.startForegroundService(i) else activity.startService(i) }
 
     // ---- remote servers (FTP / SFTP) ----
