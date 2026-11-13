@@ -771,8 +771,29 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun wifiStop(): String {
         WifiServer.stop()
-        ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        if (!FtpServer.running) ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
         return wifiStatus()
+    }
+
+    // ---- the phone's own FTP server (approval is asked in the app first) ----
+    @JavascriptInterface
+    fun ftpStatus(): String {
+        val arr = JSONArray(); synchronized(FtpServer.log) { FtpServer.log.takeLast(8).forEach { arr.put(it) } }
+        return JSONObject().put("running", FtpServer.running).put("url", FtpServer.url).put("pin", FtpServer.pin).put("port", FtpServer.port)
+            .put("readOnly", FtpServer.readOnly).put("anon", FtpServer.anon).put("ip", WifiServer.localIp() ?: "").put("log", arr).toString()
+    }
+    @JavascriptInterface
+    fun ftpStart(path: String, port: Int, readOnly: Boolean, anon: Boolean): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        val err = FtpServer.start(File(path), port, readOnly, anon)
+        if (err == null) ui.post { try { androidx_start(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        return if (err != null) JSONObject().put("ok", false).put("msg", err).toString() else ftpStatus()
+    }
+    @JavascriptInterface
+    fun ftpStop(): String {
+        FtpServer.stop()
+        if (!WifiServer.running) ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        return ftpStatus()
     }
 
     private fun androidx_start(i: Intent) { if (Build.VERSION.SDK_INT >= 26) activity.startForegroundService(i) else activity.startService(i) }

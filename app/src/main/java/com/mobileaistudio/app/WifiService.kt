@@ -22,7 +22,7 @@ class WifiService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            WifiServer.stop(); release(); stopForeground(true); stopSelf(); return START_NOT_STICKY
+            WifiServer.stop(); FtpServer.stop(); release(); stopForeground(true); stopSelf(); return START_NOT_STICKY
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null)
@@ -31,7 +31,7 @@ class WifiService : Service() {
         val stop = PendingIntent.getService(this, 2, Intent(this, WifiService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else Notification.Builder(this)
         b.setSmallIcon(android.R.drawable.stat_sys_upload).setContentTitle("Sharing files over Wi-Fi")
-            .setContentText(WifiServer.url + "  PIN " + WifiServer.pin).setOngoing(true).setContentIntent(open)
+            .setContentText((if (WifiServer.running) WifiServer.url + "  PIN " + WifiServer.pin else "") + (if (WifiServer.running && FtpServer.running) "   |   " else "") + (if (FtpServer.running) FtpServer.url + "  admin / " + FtpServer.pin else "")).setOngoing(true).setContentIntent(open)
             .addAction(Notification.Action.Builder(0, "Stop sharing", stop).build())
         try {
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIF_ID, b.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else startForeground(NOTIF_ID, b.build())

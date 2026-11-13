@@ -14,8 +14,8 @@ import java.io.FileOutputStream
 /** FTP and SFTP browsing and transfers. Each call opens its own short connection. */
 object RemoteFs {
     class NeedHostKey(val fp: String) : Exception("hostkey")
-    class Conn(val type: String, val host: String, val port: Int, val user: String, val pass: String, val hostKey: String) {
-        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", when (o.optString("type")) { "sftp" -> 22; "smb" -> 445; else -> 21 }), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", "")) }
+    class Conn(val type: String, val host: String, val port: Int, val user: String, val pass: String, val hostKey: String, val ftps: Boolean = false, val active: Boolean = false) {
+        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", when (o.optString("type")) { "sftp" -> 22; "smb" -> 445; else -> 21 }), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", ""), o.optBoolean("ftps", false), o.optBoolean("active", false)) }
     }
     class Item(val name: String, val dir: Boolean, val size: Long, val mtime: Long)
 
@@ -31,12 +31,13 @@ object RemoteFs {
     }
 
     private class Ftp(c: Conn) : Client {
-        val f = FTPClient()
+        val f: FTPClient = if (c.ftps) org.apache.commons.net.ftp.FTPSClient("TLS", false) else FTPClient()
         init {
             f.connectTimeout = 15000; f.defaultTimeout = 30000
             f.connect(c.host, c.port)
             if (!f.login(c.user.ifEmpty { "anonymous" }, c.pass.ifEmpty { "guest@" })) throw Exception("Wrong user name or password.")
-            f.enterLocalPassiveMode(); f.setFileType(FTP.BINARY_FILE_TYPE); f.controlEncoding = "UTF-8"
+            if (c.ftps) { val sf = f as org.apache.commons.net.ftp.FTPSClient; sf.execPBSZ(0); sf.execPROT("P") }
+            if (c.active) f.enterLocalActiveMode() else f.enterLocalPassiveMode(); f.setFileType(FTP.BINARY_FILE_TYPE); f.controlEncoding = "UTF-8"
         }
         override fun list(path: String) = (f.listFiles(path) ?: emptyArray()).filter { it.name != "." && it.name != ".." }.map { Item(it.name, it.isDirectory, it.size, it.timestamp?.timeInMillis ?: 0L) }
         override fun download(remote: String, local: File) { FileOutputStream(local).use { if (!f.retrieveFile(remote, it)) throw Exception("Download failed: " + f.replyString.trim()) } }
