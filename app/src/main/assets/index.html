@@ -1857,6 +1857,12 @@ async function networkSheet() {
 }
 
 async function addMenu(k, pn) {
+  if (k === 'web') {
+    const P = {nc: ['Nextcloud / ownCloud', 'https://YOUR-SERVER/remote.php/dav/files/YOUR-USER/'], box: ['Box', 'https://dav.box.com/dav'], koofr: ['Koofr', 'https://app.koofr.net/dav/Koofr'], pcloud: ['pCloud (EU)', 'https://ewebdav.pcloud.com'], yandex: ['Yandex Disk', 'https://webdav.yandex.com'], other: ['Other WebDAV server', 'https://']};
+    const v = await choose('Web storage', Object.keys(P).map(x => ({label: P[x][0], value: x})).concat([{label: 'Google Drive, Dropbox, OneDrive...', value: 'oauth'}])); if (!v) return;
+    if (v === 'oauth') { toast('These need a developer key from each company. Not built yet. Use a WebDAV storage for now.'); return; }
+    addServer('dav', null, {host: P[v][1], name: P[v][0] === 'Other WebDAV server' ? '' : P[v][0]}); return;
+  }
   if (k !== 'smb') { addServer(k); return; }
   const v = await choose('LAN', [{label: 'Add server', value: 'add'}, {label: 'Scan', value: 'scan'}]); if (v === 'add') addServer('smb'); else if (v === 'scan') lanScanUi(pn);
 }
@@ -1871,16 +1877,16 @@ function serverForm(type, pre) {
   return new Promise(res => {
     const o = $('sheet'); o.textContent = ''; const close = () => { o.classList.remove('open'); res(null); };
     const f = {}; const fld = (key, label, val, pw, hint) => { const i = h('input', {type: pw ? 'password' : 'text', value: val || '', placeholder: hint || '', autocapitalize: 'off', autocomplete: 'off', style: 'width:100%'}); f[key] = i; return h('label', {style: 'display:block;font-size:.78rem;color:var(--mute);margin:6px 0 2px'}, label, i); };
-    const smb = type === 'smb';
-    const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Add server'),
-      fld('name', 'Label (may be blank)', pre.name), fld('host', 'Server', pre.host, false, smb ? 'for example 192.168.1.20' : (type === 'ftp' ? 'host or host:port' : 'host name or address')), fld('path', 'Path', pre.path || '/', false, smb ? '/ lists all shares' : '/'),
+    const smb = type === 'smb', dav = type === 'dav';
+    const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, dav ? 'Add web storage' : 'Add server'),
+      fld('name', 'Label (may be blank)', pre.name), fld('host', dav ? 'Web address (WebDAV)' : 'Server', pre.host, false, smb ? 'for example 192.168.1.20' : (type === 'ftp' ? 'host or host:port' : 'host name or address')), fld('path', 'Path', pre.path || '/', false, smb ? '/ lists all shares' : '/'),
       fld('user', 'Username', pre.user, false, type === 'ftp' ? 'anonymous if empty' : (smb ? 'empty = guest' : '')), fld('pass', 'Password (stored only on this phone)', pre.pass, true));
     if (smb) box.append(fld('domain', 'Domain', pre.domain));
     else if (type === 'ftp') { f.ftps = h('select', {style: 'width:100%'}, h('option', {value: ''}, 'FTP'), h('option', {value: '1'}, 'FTPS (explicit TLS)')); f.active = h('input', {type: 'checkbox'});
       box.append(h('label', {style: 'display:block;font-size:.78rem;color:var(--mute);margin:6px 0 2px'}, 'Server type', f.ftps), h('label', {style: 'display:flex;gap:8px;align-items:center;margin:8px 0;font-size:.86rem'}, f.active, 'Active mode (leave off unless the server needs it)')); }
-    else box.append(fld('port', 'Port', pre.port || '22'));
-    const read = () => { let host = f.host.value.trim(), hp = 0; const m = host.match(/^(.+):(\d+)$/); if (m && type !== 'smb') { host = m[1]; hp = parseInt(m[2], 10); } let user = f.user.value.trim(); if (smb && f.domain.value.trim() && user) user = f.domain.value.trim() + '\\' + user;
-      return {id: uid(), name: f.name.value.trim() || host, type: type, host: host, ftps: !!(f.ftps && f.ftps.value), active: !!(f.active && f.active.checked), port: smb ? 445 : (hp || (f.port ? parseInt(f.port.value, 10) : 0) || (type === 'sftp' ? 22 : 21)), user: user || (type === 'ftp' ? 'anonymous' : ''), pass: f.pass.value, path: f.path.value.trim() || '/', hostKey: ''}; };
+    else if (!dav) box.append(fld('port', 'Port', pre.port || '22'));
+    const read = () => { let host = f.host.value.trim(), hp = 0; const m = host.match(/^(.+):(\d+)$/); if (m && type !== 'smb' && type !== 'dav') { host = m[1]; hp = parseInt(m[2], 10); } let user = f.user.value.trim(); if (smb && f.domain.value.trim() && user) user = f.domain.value.trim() + '\\' + user;
+      return {id: uid(), name: f.name.value.trim() || host, type: type, host: host, ftps: !!(f.ftps && f.ftps.value), active: !!(f.active && f.active.checked), port: dav ? 443 : smb ? 445 : (hp || (f.port ? parseInt(f.port.value, 10) : 0) || (type === 'sftp' ? 22 : 21)), user: user || (type === 'ftp' ? 'anonymous' : ''), pass: f.pass.value, path: f.path.value.trim() || '/', hostKey: ''}; };
     const msg = h('div', {class: 'note'}, '');
     box.append(msg, h('div', {style: 'display:flex;gap:8px;margin-top:10px'},
       h('button', {onclick: async () => { const c = read(); if (!c.host) { msg.textContent = 'Enter the server address.'; return; } msg.textContent = 'Testing...'; const r = await remoteCall({remote: c}, {type: 'list', path: '/'}); msg.textContent = r.ok ? 'Connected. ' + (r.items || []).length + ' item(s) found.' : (r.msg || 'Could not connect.'); }}, 'TEST'),
@@ -1896,7 +1902,7 @@ async function addServer(type, after, pre) {
 }
 /* ---- X-plore style home screen ---- */
 const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
-function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (k !== 'web') : v; }
+function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (true) : v; }
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
@@ -1931,17 +1937,18 @@ function buildHome(o, idx) {
       if (!homeShown(k)) return;
       const act = () => { FS.active = idx; };
       if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k); row(ico, t, p, () => { act(); openLocal(p); }, 0, '~' + k, op, true); if (op) tree(p, 1); }
-      else if (k === 'smb' || k === 'ftp' || k === 'sftp') {
+      else if (k === 'smb' || k === 'ftp' || k === 'sftp' || k === 'web') {
+        const T = k === 'web' ? 'dav' : k;
         const op = pn.hopen.has('~' + k), tg = () => { if (pn.hopen.has('~' + k)) pn.hopen.delete('~' + k); else pn.hopen.add('~' + k); renderFiles(); };
-        row(ico, t, conns.filter(c => c.type === k).length + ' saved', tg, 0, '~' + k, op);
+        row(ico, t, conns.filter(c => c.type === T).length + ' saved', tg, 0, '~' + k, op);
         if (op) {
           if (k === 'ftp') ftpServerRow(list);
-          conns.filter(c => c.type === k).forEach(c => row('\u2022', c.name, c.host + ':' + c.port, () => { act(); openConn(c); }, 1, null, false, false, () => connMenu(c)));
+          conns.filter(c => c.type === T).forEach(c => row('\u2022', c.name, T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => { act(); openConn(c); }, 1, null, false, false, () => connMenu(c)));
           if (k === 'smb') {
             if (pn.lan && pn.lan.busy) list.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanCancel(); } catch (e) {} }}, '\u2715')));
             ((pn.lan && pn.lan.hosts) || []).filter(x => !conns.some(c => c.host === x.host)).forEach(x => row('\u{1F5A5}', x.name || x.host, x.host + '  \u00b7  found on this Wi-Fi. Tap to add.', () => { act(); addServer('smb', null, {host: x.host, name: x.name !== x.host ? x.name : ''}); }, 1));
           }
-          row('+', 'Add server', '', () => { act(); addMenu(k, pn); }, 1);
+          row('+', k === 'web' ? 'Add web storage' : 'Add server', '', () => { act(); addMenu(k, pn); }, 1);
         }
       }
       else if (k === 'wifi') row(ico, t, 'Browse this phone from a computer', () => { act(); wifiSheet(); });

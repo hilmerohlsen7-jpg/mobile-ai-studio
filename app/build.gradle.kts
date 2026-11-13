@@ -81,6 +81,7 @@ dependencies {
     implementation("commons-net:commons-net:3.11.1")
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.10") { exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18") }
     implementation("com.github.mwiede:jsch:0.2.20")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.alphacephei:vosk-android:0.3.47")
     implementation("com.frostwire:jlibtorrent:2.0.15.3")
     implementation("com.frostwire:jlibtorrent-android-arm64:2.0.15.3")

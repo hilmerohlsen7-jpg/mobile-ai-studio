@@ -3,6 +3,9 @@ package com.mobileaistudio.app
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.apache.commons.net.ftp.FTP
 import org.apache.commons.net.ftp.FTPClient
 import org.apache.commons.net.ftp.FTPReply
@@ -15,7 +18,7 @@ import java.io.FileOutputStream
 object RemoteFs {
     class NeedHostKey(val fp: String) : Exception("hostkey")
     class Conn(val type: String, val host: String, val port: Int, val user: String, val pass: String, val hostKey: String, val ftps: Boolean = false, val active: Boolean = false) {
-        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", when (o.optString("type")) { "sftp" -> 22; "smb" -> 445; else -> 21 }), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", ""), o.optBoolean("ftps", false), o.optBoolean("active", false)) }
+        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", when (o.optString("type")) { "sftp" -> 22; "smb" -> 445; "dav" -> 443; else -> 21 }), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", ""), o.optBoolean("ftps", false), o.optBoolean("active", false)) }
     }
     class Item(val name: String, val dir: Boolean, val size: Long, val mtime: Long)
 
@@ -107,7 +110,47 @@ object RemoteFs {
         override fun close() { try { ctx.close() } catch (e: Exception) {} }
     }
 
-    fun open(c: Conn): Client = when (c.type) { "sftp" -> Sftp(c); "smb" -> Smb(c); else -> Ftp(c) }
+    /** WebDAV: Nextcloud, ownCloud, Box, Koofr, pCloud, Yandex and most NAS boxes. host = the full web address. */
+    private class Dav(val c: Conn) : Client {
+        val http = okhttp3.OkHttpClient.Builder().connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).followRedirects(true).build()
+        val base = (if (c.host.startsWith("http")) c.host else "https://" + c.host).trimEnd('/')
+        val auth = if (c.user.isNotEmpty()) okhttp3.Credentials.basic(c.user, c.pass) else ""
+        private fun enc(p: String) = p.trim('/').split('/').filter { it.isNotEmpty() }.joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+        private fun url(p: String, dir: Boolean = false): String { val e = enc(p); return base + (if (e.isEmpty()) "/" else "/" + e + (if (dir) "/" else "")) }
+        private fun req(url: String): okhttp3.Request.Builder { val b = okhttp3.Request.Builder().url(url); if (auth.isNotEmpty()) b.header("Authorization", auth); return b }
+        private fun check(r: okhttp3.Response, what: String) { if (r.code == 401) throw Exception("Wrong user name or password."); if (!r.isSuccessful && r.code != 207) throw Exception(what + " (" + r.code + " " + r.message + ")") }
+        private fun propfind(p: String, depth: String): org.w3c.dom.Document {
+            val body = "<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype/><d:getcontentlength/><d:getlastmodified/></d:prop></d:propfind>"
+            val r = http.newCall(req(url(p, true)).header("Depth", depth).method("PROPFIND", body.toRequestBody("application/xml".toMediaType())).build()).execute()
+            r.use { check(it, "Could not open this folder"); val f = javax.xml.parsers.DocumentBuilderFactory.newInstance(); f.isNamespaceAware = true
+                try { f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) } catch (e: Exception) {}
+                return f.newDocumentBuilder().parse(org.xml.sax.InputSource(java.io.StringReader(it.body!!.string()))) }
+        }
+        override fun list(path: String): List<Item> {
+            val d = propfind(path, "1"); val rs = d.getElementsByTagNameNS("DAV:", "response"); val out = ArrayList<Item>()
+            val self = java.net.URLDecoder.decode(java.net.URL(url(path, true)).path, "UTF-8").trimEnd('/')
+            for (i in 0 until rs.length) {
+                val e = rs.item(i) as org.w3c.dom.Element
+                val href = java.net.URLDecoder.decode(e.getElementsByTagNameNS("DAV:", "href").item(0).textContent.trim().let { if (it.startsWith("http")) java.net.URL(it).path else it }.replace("+", "%2B"), "UTF-8")
+                if (href.trimEnd('/') == self) continue
+                val dir = e.getElementsByTagNameNS("DAV:", "collection").length > 0
+                val size = e.getElementsByTagNameNS("DAV:", "getcontentlength").item(0)?.textContent?.trim()?.toLongOrNull() ?: 0L
+                val mt = try { java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", java.util.Locale.US).parse(e.getElementsByTagNameNS("DAV:", "getlastmodified").item(0)?.textContent ?: "")?.time ?: 0L } catch (x: Exception) { 0L }
+                out.add(Item(href.trimEnd('/').substringAfterLast('/'), dir, if (dir) 0L else size, mt))
+            }
+            return out
+        }
+        override fun download(remote: String, local: File) { http.newCall(req(url(remote)).build()).execute().use { check(it, "Download failed"); FileOutputStream(local).use { o -> it.body!!.byteStream().copyTo(o, 65536) } } }
+        override fun upload(local: File, remote: String) { http.newCall(req(url(remote)).put(local.asRequestBody("application/octet-stream".toMediaType())).build()).execute().use { check(it, "Upload failed") } }
+        override fun mkdir(path: String) { http.newCall(req(url(path, true)).method("MKCOL", null).build()).execute().use { check(it, "Could not make the folder") } }
+        override fun rename(from: String, to: String) { http.newCall(req(url(from)).header("Destination", url(to)).header("Overwrite", "F").method("MOVE", null).build()).execute().use { check(it, "Could not rename") } }
+        override fun deleteFile(path: String) { http.newCall(req(url(path)).delete().build()).execute().use { check(it, "Could not delete") } }
+        override fun deleteDir(path: String) { http.newCall(req(url(path, true)).delete().build()).execute().use { check(it, "Could not delete the folder") } }
+        override fun isDir(path: String): Boolean = try { propfind(path, "0").getElementsByTagNameNS("DAV:", "collection").length > 0 } catch (e: Exception) { false }
+        override fun close() { http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll() }
+    }
+
+    fun open(c: Conn): Client = when (c.type) { "dav" -> Dav(c); "sftp" -> Sftp(c); "smb" -> Smb(c); else -> Ftp(c) }
     private fun join(a: String, b: String) = a.trimEnd('/') + "/" + b
     private fun unique(dir: File, name: String): File {
         var f = File(dir, name); var n = 1; val base = name.substringBeforeLast('.', name); val ext = name.substringAfterLast('.', "")
