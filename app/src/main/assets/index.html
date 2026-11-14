@@ -254,6 +254,17 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xhead,.xrow{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #222}
 .xhead{background:#0f2f2f;border:2px solid #1f9d9d}
 .xrow.sel{background:#0f2f2f}
+.x,.xmback{--txt:#F2F1EB;--mute:#9C9A92;--panel:#20201E;--line:#30302E;color:#F2F1EB}
+.xbox{border:2px solid #1f9d9d;margin:2px 0}
+.xbox.gr{border-color:#555}
+.xmback{position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.35)}
+.xmenu{position:absolute;top:4vh;left:30vw;right:4vw;max-height:92vh;overflow-y:auto;background:#212121;border-radius:6px;box-shadow:0 6px 24px #000a}
+.xmt{background:#3a3a3a;padding:10px 14px;font-size:.95rem;color:#ccc;position:sticky;top:0;word-break:break-all;z-index:1}
+.xmi{display:flex;align-items:center;gap:14px;width:100%;background:none;border:0;border-radius:0;color:var(--txt);padding:13px 14px;font-size:1.02rem;text-align:left;margin:0}
+.xmi.dg{color:#ff8a8a}
+.xmic{width:28px;display:flex;justify-content:center;flex-shrink:0}
+.xmic .vi{width:1.5rem;height:1.5rem}
+.xhex{font:12px/1.5 monospace;white-space:pre;overflow:auto;max-height:55vh;background:#111;padding:8px;border-radius:8px;color:#cfd8dc}
 .xarrow{width:18px;color:#2aa6e6;text-align:center;flex-shrink:0}
 .xic{font-size:1.6rem;flex-shrink:0}
 .xnm{flex:1;min-width:0;display:flex;flex-direction:column;word-break:break-all}
@@ -1652,26 +1663,32 @@ function buildPane(o, idx) {
     else if (!prm && FS.path === FS.root) list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F4F1}'), h('span', {class: 'xnm'}, h('b', null, 'Internal shared storage'), h('small', null, FS.root + (FS.cnt[FS.path] ? ' · ' + FS.cnt[FS.path][0] + ' folders · ' + FS.cnt[FS.path][1] + ' files' : '')))));
     else list.append(h('div', {class: 'xhead', onclick: () => { FS.path = parentOf(FS.path); renderFiles(); }}, h('span', {class: 'xic'}, '↰'), h('span', {class: 'xnm'}, h('b', null, 'Up'), h('small', null, parentOf(FS.path)))));
     const q = FS.filter.toLowerCase();
-    const draw = (items, base, depth) => {
+    const pr0 = FS.panes[FS.active], C = pr0.remote || null;
+    const draw = (items, base, depth, parent) => {
+      parent = parent || list;
       items.forEach(it => {
         const p = joinPath(base, it.name); FS.kind[p] = it.dir; FS.size[p] = it.size;
         if (q && !it.dir && !it.name.toLowerCase().includes(q)) return;
-        const open = it.dir && FS.open.has(p);
+        const open = it.dir && FS.open.has(p), fk = fkey(C, p);
         const row = h('div', {class: 'xrow' + (FS.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (8 + depth * 18) + 'px'});
-        row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; if (open) FS.open.delete(p); else FS.open.add(p); renderFiles(); }}, it.dir ? (open ? '▼' : '▶') : ''));
+        const togg = () => { if (open) FS.open.delete(p); else { FS.open.add(p); pr0.focus = fk; } renderFiles(); };
+        row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; togg(); }}, it.dir ? (open ? '▼' : '▶') : ''));
         row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'));
         const cnt = FS.cnt[p];
         const nm = h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + ' · ' + fmtDate(it.mtime)));
-        if (it.dir) holdOpen(nm, () => { if (open) FS.open.delete(p); else FS.open.add(p); renderFiles(); }, () => { FS.path = p; FS.sel.clear(); renderFiles(); o.scrollTop = 0; });
-        else nm.onclick = () => FS.panes[FS.active].remote ? (FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p), renderFiles()) : openFileView(it, p);
+        const menu = () => itemMenu(FS.active, C, p, it, false);
+        if (it.dir) holdOpen(nm, togg, menu);
+        else holdOpen(nm, () => { pr0.focus = fk; if (C) { FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p); renderFiles(); } else openFileView(it, p); }, menu);
         row.append(nm);
         row.append(h('span', {class: 'xchk', onclick: () => { if (FS.sel.has(p)) FS.sel.delete(p); else FS.sel.add(p); renderFiles(); }}, '✔'));
-        list.append(row);
-        if (open) { const sub = fsListed(p); if (sub) draw(sub, p, depth + 1); }
+        const kids = bx => { const sub = fsListed(p); if (sub) draw(sub, p, depth + 1, bx); };
+        const foc = pr0.focus === fk, anc = pr0.focus && pr0.focus.startsWith(fk + '/') && open;
+        if ((foc && (it.dir ? open : true)) || anc) { const bx = h('div', {class: 'xbox' + (foc ? '' : ' gr')}); bx.append(row); if (open) kids(bx); parent.append(bx); }
+        else { parent.append(row); if (open) kids(parent); }
       });
     };
     if (!root.length) list.append(h('div', {class: 'sub'}, 'This folder is empty.'));
-    draw(root, FS.path, 0);
+    draw(root, FS.path, 0, list);
   }
   localBar(o, idx, wrap, list, root);
 }
@@ -1686,29 +1703,7 @@ function localBar(o, idx, wrap, list, root) {
   tb('⬆', 'Up dir', () => { if (FS.path !== FS.root) { FS.path = parentOf(FS.path); FS.sel.clear(); renderFiles(); } else goHome(); });
   tb('✏', 'Rename', () => { const p = [...FS.sel][0]; fsRename({name: baseName(p), dir: FS.kind[p]}, p); FS.sel.clear(); }, !one);
   const other = FS.panes[1 - FS.active];
-  const xfer = async move => {
-    const its = fsSelItems(), dest = other.path;
-    if (other.remote) {
-      if (move) { toast('Moving to a server is not supported. Use Copy to, then delete the originals yourself.'); return; }
-      const c = await askApproval({title: 'Send ' + its.length + ' item(s) to the server', path: other.remote.name + ' ' + dest, reason: 'You chose Copy to the other panel.',
-        rows: [['From', FS.path], ['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]], primary: {label: 'Approve: send them', value: 'ok'}, note: 'Nothing on the server is replaced. Name clashes get a number. Your phone files stay where they are.'});
-      if (c === 'deny') return; toast('Sending...');
-      for (const x of its) { const r = await remoteCall(other, {type: 'upload', path: x.p, destDir: dest}); toast(r.msg || (r.ok ? 'Done.' : 'Failed.')); if (!r.ok) break; }
-      FS.sel.clear(); other.cache = {}; renderFiles(); return;
-    }
-    if (dest === FS.path) { toast('Both panels show the same folder. Open another folder in the other panel first.'); return; }
-    const c = await askApproval({title: (move ? 'Move ' : 'Copy ') + its.length + ' item(s) to the other panel', path: dest, reason: 'You chose ' + (move ? 'Move' : 'Copy') + ' to the other panel.',
-      rows: [['From', FS.path], ['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]],
-      primary: {label: move ? 'Approve: move them' : 'Approve: copy them', value: 'ok'}, note: move ? 'Moving copies first, then sends the originals to the Trash. Undo brings both back.' : ''});
-    if (c === 'deny') return; const ids = [];
-    for (const x of its) {
-      const r = await fsOp({type: 'copy', path: x.p, destDir: dest, reason: 'Transfer to the other panel.'});
-      if (!r.ok) { toast(r.msg || 'Copy failed.'); continue; }
-      if (r.entryId) ids.push(r.entryId);
-      if (move) { const d = await fsOp({type: 'delete', path: x.p, reason: 'Moved to the other panel.'}); if (d.ok && d.entryId) ids.push(d.entryId); }
-    }
-    FS.sel.clear(); showUndo((move ? 'Moved ' : 'Copied ') + its.length + ' item(s).', ids); renderFiles();
-  };
+  const xfer = m => xferSel(m);
   tb('\u27A1', 'Copy to ' + (2 - FS.active), () => xfer(false), !n);
   tb('\u2702', 'Move to ' + (2 - FS.active), () => xfer(true), !n);
   tb('\u{1F4D1}', 'Clipboard', () => { FS.clip = [...FS.sel]; FS.sel.clear(); toast(FS.clip.length + ' copied. Open the target folder and tap Paste.'); renderFiles(); }, !n);
@@ -1741,6 +1736,122 @@ function localBar(o, idx, wrap, list, root) {
   tb('♻', 'Trash', () => { FS.view = 'trash'; renderFiles(); });
   if (idx) wrap.style.flexDirection = 'row-reverse';
   wrap.append(list, bar); o.append(wrap);
+}
+async function xferSel(move) {
+  const other = FS.panes[1 - FS.active];
+    const its = fsSelItems(), dest = other.path;
+    if (other.remote) {
+      if (move) { toast('Moving to a server is not supported. Use Copy to, then delete the originals yourself.'); return; }
+      const c = await askApproval({title: 'Send ' + its.length + ' item(s) to the server', path: other.remote.name + ' ' + dest, reason: 'You chose Copy to the other panel.',
+        rows: [['From', FS.path], ['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]], primary: {label: 'Approve: send them', value: 'ok'}, note: 'Nothing on the server is replaced. Name clashes get a number. Your phone files stay where they are.'});
+      if (c === 'deny') return; toast('Sending...');
+      for (const x of its) { const r = await remoteCall(other, {type: 'upload', path: x.p, destDir: dest}); toast(r.msg || (r.ok ? 'Done.' : 'Failed.')); if (!r.ok) break; }
+      FS.sel.clear(); other.cache = {}; renderFiles(); return;
+    }
+    if (dest === FS.path) { toast('Both panels show the same folder. Open another folder in the other panel first.'); return; }
+    const c = await askApproval({title: (move ? 'Move ' : 'Copy ') + its.length + ' item(s) to the other panel', path: dest, reason: 'You chose ' + (move ? 'Move' : 'Copy') + ' to the other panel.',
+      rows: [['From', FS.path], ['Items', its.map(x => (x.dir ? '\u{1F4C1} ' : '') + x.name).join('\n')]],
+      primary: {label: move ? 'Approve: move them' : 'Approve: copy them', value: 'ok'}, note: move ? 'Moving copies first, then sends the originals to the Trash. Undo brings both back.' : ''});
+    if (c === 'deny') return; const ids = [];
+    for (const x of its) {
+      const r = await fsOp({type: 'copy', path: x.p, destDir: dest, reason: 'Transfer to the other panel.'});
+      if (!r.ok) { toast(r.msg || 'Copy failed.'); continue; }
+      if (r.entryId) ids.push(r.entryId);
+      if (move) { const d = await fsOp({type: 'delete', path: x.p, reason: 'Moved to the other panel.'}); if (d.ok && d.entryId) ids.push(d.entryId); }
+    }
+    FS.sel.clear(); showUndo((move ? 'Moved ' : 'Copied ') + its.length + ' item(s).', ids); renderFiles();
+  }
+
+/* ---- X-plore style long-press menu for a file or folder, local or on a server ---- */
+function ctxMenu(title, entries) {
+  const back = h('div', {class: 'xmback', onclick: () => back.remove()});
+  const box = h('div', {class: 'xmenu', onclick: e => e.stopPropagation()}, h('div', {class: 'xmt'}, title));
+  entries.forEach(e => box.append(h('button', {class: 'xmi' + (e.danger ? ' dg' : ''), onclick: () => { back.remove(); e.fn(); }}, h('span', {class: 'xmic', style: e.col ? 'color:' + e.col : ''}, window.vecIcon(e.ic)), e.label)));
+  back.append(box); document.body.append(back);
+}
+const fkey = (c, p) => (c ? c.id + '|' : '') + p;
+function rcClear(pn) { pn.rc = {}; pn.rerr = {}; pn.cache = {}; pn.err = ''; }
+function shortcuts() { return S.settings.shortcuts = S.settings.shortcuts || []; }
+async function hexView(p, off) {
+  off = off || 0; const r = fsJson('fsHex', p, off); if (!r.ok) { toast(r.msg || 'Could not read it.'); return; }
+  const o = $('sheet'); o.textContent = '';
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, baseName(p)), h('div', {class: 'note'}, fmtSize(r.size) + '  ·  showing from byte ' + off), h('div', {class: 'xhex'}, r.text));
+  if (off + r.len < r.size) box.append(h('button', {onclick: () => hexView(p, off + r.len)}, 'Next ' + r.len + ' bytes'));
+  if (off > 0) box.append(h('button', {onclick: () => hexView(p, Math.max(0, off - r.len))}, 'Previous'));
+  box.append(h('button', {onclick: () => o.classList.remove('open')}, 'Close')); o.append(box); o.classList.add('open'); sheetDone = () => o.classList.remove('open');
+}
+async function remoteDetails(c, p, it) {
+  const o = $('sheet'); o.textContent = ''; const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, it.name));
+  const line = (k, v) => box.append(h('div', {class: 'irow'}, h('span', null, k), h('b', null, v)));
+  line('On', c.name); line('Where', parentOf(p)); line('Kind', it.dir ? 'Folder' : 'File');
+  if (!it.dir) line('Size', fmtSize(it.size || 0)); if (it.mtime) line('Changed', fmtDate(it.mtime));
+  box.append(h('button', {onclick: () => o.classList.remove('open')}, 'Close')); o.append(box); o.classList.add('open'); sheetDone = () => o.classList.remove('open');
+}
+async function itemMenu(idx, c, p, it, inTree) {
+  const pn = FS.panes[idx]; FS.active = idx; pn.focus = fkey(c, p); renderFiles();
+  const E = (ic, label, fn, o) => Object.assign({ic: ic, label: label, fn: fn}, o || {});
+  const A = [];
+  if (c) {
+    const pl = {remote: c};
+    const targets = () => {
+      if (inTree) { const m = [...(pn.rsel || new Map()).values()].filter(x => x.c.id === c.id); if (m.some(x => x.p === p)) return m; }
+      else if (pn.sel.has(p)) return [...pn.sel].map(q => ({c: c, p: q, name: baseName(q), dir: !!FS.kind[q], size: FS.size[q] || 0}));
+      return [{c: c, p: p, name: it.name, dir: it.dir, size: it.size || 0}];
+    };
+    const after = () => { if (inTree) { pn.rsel = new Map(); rcClear(pn); renderFiles(); } else { pn.sel.clear(); remoteRefresh(pn); } };
+    if (it.dir) A.push(E('folderOpen', 'Open in this panel', () => { openConn(c); FS.panes[idx].path = p; renderFiles(); }, {col: '#e8b84a'}));
+    A.push(E('info', 'Show details', () => remoteDetails(c, p, it), {col: '#4aa3e8'}));
+    A.push(E('pencil', 'Rename', async () => { const nn = await askText('New name for ' + it.name, it.name); if (!nn || nn === it.name) return;
+      const ok = await askApproval({title: 'Rename on ' + c.name, path: p, reason: 'You chose Rename in the long-press menu.', rows: [['New name', nn]], primary: {label: 'Approve: rename', value: 'ok'}, note: 'Servers and web storage have no Undo here.'}); if (ok === 'deny') return;
+      const r = await remoteCall(pl, {type: 'rename', path: p, to: joinPath(parentOf(p), nn)}); toast(r.msg || (r.ok ? 'Renamed.' : 'Failed.')); after(); }, {col: '#4aa3e8'}));
+    A.push(E('copy', 'Copy to the other panel', async () => {
+      const other = FS.panes[1 - idx]; if (!other || other.remote) { toast('Open a folder on your phone in the other panel first.'); return; }
+      const ts = targets(), dest = other.path || FS.root;
+      const ok = await askApproval({title: 'Copy ' + ts.length + ' item(s) from ' + c.name + ' to this phone', path: dest, reason: 'You chose Copy in the long-press menu.', rows: [['From', c.name], ['Items', ts.map(x => x.name).join('\n')]], primary: {label: 'Approve: copy to the phone', value: 'ok'}, note: 'Nothing on the phone is replaced. Name clashes get a number.'}); if (ok === 'deny') return;
+      toast('Copying...'); for (const x of ts) { const r = await remoteCall(pl, {type: 'download', path: x.p, destDir: dest}); toast(r.msg || (r.ok ? 'Done.' : 'Failed.')); if (!r.ok) break; }
+      other.cache = {}; renderFiles(); }, {col: '#7aa6c8'}));
+    A.push(E('trash', 'Delete', async () => { const ts = targets();
+      const ok = await askApproval({title: 'Delete ' + ts.length + ' item(s) from ' + c.name, path: p, reason: 'You chose Delete in the long-press menu.', rows: [['Items', ts.map(x => x.name).join('\n')]],
+        primary: {label: c.type === 'gdrive' ? 'Move to Drive Trash' : 'Delete permanently', value: 'ok'}, note: c.type === 'gdrive' ? 'Google Drive keeps it in its Trash for 30 days.' : 'THIS CANNOT BE UNDONE. The app cannot bring these back.'}); if (ok === 'deny') return;
+      for (const x of ts) { const r = await remoteCall(pl, {type: 'delete', path: x.p}); if (!r.ok) { toast(r.msg || 'Delete failed.'); break; } } after(); }, {danger: true, col: '#e04545'}));
+    if (it.dir) A.push(E('folder', 'New folder', async () => { const nn = await askText('Name of the new folder', ''); if (!nn) return; const np = joinPath(p, nn);
+      const ok = await askApproval({title: 'Create a folder on ' + c.name, path: np, reason: 'You chose New folder in the long-press menu.', primary: {label: 'Approve: create folder', value: 'ok'}}); if (ok === 'deny') return;
+      const r = await remoteCall(pl, {type: 'mkdir', path: np}); toast(r.msg || ''); after(); }, {col: '#e8b84a'}));
+    A.push(E('checkSq', (inTree ? (pn.rsel && pn.rsel.has(fkey(c, p))) : pn.sel.has(p)) ? 'Unmark' : 'Mark', () => {
+      if (inTree) { pn.rsel = pn.rsel || new Map(); const k = fkey(c, p); if (pn.rsel.has(k)) pn.rsel.delete(k); else pn.rsel.set(k, {c: c, p: p, name: it.name, dir: it.dir, size: it.size || 0}); }
+      else { if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); } renderFiles(); }, {col: '#2fbfa8'}));
+    A.push(E('refresh', 'Refresh', () => { if (inTree) { rcClear(pn); renderFiles(); } else remoteRefresh(pn); }, {col: '#7aa6c8'}));
+    ctxMenu(it.name, A); return;
+  }
+  // ---- on this phone ----
+  const one = () => { if (!pn.sel.has(p)) pn.sel = new Set([p]); FS.kind[p] = !!it.dir; FS.size[p] = it.size || 0; };
+  const dir = parentOf(p), item = {name: it.name, dir: !!it.dir, size: it.size || 0};
+  if (it.dir) A.push(E('folderOpen', 'Open in this panel', () => { FS.active = idx; openLocal(p); }, {col: '#e8b84a'}));
+  A.push(E('info', 'Show details', () => fsInfoBox(p), {col: '#4aa3e8'}));
+  if (it.dir) A.push(E('filter', 'Filter', async () => { const t = await askText('Show only files whose name contains...', FS.filter || ''); FS.active = idx; openLocal(p); FS.filter = (t || '').trim(); renderFiles(); }, {col: '#6cc24a'}));
+  if (it.dir) A.push(E('chart', 'Disk map', () => { FS.active = idx; openDiskMap(p); }, {col: '#e8a64a'}));
+  A.push(E('pencil', 'Rename', () => fsRename(item, p), {col: '#4aa3e8'}));
+  A.push(E('copy', 'Copy', () => { one(); xferSel(false); }, {col: '#7aa6c8'}));
+  A.push(E('clipboard', 'Copy to clipboard', () => { FS.clip = pn.sel.has(p) ? [...pn.sel] : [p]; toast(FS.clip.length + ' copied. Open the target folder and tap Paste.'); renderFiles(); }, {col: '#c9a66b'}));
+  A.push(E('scissors', 'Move', () => { one(); xferSel(true); }, {col: '#7aa6c8'}));
+  A.push(E('archive', 'Create ZIP', async () => { one(); const keep = pn.path; pn.path = dir; try { await fsMakeZip(); } finally { pn.path = keep; } renderFiles(); }, {col: '#c9a66b'}));
+  A.push(E('trash', 'Delete', () => fsDelete(item, p), {danger: true, col: '#e04545'}));
+  if (!it.dir) A.push(E('share', 'Share', () => { const r = fsJson('fsShare', JSON.stringify([p])); if (!r.ok) toast(r.msg || 'Could not share.'); }, {col: '#f0b429'}));
+  if (it.dir) A.push(E('folder', 'New folder', async () => { const n = await askText('Name of the new folder', ''); if (!n) return; const np = joinPath(p, n);
+    const ok = await askApproval({title: 'Create a folder', path: np, reason: 'You chose New folder in the long-press menu.', primary: {label: 'Approve: create folder', value: 'ok'}}); if (ok === 'deny') return;
+    await runOp({type: 'mkdir', path: np, reason: 'You chose New folder in the long-press menu.'}); }, {col: '#e8b84a'}));
+  if (it.dir) A.push(E('play', 'Play', async () => { const r = fsJson('fsList', p); const f = r.ok && r.items.filter(x => !x.dir && /\.(mp3|m4a|aac|flac|wav|ogg|opus|mp4|mkv|webm|3gp)$/i.test(x.name)).sort((x, y) => x.name.localeCompare(y.name))[0]; if (!f) { toast('No music or video files in this folder.'); return; } const o = fsJson('fsOpenWith', joinPath(p, f.name)); if (!o.ok) toast(o.msg || 'Could not play it.'); }, {col: '#2a9df4'}));
+  if (it.dir) A.push(E('filePlus', 'New text file', async () => { const n = await askText('Name of the new file (for example notes.txt)', ''); if (!n) return; await fsSaveText(joinPath(p, n), '', 'You chose New text file in the long-press menu.').catch(() => {}); renderFiles(); }, {col: '#9aa4b2'}));
+  if (it.dir) A.push(E('search', 'Find', async () => { const t = await askText('Find names containing... (searches this folder and everything inside)', ''); if (!t) return; toast('Searching...'); const r = await fsCall('fsFind', p, t.trim()); if (!r.ok) { toast(r.msg || 'Search failed.'); return; } FS.results = {title: 'Found: ' + t.trim(), files: r.files, note: r.partial ? 'Showing the first matches only.' : ''}; FS.view = 'results'; renderFiles(); }, {col: '#9aa4b2'}));
+  A.push(E('copy', 'Duplicate', async () => { const ok = await askApproval({title: 'Duplicate ' + (it.dir ? 'a folder' : 'a file'), path: p, reason: 'You chose Duplicate in the long-press menu.', rows: [['Copy goes to', dir]], primary: {label: 'Approve: make a copy', value: 'ok'}, note: 'The original stays. The copy gets a number if the name is taken.'}); if (ok === 'deny') return;
+    await runOp({type: 'copy', path: p, destDir: dir, reason: 'You chose Duplicate in the long-press menu.'}); }, {col: '#7aa6c8'}));
+  A.push(E('checkSq', pn.sel.has(p) ? 'Unmark' : 'Mark', () => { if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); renderFiles(); }, {col: '#2fbfa8'}));
+  if (!it.dir) A.push(E('plug', 'Open with...', () => { const r = fsJson('fsOpenWith', p); if (!r.ok) toast(r.msg || 'Could not open it.'); }, {col: '#9aa4b2'}));
+  A.push(E('shortcut', 'Add shortcut', () => { const l = shortcuts(); if (l.some(x => x.path === p)) { toast('Already in your shortcuts.'); return; } l.push({name: it.name, path: p, dir: !!it.dir}); persist(); toast('Shortcut added at the top of Home.'); renderFiles(); }, {col: '#6cc24a'}));
+  if (it.dir) A.push(E('image', 'Slideshow', () => { const r = fsJson('fsList', p); const f = r.ok && r.items.filter(x => !x.dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(x.name)).sort((x, y) => x.name.localeCompare(y.name))[0]; if (!f) { toast('No pictures in this folder.'); return; } const o = fsJson('fsOpenWith', joinPath(p, f.name)); if (!o.ok) toast(o.msg || 'Could not open it.'); }, {col: '#e8a64a'}));
+  if (!it.dir) { A.push(E('hex', 'Hex viewer', () => hexView(p, 0), {col: '#9aa4b2'}));
+    A.push(E('pencil', 'Edit text', () => { FS.active = idx; openFileView(it, p); }, {col: '#2fbfa8'})); }
+  ctxMenu(it.name, A);
 }
 function fsInfoBox(path) {
   const r = fsJson('fsInfo', path); if (!r.ok) { toast(r.msg || 'No info.'); return; }
@@ -1961,21 +2072,47 @@ function buildHome(o, idx) {
     h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null));
     if (tog && key) holdOpen(el, () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); }, fn); else if (hold) holdOpen(el, fn, hold); else el.onclick = fn;
     list.append(el); };
-  const tree = (path, ind) => { const r = fsJson('fsList', path); if (!r.ok) return; fsSortItems(r.items.filter(x => FS.hidden || x.name[0] !== '.')).forEach(it => { const p = joinPath(path, it.name), op = pn.hopen.has(p);
-    FS.kind[p] = it.dir; FS.size[p] = it.size;
-    const el = h('div', {class: 'xrow' + (pn.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (6 + ind * 20) + 'px'},
-      h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; if (op) pn.hopen.delete(p); else pn.hopen.add(p); renderFiles(); }}, it.dir ? (op ? '\u25BC' : '\u25B6') : ''),
-      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? 'Folder' : fmtSize(it.size) + ' \u00b7 ' + fmtDate(it.mtime))),
-      h('span', {class: 'xchk', onclick: e => { e.stopPropagation(); if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); renderFiles(); }}, '\u2714'));
-    if (it.dir) holdOpen(el, () => { if (op) pn.hopen.delete(p); else pn.hopen.add(p); renderFiles(); }, () => { FS.active = idx; openLocal(p); });
-    else el.onclick = () => { FS.active = idx; openFileView(it, p); };
-    list.append(el); if (it.dir && op) tree(p, ind + 1); }); };
+  const wrapBox = (el, key, ind, kids, parent, isDir, op) => {
+    const foc = pn.focus === key, anc = pn.focus && pn.focus.startsWith(key + '/') && op;
+    if ((foc && (isDir ? op : true)) || anc) { const bx = h('div', {class: 'xbox' + (foc ? '' : ' gr')}); bx.append(el); if (op && isDir) kids(bx); parent.append(bx); }
+    else { parent.append(el); if (op && isDir) kids(parent); }
+  };
+  const mkrow = (it, p, fk, ind, op, c) => {
+    const marked = c ? (pn.rsel && pn.rsel.has(fk)) : pn.sel.has(p);
+    const togg = () => { if (!it.dir) return; if (op) pn.hopen.delete(fk); else pn.hopen.add(fk); if (!op) pn.focus = fk; if (c && !op) delete (pn.rerr || {})[fk]; renderFiles(); };
+    const el = h('div', {class: 'xrow' + (marked ? ' sel' : ''), style: 'padding-left:' + (6 + ind * 20) + 'px'},
+      h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); togg(); }}, it.dir ? (op ? '▼' : '▶') : ''),
+      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? 'Folder' : fmtSize(it.size || 0) + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
+      h('span', {class: 'xchk', onclick: e => { e.stopPropagation(); if (c) { pn.rsel = pn.rsel || new Map(); if (pn.rsel.has(fk)) pn.rsel.delete(fk); else pn.rsel.set(fk, {c: c, p: p, name: it.name, dir: it.dir, size: it.size || 0}); } else { if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); } renderFiles(); }}, '✔'));
+    const menu = () => itemMenu(idx, c, p, it, true);
+    if (it.dir) holdOpen(el, togg, menu);
+    else holdOpen(el, () => { FS.active = idx; pn.focus = fk; if (c) { toast('Pick Copy from the long-press menu to bring it to your phone.'); renderFiles(); } else openFileView(it, p); }, menu);
+    return el;
+  };
+  const tree = (path, ind, parent) => { parent = parent || list; const r = fsJson('fsList', path); if (!r.ok) return;
+    fsSortItems(r.items.filter(x => FS.hidden || x.name[0] !== '.')).forEach(it => { const p = joinPath(path, it.name), op = pn.hopen.has(p);
+      FS.kind[p] = it.dir; FS.size[p] = it.size;
+      wrapBox(mkrow(it, p, p, ind, op, null), p, ind, bx => tree(p, ind + 1, bx), parent, it.dir, op); }); };
+  const rtree = (c, path, ind, parent) => {
+    pn.rc = pn.rc || {}; pn.rl = pn.rl || {}; pn.rerr = pn.rerr || {}; const k0 = fkey(c, path), pad = 'padding-left:' + (6 + ind * 20) + 'px';
+    if (pn.rerr[k0]) { parent.append(h('div', {class: 'xrow', style: pad, onclick: () => { delete pn.rerr[k0]; renderFiles(); }}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', {style: 'color:#ff8a8a'}, pn.rerr[k0] + '  ·  tap to retry')))); return; }
+    if (!pn.rc[k0]) {
+      if (!pn.rl[k0]) { pn.rl[k0] = true; remoteCall({remote: c}, {type: 'list', path: path}).then(r => { delete pn.rl[k0]; if (r.ok) pn.rc[k0] = r.items; else pn.rerr[k0] = r.msg || 'Could not open this.'; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); }
+      parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'Loading...')))); return; }
+    const items = pn.rc[k0].filter(x => FS.hidden || x.name[0] !== '.');
+    if (!items.length) parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'Empty'))));
+    fsSortItems(items).forEach(it => { const p = joinPath(path, it.name), fk = fkey(c, p), op = pn.hopen.has(fk);
+      wrapBox(mkrow(it, p, fk, ind, op, c), fk, ind, bx => rtree(c, p, ind + 1, bx), parent, it.dir, op); }); };
   if (pn.sub === 'apps') { buildApps(list, idx); }
   else if (pn.sub === 'vault') { buildVault(list, idx); }
   else if (pn.sub === 'dlna') { buildDlna(list, idx); }
   else {
     o.append(h('div', {class: 'xpath'}, 'Home'));
     const conns = S.settings.conns || [];
+    shortcuts().forEach(sc => { const el = h('div', {class: 'xrow', style: 'padding-left:6px'}, h('span', {class: 'xarrow'}), h('span', {class: 'xic'}, sc.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, sc.name), h('small', null, sc.path)));
+      holdOpen(el, () => { FS.active = idx; if (sc.dir) openLocal(sc.path); else { const f = fsJson('fsInfo', sc.path); if (f.ok) openFileView({name: sc.name, dir: false, size: f.size}, sc.path); else toast('That file is gone.'); } },
+        async () => { if (await askConfirm('Remove the shortcut "' + sc.name + '"? The ' + (sc.dir ? 'folder' : 'file') + ' itself is not touched.', 'Remove')) { S.settings.shortcuts = shortcuts().filter(x => x !== sc); persist(); renderFiles(); } });
+      list.append(el); });
     HOME_ITEMS.forEach(([k, t, ico]) => {
       if (!homeShown(k)) return;
       const act = () => { FS.active = idx; };
@@ -1987,7 +2124,7 @@ function buildHome(o, idx) {
         row(ico, t, mine.length + ' saved', tg, 0, '~' + k, op);
         if (op) {
           if (k === 'ftp') ftpServerRow(list);
-          mine.forEach(c => row(c.type === 'gdrive' || c.type === 'saf' ? '\u2601' : '\u2022', c.name, c.type === 'gdrive' ? 'Google Drive (own key)' : c.type === 'saf' ? 'Picked from this phone' : T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => { act(); openConn(c); }, 1, null, false, false, () => connMenu(c)));
+          mine.forEach(c => { const ck = 'c:' + c.id, cop = pn.hopen.has(ck); row(c.type === 'gdrive' || c.type === 'saf' ? '\u2601' : '\u2022', c.name, c.type === 'gdrive' ? 'Google Drive (own key)' : c.type === 'saf' ? 'Picked from this phone' : T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => connMenu(c), 1, ck, cop, true); if (cop) { act(); rtree(c, c.path || '/', 2, list); } });
           if (k === 'smb') {
             if (pn.lan && pn.lan.busy) list.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanCancel(); } catch (e) {} }}, '\u2715')));
             ((pn.lan && pn.lan.hosts) || []).filter(x => !conns.some(c => c.host === x.host)).forEach(x => row('\u{1F5A5}', x.name || x.host, x.host + '  \u00b7  found on this Wi-Fi. Tap to add.', () => { act(); addServer('smb', null, {host: x.host, name: x.name !== x.host ? x.name : ''}); }, 1));
@@ -2219,7 +2356,8 @@ function fmHelp() {
 }
 
 async function connMenu(c) {
-  const v = await choose(c.name, [{label: 'Rename', value: 'ren'}, {label: 'Delete this server entry', value: 'del', danger: true}]); if (!v) return;
+  const v = await choose(c.name, [{label: 'Open in this panel', value: 'open'}, {label: 'Rename', value: 'ren'}, {label: 'Delete this server entry', value: 'del', danger: true}]); if (!v) return;
+  if (v === 'open') { openConn(c); return; }
   if (v === 'ren') { const n = await askText('New name', c.name); if (!n) return; c.name = n.trim(); saveConns(); renderFiles(); }
   else if (await askConfirm('Remove "' + c.name + '" from this phone? Nothing on the server is touched.', 'Remove')) { S.settings.conns = (S.settings.conns || []).filter(x => x.id !== c.id); saveConns(); renderFiles(); }
 }
@@ -3102,6 +3240,11 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
     save: '<path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/>',
     stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
     dots: '<path d="M12 5h.01M12 12h.01M12 19h.01" stroke-width="3"/>',
+    share: '<circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.8l7.4-4.4M8.3 13.2l7.4 4.4"/>',
+    play: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5z"/>',
+    hex: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h3M13 8h3M8 12h3M13 12h3M8 16h3"/>',
+    shortcut: '<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
+    filter: '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>'
   };
   const M = {

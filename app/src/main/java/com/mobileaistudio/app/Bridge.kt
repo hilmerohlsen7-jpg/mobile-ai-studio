@@ -598,6 +598,33 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     @JavascriptInterface
+    fun fsHex(path: String, offset: Double): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        return try {
+            val f = File(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("msg", "That is not a file.").toString()
+            val off = offset.toLong().coerceAtLeast(0L)
+            val buf = ByteArray(2048)
+            var n = 0
+            java.io.RandomAccessFile(f, "r").use { r -> r.seek(off); n = r.read(buf).coerceAtLeast(0) }
+            val sb = StringBuilder()
+            var i = 0
+            while (i < n) {
+                sb.append(String.format("%08X  ", off + i))
+                val line = StringBuilder()
+                for (j in 0 until 16) {
+                    if (i + j < n) { val b = buf[i + j].toInt() and 0xFF; sb.append(String.format("%02X ", b)); line.append(if (b in 32..126) b.toChar() else '.') }
+                    else sb.append("   ")
+                    if (j == 7) sb.append(' ')
+                }
+                sb.append(' ').append(line).append('\n')
+                i += 16
+            }
+            JSONObject().put("ok", true).put("text", sb.toString()).put("len", n).put("size", f.length()).toString()
+        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not read it.").toString() }
+    }
+
+    @JavascriptInterface
     fun fsInfo(path: String): String {
         if (!activity.hasFilesAccess()) return fsNoAccess().toString()
         return try {
