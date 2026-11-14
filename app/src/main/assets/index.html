@@ -2056,7 +2056,8 @@ async function addServer(type, after, pre) {
 }
 /* ---- X-plore style home screen ---- */
 const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['pcdrive', 'Share to PC (network drive)', '\u{1F5A5}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
-function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (true) : v; }
+function homeShownMap(idx) { const P = S.settings.homeShowP = S.settings.homeShowP || [null, null]; if (!P[idx]) P[idx] = Object.assign({}, S.settings.homeShow || {}); return P[idx]; }
+function homeShown(k, idx) { const v = homeShownMap(idx === undefined ? FS.active : idx)[k]; return v === undefined ? true : v; }
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
@@ -2115,7 +2116,7 @@ function buildHome(o, idx) {
         async () => { if (await askConfirm('Remove the shortcut "' + sc.name + '"? The ' + (sc.dir ? 'folder' : 'file') + ' itself is not touched.', 'Remove')) { S.settings.shortcuts = shortcuts().filter(x => x !== sc); persist(); renderFiles(); } });
       list.append(el); });
     HOME_ITEMS.forEach(([k, t, ico]) => {
-      if (!homeShown(k)) return;
+      if (!homeShown(k, idx)) return;
       const act = () => { FS.active = idx; };
       if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k), menu = () => { act(); itemMenu(idx, null, p, {name: t, dir: true, size: 0}, true); };
         if (op) { const bx = h('div', {class: 'xbox'}); into = bx; row(ico, t, p, menu, 0, '~' + k, op, true); into = null; tree(p, 1, bx); list.append(bx); } else row(ico, t, p, menu, 0, '~' + k, op, true); }
@@ -2123,16 +2124,18 @@ function buildHome(o, idx) {
         const T = k === 'web' ? 'dav' : k;
         const op = pn.hopen.has('~' + k), tg = () => { if (pn.hopen.has('~' + k)) pn.hopen.delete('~' + k); else pn.hopen.add('~' + k); renderFiles(); };
         const mine = conns.filter(c => c.type === T || (T === 'dav' && (c.type === 'gdrive' || c.type === 'saf')));
+        const bx = op ? h('div', {class: 'xbox'}) : null; if (bx) into = bx;
         row(ico, t, mine.length + ' saved', tg, 0, '~' + k, op);
         if (op) {
-          if (k === 'ftp') ftpServerRow(list);
-          mine.forEach(c => { const ck = 'c:' + c.id, cop = pn.hopen.has(ck); row(c.type === 'gdrive' || c.type === 'saf' ? '\u2601' : '\u2022', c.name, c.type === 'gdrive' ? 'Google Drive (own key)' : c.type === 'saf' ? 'Picked from this phone' : T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => connMenu(c), 1, ck, cop, true); if (cop) { act(); rtree(c, c.path || '/', 2, list); } });
+          if (k === 'ftp') ftpServerRow(bx);
+          mine.forEach(c => { const ck = 'c:' + c.id, cop = pn.hopen.has(ck); row(c.type === 'gdrive' || c.type === 'saf' ? '\u2601' : '\u2022', c.name, c.type === 'gdrive' ? 'Google Drive (own key)' : c.type === 'saf' ? 'Picked from this phone' : T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => connMenu(c), 1, ck, cop, true); if (cop) { act(); rtree(c, c.path || '/', 2, bx); } });
           if (k === 'smb') {
-            if (pn.lan && pn.lan.busy) list.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanCancel(); } catch (e) {} }}, '\u2715')));
+            if (pn.lan && pn.lan.busy) bx.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanCancel(); } catch (e) {} }}, '\u2715')));
             ((pn.lan && pn.lan.hosts) || []).filter(x => !conns.some(c => c.host === x.host)).forEach(x => row('\u{1F5A5}', x.name || x.host, x.host + '  \u00b7  found on this Wi-Fi. Tap to add.', () => { act(); addServer('smb', null, {host: x.host, name: x.name !== x.host ? x.name : ''}); }, 1));
           }
           row('+', k === 'web' ? 'Add web storage' : 'Add server', '', () => { act(); addMenu(k, pn); }, 1);
         }
+        into = null; if (bx) list.append(bx);
       }
       else if (k === 'pcdrive') row(ico, t, davState().running ? 'On: ' + davState().url : 'Show a phone folder as a drive on your PC', () => { act(); davSheet(); });
       else if (k === 'wifi') row(ico, t, 'Browse this phone from a computer', () => { act(); wifiSheet(); });
@@ -2143,27 +2146,29 @@ function buildHome(o, idx) {
       else if (k === 'dlna') row(ico, t, 'TVs, PCs and NAS sharing media on your Wi-Fi', () => { pn.sub = 'dlna'; pn.dl = null; renderFiles(); });
       else row(ico, t, 'Coming soon', () => toast(t + ' is not built yet.'));
     });
-    row('☑', 'Show...', 'Choose which entries appear here', () => homeShowSheet());
+    const act0 = () => { FS.active = idx; };
+    row('☑', 'Show...', 'Choose which entries appear in this panel', () => { act0(); homeShowSheet(idx); });
   }
   if (!pn.sub) { if (!pn.path) pn.path = FS.root; const keep = FS.active; FS.active = idx; const rt = fsListed(pn.path) || []; FS.active = keep; localBar(o, idx, wrap, list, rt); return; }
   const bar = h('div', {class: 'xbar'});
   const oth = FS.panes[1 - idx];
   bar.append(h('button', {class: 'xhandle', onclick: () => xSwap(1 - idx)}, h('span', {class: 'xarr'}, idx ? '◀' : '▶'), h('span', {class: 'xhl'}, oth.home ? 'Home' : (baseName(oth.path) || 'Storage'))));
   bar.append(h('button', {class: 'xtb', onclick: () => { if (pn.sub) { pn.sub = ''; renderFiles(); } else if (pn.hopen && pn.hopen.size) { pn.hopen.clear(); renderFiles(); } else toast('You are at Home.'); }}, h('span', null, '⬆'), 'Back'));
-  bar.append(h('button', {class: 'xtb', onclick: () => homeShowSheet()}, h('span', null, '☑'), 'Show'));
+  bar.append(h('button', {class: 'xtb', onclick: () => homeShowSheet(idx)}, h('span', null, '☑'), 'Show'));
   bar.append(h('button', {class: 'xtb', onclick: () => renderFiles()}, h('span', null, '\u{1F504}'), 'Refresh'));
   if (idx) wrap.style.flexDirection = 'row-reverse';
   wrap.append(list, bar); o.append(wrap);
 }
-function homeShowSheet() {
+function homeShowSheet(idx) {
+  if (idx === undefined) idx = FS.active;
   const o = $('sheet'); o.textContent = ''; const close = () => o.classList.remove('open');
-  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Show on the home screen'));
-  HOME_ITEMS.forEach(([k, t]) => { const on = homeShown(k); box.append(h('button', {style: 'text-align:left', onclick: () => { (S.settings.homeShow = S.settings.homeShow || {})[k] = !homeShown(k); persist(); homeShowSheet(); renderFiles(); }}, (on ? '☑  ' : '☐  ') + t)); });
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Show in panel ' + (idx + 1)), h('div', {class: 'note'}, 'This only changes panel ' + (idx + 1) + '. The other panel keeps its own list.'));
+  HOME_ITEMS.forEach(([k, t]) => { const on = homeShown(k, idx); box.append(h('button', {style: 'text-align:left', onclick: () => { homeShownMap(idx)[k] = !homeShown(k, idx); persist(); homeShowSheet(idx); renderFiles(); }}, (on ? '☑  ' : '☐  ') + t)); });
   box.append(h('button', {onclick: close}, 'Done')); o.append(box); o.classList.add('open'); sheetDone = close;
 }
 async function xMenu() {
   const v = await choose('Menu', [{label: 'Home', value: 'home'}, {label: 'Show on home screen...', value: 'show'}, {label: 'Export settings', value: 'exp'}, {label: 'Import settings', value: 'imp'}, {label: 'Help', value: 'help'}, {label: 'Settings', value: 'set'}, {label: 'About', value: 'about'}, {label: 'Exit file manager', value: 'exit'}]);
-  if (v === 'home') goHome(); else if (v === 'show') homeShowSheet();
+  if (v === 'home') goHome(); else if (v === 'show') homeShowSheet(FS.active);
   else if (v === 'exp') exportSettings(); else if (v === 'imp') importSettings(); else if (v === 'help') fmHelp();
   else if (v === 'set') { closeFiles(); $('setBtn').onclick(); }
   else if (v === 'about') toast('Mobile AI Studio file manager. Every change asks you first.');
