@@ -799,7 +799,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun wifiStop(): String {
         WifiServer.stop()
-        if (!FtpServer.running) ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        if (!FtpServer.running && !DavServer.running) ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
         return wifiStatus()
     }
 
@@ -820,8 +820,29 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun ftpStop(): String {
         FtpServer.stop()
-        if (!WifiServer.running) ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        if (!WifiServer.running && !DavServer.running) ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
         return ftpStatus()
+    }
+
+    // ---- the phone's own WebDAV server: a PC maps it as a network drive (approval is asked in the app first) ----
+    @JavascriptInterface
+    fun davStatus(): String {
+        val arr = JSONArray(); synchronized(DavServer.log) { DavServer.log.takeLast(8).forEach { arr.put(it) } }
+        return JSONObject().put("running", DavServer.running).put("url", DavServer.url).put("pin", DavServer.pin).put("port", DavServer.port)
+            .put("readOnly", DavServer.readOnly).put("ip", WifiServer.localIp() ?: "").put("log", arr).toString()
+    }
+    @JavascriptInterface
+    fun davStart(path: String, port: Int, readOnly: Boolean): String {
+        if (!activity.hasFilesAccess()) return fsNoAccess().toString()
+        val err = DavServer.start(File(path), port, readOnly)
+        if (err == null) ui.post { try { androidx_start(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        return if (err != null) JSONObject().put("ok", false).put("msg", err).toString() else davStatus()
+    }
+    @JavascriptInterface
+    fun davStop(): String {
+        DavServer.stop()
+        if (!WifiServer.running && !FtpServer.running) ui.post { try { activity.stopService(Intent(activity, WifiService::class.java)) } catch (e: Exception) {} }
+        return davStatus()
     }
 
     // ---- Google Drive sign-in: opens Google in the browser, catches the answer on a loopback address ----

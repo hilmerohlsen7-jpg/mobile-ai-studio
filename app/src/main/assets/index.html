@@ -2055,7 +2055,7 @@ async function addServer(type, after, pre) {
   (S.settings.conns = S.settings.conns || []).push(c); saveConns(); if (after) after(); else renderFiles();
 }
 /* ---- X-plore style home screen ---- */
-const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
+const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['pcdrive', 'Share to PC (network drive)', '\u{1F5A5}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
 function homeShown(k) { const v = (S.settings.homeShow || {})[k]; return v === undefined ? (true) : v; }
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
@@ -2067,11 +2067,12 @@ function buildHome(o, idx) {
   const pn = FS.panes[idx];
   const wrap = h('div', {class: 'xwrap'}), list = h('div', {class: 'xlist'});
   pn.hopen = pn.hopen || new Set();
+  let into = null;
   const row = (ico, title, sub, fn, ind, key, open, tog, hold) => { const el = h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
     h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); }}, key ? (open ? '\u25BC' : '\u25B6') : ''),
     h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null));
     if (tog && key) holdOpen(el, () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); }, fn); else if (hold) holdOpen(el, fn, hold); else el.onclick = fn;
-    list.append(el); };
+    (into || list).append(el); };
   const wrapBox = (el, key, ind, kids, parent, isDir, op) => {
     const foc = pn.focus === key, anc = pn.focus && pn.focus.startsWith(key + '/') && op;
     if ((foc && (isDir ? op : true)) || anc) { const bx = h('div', {class: 'xbox' + (foc ? '' : ' gr')}); bx.append(el); if (op && isDir) kids(bx); parent.append(bx); }
@@ -2116,7 +2117,8 @@ function buildHome(o, idx) {
     HOME_ITEMS.forEach(([k, t, ico]) => {
       if (!homeShown(k)) return;
       const act = () => { FS.active = idx; };
-      if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k); row(ico, t, p, () => { act(); openLocal(p); }, 0, '~' + k, op, true); if (op) tree(p, 1); }
+      if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k), menu = () => { act(); itemMenu(idx, null, p, {name: t, dir: true, size: 0}, true); };
+        if (op) { const bx = h('div', {class: 'xbox'}); into = bx; row(ico, t, p, menu, 0, '~' + k, op, true); into = null; tree(p, 1, bx); list.append(bx); } else row(ico, t, p, menu, 0, '~' + k, op, true); }
       else if (k === 'smb' || k === 'ftp' || k === 'sftp' || k === 'web') {
         const T = k === 'web' ? 'dav' : k;
         const op = pn.hopen.has('~' + k), tg = () => { if (pn.hopen.has('~' + k)) pn.hopen.delete('~' + k); else pn.hopen.add('~' + k); renderFiles(); };
@@ -2132,6 +2134,7 @@ function buildHome(o, idx) {
           row('+', k === 'web' ? 'Add web storage' : 'Add server', '', () => { act(); addMenu(k, pn); }, 1);
         }
       }
+      else if (k === 'pcdrive') row(ico, t, davState().running ? 'On: ' + davState().url : 'Show a phone folder as a drive on your PC', () => { act(); davSheet(); });
       else if (k === 'wifi') row(ico, t, 'Browse this phone from a computer', () => { act(); wifiSheet(); });
       else if (k === 'recent') row(ico, t, 'Files changed in the last 7 days', async () => { act(); toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); });
       else if (k === 'apps') row(ico, t, 'Installed apps: open, info, uninstall, back up', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); });
@@ -2396,6 +2399,40 @@ function ftpConfig() {
   it('Debug log', 'Recent activity of the server', (st.log || []).length + ' lines', () => { toast((st.log || []).slice(-4).join('  ·  ') || 'Nothing yet.'); });
   if (st.running) box.append(h('div', {class: 'note'}, 'Running: ' + st.url + '   user: ' + (st.anon ? 'anonymous' : 'admin   PIN: ' + st.pin) + '. Changes apply the next time you start it.'));
   box.append(h('button', {class: 'pri', onclick: () => { close(); ftpToggle(); }}, st.running ? 'Stop the server' : 'Start the server'), h('button', {onclick: close}, 'Close'));
+  o.append(box); o.classList.add('open'); sheetDone = close;
+}
+
+/* ---- share a phone folder to a PC as a network drive (WebDAV) ---- */
+function davCfg() { const c = S.settings.davCfg = S.settings.davCfg || {}; if (c.ro === undefined) c.ro = true; if (!c.port) c.port = 8090; return c; }
+function davState() { try { return JSON.parse(Android.davStatus()); } catch (e) { return {running: false}; } }
+async function davSheet() {
+  const c = davCfg(), st = davState(), o = $('sheet'); o.textContent = '';
+  const close = () => { o.classList.remove('open'); renderFiles(); };
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Share a folder to your PC'));
+  const it = (title, sub, val, fn) => box.append(h('div', {class: 'irow', onclick: fn}, h('span', null, h('b', null, title), h('div', {style: 'font-size:.74rem;color:var(--mute)'}, sub)), h('span', {style: 'color:var(--mute);max-width:45%;text-align:right;word-break:break-all'}, val)));
+  box.append(h('div', {class: 'note'}, 'Your PC can then use the folder like a network drive in File Explorer. The PC and phone must be on the same Wi-Fi. It works as a mapped drive (WebDAV). It will not show up in the PC’s "Network" list, because Android phones cannot act as a Windows SMB share.'));
+  if (st.running) {
+    box.append(h('div', {class: 'irow'}, h('span', null, 'Address'), h('b', {style: 'word-break:break-all'}, st.url)));
+    box.append(h('div', {class: 'irow'}, h('span', null, 'Login'), h('b', null, st.readOnly ? 'none needed' : 'admin  /  PIN ' + st.pin)));
+    box.append(h('div', {class: 'note'}, 'On the PC: open File Explorer → This PC → Map network drive. In Folder type ' + st.url + ' and tick "Connect using different credentials" if it asks for a login. Windows 7: Computer → Map network drive → "Connect to a Web site that you can use to store your documents". If it says the folder is not found, try \\\\' + (st.ip || 'PHONE-IP') + '@' + st.port + '\\DavWWWRoot.'));
+    if (!st.readOnly) box.append(h('div', {class: 'note'}, 'Windows blocks passwords over plain http by default. If it keeps asking, either use Read-only mode, or on the PC run once as administrator: reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\WebClient\\Parameters /v BasicAuthLevel /t REG_DWORD /d 2 /f   then restart the "WebClient" service.'));
+    (st.log || []).slice(-4).forEach(l => box.append(h('div', {class: 'note'}, l)));
+    box.append(h('button', {class: 'danger', onclick: () => { Android.davStop(); toast('Sharing stopped.'); davSheet(); }}, 'Stop sharing'));
+    box.append(h('button', {onclick: () => davSheet()}, 'Refresh'), h('button', {onclick: close}, 'Close'));
+  } else {
+    it('Folder to share', 'Tap to choose', c.path || FS.root, async () => { o.classList.remove('open'); const p = await folderPick('Share this folder', c.path || FS.root); if (p) { c.path = p; persist(); } davSheet(); });
+    it('Access', 'Tap to switch', c.ro ? 'Read-only, no password' : 'Add new files, PIN login', () => { c.ro = !c.ro; persist(); davSheet(); });
+    it('Port', 'Change only if something else uses it', String(c.port), async () => { const p = await askText('Port (1024-65535)', String(c.port)); const n = parseInt(p, 10); if (n >= 1024 && n <= 65535) { c.port = n; persist(); } davSheet(); });
+    box.append(h('button', {class: 'pri', onclick: async () => {
+      const root = c.path || FS.root; o.classList.remove('open');
+      const ok = await askApproval({title: 'Share a folder to your PC', path: root, reason: 'You chose Share to PC (network drive).',
+        rows: [['Shares', root + ' and everything inside'], ['Port', String(c.port)], ['Access', c.ro ? 'Read-only. Anyone on this Wi-Fi can look at and copy these files, no password.' : 'The PC can copy files out and add NEW files and folders. Needs the PIN.']],
+        primary: {label: 'Approve: start sharing', value: 'ok'}, note: 'Nothing can be deleted, renamed, moved or replaced from the PC. A notification with a Stop button stays while it runs. Only use this on a Wi-Fi you trust.'});
+      if (ok === 'deny') return;
+      const r = JSON.parse(Android.davStart(root, c.port, c.ro)); if (r.ok === false) { toast(r.msg || 'Could not start.'); return; }
+      davSheet();
+    }}, 'Start sharing'), h('button', {onclick: close}, 'Close'));
+  }
   o.append(box); o.classList.add('open'); sheetDone = close;
 }
 function wifiSheet() {
