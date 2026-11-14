@@ -224,7 +224,44 @@ object RemoteFs {
         override fun close() { http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll() }
     }
 
-    fun open(c: Conn): Client = when (c.type) { "gdrive" -> Gdrive(c); "dav" -> Dav(c); "sftp" -> Sftp(c); "smb" -> Smb(c); else -> Ftp(c) }
+    /** A folder picked through Android's own storage picker (Google Drive app, Dropbox, OneDrive...). host = the tree address. */
+    private class Saf(val c: Conn) : Client {
+        val cr = appContext!!.contentResolver; val tree: android.net.Uri = android.net.Uri.parse(c.host)
+        class D(val id: String, val name: String, val mime: String, val size: Long, val mtime: Long)
+        private fun docUri(id: String) = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id)
+        private fun kids(id: String): List<D> {
+            val out = ArrayList<D>()
+            val cols = arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME, android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE, android.provider.DocumentsContract.Document.COLUMN_SIZE, android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            cr.query(android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, id), cols, null, null, null)?.use { while (it.moveToNext()) out.add(D(it.getString(0), it.getString(1) ?: "?", it.getString(2) ?: "", if (it.isNull(3)) 0L else it.getLong(3), if (it.isNull(4)) 0L else it.getLong(4))) }
+            return out
+        }
+        private val isDirMime = android.provider.DocumentsContract.Document.MIME_TYPE_DIR
+        private fun rootId() = android.provider.DocumentsContract.getTreeDocumentId(tree)
+        private fun find(path: String): D? {
+            var cur: D? = null; var id = rootId()
+            for (seg in path.split('/').filter { it.isNotEmpty() }) { cur = kids(id).firstOrNull { it.name == seg } ?: return null; id = cur.id }
+            return cur
+        }
+        private fun idOf(path: String): String = if (path.trim('/').isEmpty()) rootId() else (find(path)?.id ?: throw Exception("Not found: " + path))
+        private fun parentOf(path: String) = path.trimEnd('/').substringBeforeLast('/', "")
+        private fun nameOf(path: String) = path.trimEnd('/').substringAfterLast('/')
+        override fun list(path: String) = kids(idOf(path)).map { Item(it.name, it.mime == isDirMime, if (it.mime == isDirMime) 0L else it.size, it.mtime) }
+        override fun download(remote: String, local: File) { val i = cr.openInputStream(docUri(idOf(remote))) ?: throw Exception("Could not open it."); i.use { x -> FileOutputStream(local).use { x.copyTo(it, 65536) } } }
+        override fun upload(local: File, remote: String) {
+            val name = nameOf(remote); val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(local.extension.lowercase()) ?: "application/octet-stream"
+            val u = android.provider.DocumentsContract.createDocument(cr, docUri(idOf(parentOf(remote))), mime, name) ?: throw Exception("This storage refused the upload.")
+            (cr.openOutputStream(u, "w") ?: throw Exception("Could not write it.")).use { o -> local.inputStream().use { it.copyTo(o, 65536) } }
+        }
+        override fun mkdir(path: String) { android.provider.DocumentsContract.createDocument(cr, docUri(idOf(parentOf(path))), isDirMime, nameOf(path)) ?: throw Exception("Could not make the folder.") }
+        override fun rename(from: String, to: String) { if (parentOf(from) != parentOf(to)) throw Exception("This storage can only rename inside the same folder."); android.provider.DocumentsContract.renameDocument(cr, docUri(idOf(from)), nameOf(to)) ?: throw Exception("Could not rename.") }
+        override fun deleteFile(path: String) { if (!android.provider.DocumentsContract.deleteDocument(cr, docUri(idOf(path)))) throw Exception("This storage refused the delete.") }
+        override fun deleteDir(path: String) = deleteFile(path)
+        override fun isDir(path: String): Boolean = if (path.trim('/').isEmpty()) true else try { find(path)?.mime == isDirMime } catch (e: Exception) { false }
+        override fun close() {}
+    }
+
+    @JvmField var appContext: android.content.Context? = null
+    fun open(c: Conn): Client = when (c.type) { "saf" -> Saf(c); "gdrive" -> Gdrive(c); "dav" -> Dav(c); "sftp" -> Sftp(c); "smb" -> Smb(c); else -> Ftp(c) }
     private fun join(a: String, b: String) = a.trimEnd('/') + "/" + b
     private fun unique(dir: File, name: String): File {
         var f = File(dir, name); var n = 1; val base = name.substringBeforeLast('.', name); val ext = name.substringAfterLast('.', "")

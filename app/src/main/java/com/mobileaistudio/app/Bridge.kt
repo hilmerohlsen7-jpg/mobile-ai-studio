@@ -44,6 +44,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     private var importing: String? = null
 
     init {
+        RemoteFs.appContext = activity.applicationContext
         DownloadCenter.init(activity)
         dl = DownloadCenter.manager
         DownloadCenter.onChange = { schedulePush() }
@@ -832,6 +833,21 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Sign-in failed."))
             } finally { try { ss?.close() } catch (e: Exception) {} }
         }
+    }
+
+    // ---- storage apps on this phone (Google Drive app, Dropbox, OneDrive...) through Android's own picker ----
+    private var treeReq: String? = null
+    @JavascriptInterface
+    fun storagePick(reqId: String) { treeReq = reqId; ui.post { try { activity.pickTree() } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "This phone has no storage picker.")); treeReq = null } } }
+    fun onTreePicked(data: Intent?) {
+        val id = treeReq ?: return; treeReq = null
+        val uri = data?.data
+        if (uri == null) { fsReply(id, null, JSONObject().put("ok", false).put("msg", "Nothing was picked.")); return }
+        try { activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } catch (e: Exception) {}
+        var name = uri.lastPathSegment ?: "Storage"
+        try { activity.contentResolver.query(android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, android.provider.DocumentsContract.getTreeDocumentId(uri)), arrayOf(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) name = it.getString(0) } } catch (e: Exception) {}
+        val provider = when { (uri.authority ?: "").contains("google.android.apps.docs") -> "Google Drive"; (uri.authority ?: "").contains("dropbox") -> "Dropbox"; (uri.authority ?: "").contains("skydrive") || (uri.authority ?: "").contains("onedrive") -> "OneDrive"; else -> "" }
+        fsReply(id, null, JSONObject().put("ok", true).put("uri", uri.toString()).put("name", (if (provider.isNotEmpty()) "$provider: " else "") + name))
     }
 
     private fun androidx_start(i: Intent) { if (Build.VERSION.SDK_INT >= 26) activity.startForegroundService(i) else activity.startService(i) }

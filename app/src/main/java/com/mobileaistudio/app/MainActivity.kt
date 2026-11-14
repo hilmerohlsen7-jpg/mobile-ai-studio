@@ -241,6 +241,11 @@ class MainActivity : Activity() {
         }
     }
 
+    fun pickTree() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        startActivityForResult(i, REQ_TREE)
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -267,6 +272,7 @@ class MainActivity : Activity() {
                 }
                 if (list.isNotEmpty()) bridge.onDocsPicked(list)
             }
+            REQ_TREE -> bridge.onTreePicked(if (resultCode == RESULT_OK) data else null)
             REQ_VOICE -> {
                 val t = if (resultCode == RESULT_OK) data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() else null
                 bridge.onVoiceDialog(t)
@@ -308,5 +314,6 @@ class MainActivity : Activity() {
         private const val REQ_DOC = 5
         private const val REQ_VOICE = 9
         private const val REQ_CAMERA = 4
+        private const val REQ_TREE = 21
     }
 }
