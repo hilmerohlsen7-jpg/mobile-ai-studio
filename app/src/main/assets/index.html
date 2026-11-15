@@ -2106,13 +2106,13 @@ function buildHome(o, idx) {
   const wrap = h('div', {class: 'xwrap'}), list = h('div', {class: 'xlist'});
   pn.hopen = pn.hopen || new Set();
   let into = null;
-  const row = (ico, title, sub, fn, ind, key, open, tog, hold) => {
+  const row = (ico, title, sub, fn, ind, key, open, tog, hold, tf) => {
     const fk = key || (ind ? null : '~t:' + title), setF = () => { if (fk) pn.focus = fk; };
     const flip = () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); };
     const el = h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
-    h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; setF(); flip(); renderFiles(); }}, key ? (open ? '▼' : '▶') : ''),
+    h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; setF(); if (tf) { tf(); return; } flip(); renderFiles(); }}, key ? (open ? '▼' : '▶') : ''),
     h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null));
-    if (tog && key) holdOpen(el, () => { setF(); flip(); renderFiles(); }, () => { setF(); fn(); }); else if (hold) holdOpen(el, () => { setF(); fn(); }, hold); else el.onclick = () => { setF(); fn(); };
+    if (tog && key) holdOpen(el, () => { setF(); if (tf) tf(); else { flip(); renderFiles(); } }, () => { setF(); fn(); }); else if (hold) holdOpen(el, () => { setF(); fn(); }, hold); else el.onclick = () => { setF(); fn(); };
     const tgt = into || list;
     if (fk && !key && pn.focus === fk) { const b = h('div', {class: 'xbox'}); b.append(el); tgt.append(b); } else tgt.append(el); };
   const grp = (key, parent, rowFn, kidsFn) => { const foc = pn.focus === key, bx = foc ? h('div', {class: 'xbox'}) : null, L = bx || parent, prev = into; into = L; rowFn(); if (kidsFn) kidsFn(L); into = prev; if (bx) parent.append(bx); };
@@ -2196,9 +2196,11 @@ function buildHome(o, idx) {
           pn.vaults = pn.vaults || {};
           (pn.vlist || []).filter(v => !pn.vfilter || v.name.toLowerCase().includes(pn.vfilter.toLowerCase())).forEach(v => {
             const key = 'v:' + v.name, U = pn.vaults[v.name];
-            const hold = () => ctxMenu(v.name, [U ? {ic: 'lock', label: 'Lock (forget the password)', fn: () => { delete pn.vaults[v.name]; renderFiles(); }} : {ic: 'folderOpen', label: 'Unlock', fn: async () => { pn.focus = key; await vaultOpenUi(pn, v.name); }}, {ic: 'trash', label: 'Delete this catalog...', danger: true, fn: () => vaultDelete(pn, v.name)}]);
-            grp(key, L, () => row(U ? '\u{1F513}' : '\u{1F512}', v.name, U ? (U.entries.length + ' locked files  ·  tap to lock') : fmtSize(v.size), async () => { pn.focus = key; if (U) { delete pn.vaults[v.name]; renderFiles(); } else await vaultOpenUi(pn, v.name); }, 1, null, false, false, hold), L2 => {
-              if (!U) return;
+            const cop = !!U && pn.hopen.has(key);
+            const hold = () => ctxMenu(v.name, [U ? {ic: 'lock', label: 'Lock (forget the password)', fn: () => { delete pn.vaults[v.name]; pn.hopen.delete(key); renderFiles(); }} : {ic: 'folderOpen', label: 'Unlock', fn: async () => { pn.focus = key; await vaultOpenUi(pn, v.name); if (pn.vaults[v.name]) pn.hopen.add(key); renderFiles(); }}, {ic: 'trash', label: 'Delete this catalog...', danger: true, fn: () => vaultDelete(pn, v.name)}]);
+            const flipV = async () => { pn.focus = key; if (U) { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); renderFiles(); } else { await vaultOpenUi(pn, v.name); if (pn.vaults[v.name]) pn.hopen.add(key); renderFiles(); } };
+            grp(key, L, () => row(U ? '\u{1F513}' : '\u{1F512}', v.name, U ? U.entries.length + ' locked files' : 'Locked  ·  ' + fmtSize(v.size), () => {}, 1, key, cop, true, hold, flipV), L2 => {
+              if (!cop) return;
               if (!U.entries.length) L2.append(h('div', {class: 'xrow', style: 'padding-left:46px'}, h('span', {class: 'xnm'}, h('small', null, 'Empty. In the file list, mark files and tap "Lock in vault".'))));
               U.entries.forEach(e => { const k2 = 've:' + v.name + '|' + e.name; grp(k2, L2, () => row('\u{1F4C4}', baseName(e.name), fmtSize(e.size), () => { pn.focus = k2; pn.vault = U; renderFiles(); vaultEntry(pn, e); }, 2)); });
             });
