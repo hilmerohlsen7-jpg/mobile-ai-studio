@@ -2104,7 +2104,7 @@ function featureMenu(k, idx) {
   else if (k === 'wifi') A.push(E('plus', 'Add device', run(() => addServer('dav', null, {host: 'http://', name: ''})), G), E('search', 'Search again', () => { pn.wscan = null; pn.hopen.add('~wifi'); renderFiles(); }, B), E('settings', 'Server settings', run(davSheet), B), E(davState().running ? 'stop' : 'play', davState().running ? 'Stop sharing' : 'Start sharing', run(davToggle), Y));
   else if (k === 'dlna') A.push(E('search', 'Search again', () => { pn.dl = null; pn.hopen.add('~dlna'); renderFiles(); }, B));
   else if (k === 'apps') A.push(E('folderOpen', 'Open', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); }, Y));
-  else if (k === 'sync') A.push(E('refresh', 'New file sync', run(syncUi), G));
+  else if (k === 'sync') A.push(E('filter', 'Filter', async () => { FS.active = idx; const t = await askText('Show only tasks whose name contains...', pn.sfilter || ''); pn.sfilter = (t || '').trim(); pn.hopen.add('~sync'); renderFiles(); }, G));
   else if (k === 'recent') A.push(E('refresh', 'Look again', async () => { FS.active = idx; toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); }, B));
   if (k !== 'show') A.push(E('eyeOff', 'Hide from this panel', () => { homeShownMap(idx)[k] = false; persist(); renderFiles(); toast(t + ' is hidden here. Bring it back with Show.'); }, Z));
   A.push(E('checkSq', 'Choose what to show...', () => homeShowSheet(idx), '#2fbfa8'));
@@ -2113,6 +2113,7 @@ function featureMenu(k, idx) {
 function focusLabel(pn) {
   const f = pn.focus; if (!f) return 'Home';
   if (f.startsWith('~t:')) return f.slice(3);
+  if (f.startsWith('sy:')) { const t = syncTasks().find(x => x.id === f.slice(3)); return 'File sync' + (t ? '/' + t.name : ''); }
   if (f.startsWith('v:')) return 'Vault/' + f.slice(2);
   if (f.startsWith('ve:')) return 'Vault/' + f.slice(3).replace('|', '/');
   if (f.startsWith('d:') || f.startsWith('dc:')) return 'DLNA' + (pn.dl && pn.dl.names[f] ? '/' + pn.dl.names[f] : '');
@@ -2231,7 +2232,15 @@ function buildHome(o, idx) {
           if (!(pn.vlist || []).length) L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xnm'}, h('small', null, 'No catalogs yet. Tap Options, then New.'))));
         });
       }
-      else if (k === 'sync') row(ico, t, 'Compare two folders and copy what is missing', () => { act(); syncUi(); });
+      else if (k === 'sync') {
+        const op = pn.hopen.has('~sync'), tasks = syncTasks().filter(x => !pn.sfilter || x.name.toLowerCase().includes(pn.sfilter.toLowerCase()));
+        grp('~sync', list, () => row(ico, t, '', () => { act(); featureMenu('sync', idx); }, 0, '~sync', op, true), L => {
+          if (!op) return;
+          tasks.forEach(tk => { const key = 'sy:' + tk.id, cop = pn.hopen.has(key);
+            grp(key, L, () => row('\u{1F4C5}', tk.name, tk.last ? 'Last sync: ' + tk.last : '', () => {}, 1, key, cop, true, () => syncTaskMenu(pn, tk)), L2 => { if (cop) L2.append(syncPanel(pn, tk)); }); });
+          row('+', 'Add task', '', () => { act(); syncAdd(pn); }, 1, null, false, false, () => { act(); ctxMenu('Add task', [{ic: 'plus', label: 'Add task', col: '#6cc24a', fn: () => syncAdd(pn)}]); });
+        });
+      }
       else if (k === 'dlna') {
         const op = pn.hopen.has('~dlna');
         const dscan = () => { pn.dl = {devs: null, c: {}, l: {}, names: {}}; const D = pn.dl; fsCall('dlnaScan').then(x => { if (pn.dl !== D) return; D.devs = x.devices || []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); };
@@ -2400,7 +2409,114 @@ async function vaultLock(paths) {
   FS.sel.clear(); renderFiles();
 }
 
-/* ---- File sync ---- */
+
+/* ---- File sync tasks (inline under Home > File sync) ---- */
+function syncTasks() { return S.settings.syncTasks = S.settings.syncTasks || []; }
+const SYNC_MODES = [
+  ['copy', 'Source to destination', 'Files are copied to destination. No files are deleted'],
+  ['full', 'Source to destination full sync', 'Files are copied to destination, missing source files are deleted at destination (they go to the Trash)'],
+  ['bi', 'Bidirectional', 'Files missing on either side are copied to the other side. Nothing is deleted'],
+  ['move', 'Move', 'Copy files from source to destination, then delete files at source (they go to the Trash)']];
+const SYNC_HELP = ['File synchronization lets you set up a pair of folders and keep them matching. A saved task can be run again later with one tap.',
+  'Source to destination copies what is missing. Full sync also removes files from the destination that no longer exist in the source. Bidirectional copies missing files both ways. Move copies, then removes the originals.',
+  'Nothing is ever deleted for good: removed files go to the Trash and Undo brings them back. If a file with the same name but a different size exists, it is saved as an extra copy, never replaced.',
+  'Test shows what would happen without changing anything. Run asks you first, every time.',
+  'Schedule: when the app is open and a task is due, it asks you before running. Tasks do not run by themselves while the app is closed.'];
+function syncLog(tk, msg) { tk.logs = tk.logs || []; tk.logs.unshift({t: Date.now(), msg: msg}); tk.logs.length = Math.min(tk.logs.length, 50); }
+function syncStamp() { const d = new Date(); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
+async function syncAdd(pn) {
+  const n = await askText('Add task', ''); if (!n || !n.trim()) return;
+  const tk = {id: uid(), name: n.trim().slice(0, 40), from: '', to: '', mode: 'copy', sched: {type: 'off'}, last: '', logs: []};
+  syncTasks().push(tk); pn.hopen.add('~sync'); pn.hopen.add('sy:' + tk.id); pn.focus = 'sy:' + tk.id; persist(); renderFiles();
+}
+function syncTaskMenu(pn, tk) {
+  ctxMenu(tk.name, [
+    {ic: 'play', label: 'Run now...', col: '#e8b84a', fn: () => syncRun(tk)},
+    {ic: 'check', label: 'Test (changes nothing)', col: '#4aa3e8', fn: () => syncTest(tk)},
+    {ic: 'pencil', label: 'Rename', col: '#9aa4b2', fn: async () => { const n = await askText('New name for this task', tk.name); if (n && n.trim()) { tk.name = n.trim().slice(0, 40); persist(); renderFiles(); } }},
+    {ic: 'trash', label: 'Delete this task...', danger: true, fn: async () => { if (await askConfirm('Delete the task "' + tk.name + '"? Your folders are not touched.', 'Delete')) { S.settings.syncTasks = syncTasks().filter(x => x !== tk); pn.hopen.delete('sy:' + tk.id); pn.focus = '~sync'; persist(); renderFiles(); } }}]);
+}
+function syncSchedText(s) { return !s || s.type === 'off' ? 'Disabled' : s.type === 'daily' ? 'Daily at ' + s.time : 'Every ' + (s.mins >= 1440 ? '1 day' : s.mins >= 60 ? (s.mins / 60) + (s.mins === 60 ? ' hour' : ' hours') : s.mins + ' minutes'); }
+function syncPanel(pn, tk) {
+  pn.stab = pn.stab || {}; const tab = pn.stab[tk.id] || 'task', re = () => renderFiles();
+  const tabBtn = (k, ic, t) => h('div', {style: 'flex:1;text-align:center;padding:8px 2px;font-size:.78rem;' + (tab === k ? 'background:#fff;color:#111' : 'background:#d8d8d8;color:#222'), onclick: () => { pn.stab[tk.id] = k; re(); }}, h('div', {style: 'font-size:1.2rem'}, ic), t);
+  const box = h('div', {style: 'margin:4px 6px 6px 22px;border-radius:6px;overflow:hidden;background:#fff;color:#111'});
+  box.append(h('div', {style: 'display:flex'}, tabBtn('task', '\u{1F4C5}', 'Sync task'), tabBtn('logs', '\u{1F552}', 'Logs'), tabBtn('help', '❓', 'Help'), h('div', {style: 'flex:0 0 44px;text-align:center;padding:8px 0;background:#d8d8d8;color:#222;font-size:1.3rem', onclick: () => { pn.hopen.delete('sy:' + tk.id); re(); }}, '✕')));
+  const body = h('div', {style: 'padding:8px 12px;font-size:.92rem'}); box.append(body);
+  if (tab === 'logs') {
+    if (!(tk.logs || []).length) body.append(h('div', {style: 'font-size:1.1rem;padding:6px 0 40px'}, 'No items'));
+    (tk.logs || []).forEach(l => body.append(h('div', {style: 'padding:6px 0;border-bottom:1px solid #ddd'}, h('div', {style: 'font-size:.75rem;color:#666'}, new Date(l.t).toLocaleString()), l.msg)));
+  } else if (tab === 'help') { SYNC_HELP.forEach(t => body.append(h('p', {style: 'margin:8px 0'}, t))); }
+  else {
+    const fld = (lab, val, fn) => body.append(h('div', {style: 'display:flex;align-items:center;padding:6px 0;border-bottom:1px solid #eee'}, h('div', {style: 'flex:1;min-width:0'}, h('b', null, lab + ' '), h('div', {style: 'word-break:break-all;' + (val ? '' : 'color:#777')}, val || 'Not set')), h('span', {style: 'padding:6px 10px;font-size:1.2rem', onclick: fn}, '✎')));
+    const dd = (lab, val, sub, fn) => body.append(h('div', {style: 'display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #eee', onclick: fn}, h('b', {style: 'margin-right:10px'}, lab), h('div', {style: 'flex:1'}, h('div', {style: 'font-size:1.05rem'}, val), sub ? h('div', {style: 'font-size:.8rem;color:#555'}, sub) : null), h('span', null, '▾')));
+    const act = (ic, t, sub, fn) => body.append(h('div', {style: 'display:flex;align-items:center;gap:10px;padding:10px 0', onclick: fn}, h('span', {style: 'font-size:1.5rem'}, ic), h('div', null, h('b', null, t), sub ? h('div', {style: 'font-size:.8rem;color:#555'}, sub) : null)));
+    body.append(h('div', null, h('b', null, 'Last sync: '), tk.last || 'Not yet synced'));
+    fld('Name:', tk.name, async () => { const n = await askText('New name for this task', tk.name); if (n && n.trim()) { tk.name = n.trim().slice(0, 40); persist(); re(); } });
+    fld('From', tk.from, async () => { const p = await folderPick('Copy FROM this folder', tk.from || FS.root); if (p) { tk.from = p; persist(); re(); } });
+    fld('To', tk.to, async () => { const p = await folderPick('Copy TO this folder', tk.to || FS.root); if (p) { tk.to = p; persist(); re(); } });
+    const m = SYNC_MODES.find(x => x[0] === tk.mode) || SYNC_MODES[0];
+    dd('Mode', m[1], m[2], async () => { const v = await choose('Mode', SYNC_MODES.map(x => ({label: x[1] + ' — ' + x[2], value: x[0]}))); if (v) { tk.mode = v; persist(); re(); } });
+    dd('Schedule', syncSchedText(tk.sched), '', async () => {
+      const v = await choose('Schedule', [{label: 'Disabled', value: 'off'}, {label: 'Periodic', value: 'periodic'}, {label: 'Daily', value: 'daily'}]); if (!v) return;
+      if (v === 'off') tk.sched = {type: 'off'};
+      else if (v === 'periodic') { const o = [[15, '15 minutes'], [30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [240, '4 hours'], [480, '8 hours'], [720, '12 hours'], [1440, '1 day']]; const x = await choose('Time after which the task will repeat', o.map(a => ({label: a[1], value: String(a[0])}))); if (!x) return; tk.sched = {type: 'periodic', mins: +x, next: Date.now() + (+x) * 60000}; }
+      else { const t = await askText('Set time when this task will be run each day (HH:MM, 24 hour)', (tk.sched && tk.sched.time) || '12:00'); const mm = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec((t || '').trim()); if (!mm) { if (t) toast('Type the time like 07:30.'); return; } tk.sched = {type: 'daily', time: (mm[1].length < 2 ? '0' : '') + mm[1] + ':' + mm[2], lastDay: ''}; }
+      persist(); re(); });
+    act('\u{1F4BE}', 'Save', '', () => { persist(); toast('Saved.'); });
+    act('✅', 'Test', 'Verify settings. No files are copied or deleted during test', () => syncTest(tk));
+    act('▶', 'Run now', 'Asks you first, then copies', () => syncRun(tk));
+  }
+  return box;
+}
+async function syncPlan(tk) {
+  if (!tk.from || !tk.to) { toast('Set both From and To first.'); return null; }
+  if (tk.from === tk.to || tk.to.startsWith(tk.from + '/') || tk.from.startsWith(tk.to + '/')) { toast('From and To must be two separate folders (not one inside the other).'); return null; }
+  const r = await fsCall('fsSyncPlan', tk.from, tk.to); if (!r.ok) { toast(r.msg || 'Could not compare.'); return null; } return r;
+}
+async function syncTest(tk) {
+  toast('Comparing...'); const r = await syncPlan(tk); if (!r) return;
+  const del = tk.mode === 'full' ? r.extra.length : tk.mode === 'move' ? r.missing.length + r.same : 0, back = tk.mode === 'bi' ? r.extra.length : 0;
+  const msg = 'Test: ' + r.missing.length + ' to copy, ' + r.changed.length + ' different, ' + r.same + ' same' + (back ? ', ' + back + ' to copy back' : '') + (del ? ', ' + del + ' to move to Trash' : '') + '. Nothing was changed.';
+  syncLog(tk, msg); persist(); toast(msg); renderFiles();
+}
+async function syncRun(tk, quiet) {
+  toast('Comparing...'); const r = await syncPlan(tk); if (!r) return false;
+  const copyF = r.missing.map(m => m.rel), diffF = r.changed.map(m => m.rel), back = tk.mode === 'bi' ? r.extra.map(m => m.rel) : [];
+  const dels = tk.mode === 'full' ? r.extra.map(m => ({base: tk.to, rel: m.rel})) : [];
+  if (!copyF.length && !diffF.length && !back.length && !dels.length) { syncLog(tk, 'Nothing to do. The folders match.'); tk.last = syncStamp(); persist(); toast('Nothing to do. The folders match.'); renderFiles(); return true; }
+  const rows = [['From', tk.from], ['To', tk.to], ['Mode', (SYNC_MODES.find(x => x[0] === tk.mode) || SYNC_MODES[0])[1]], ['Copy to destination', copyF.length + ' file(s)'], ['Different size (saved as extra copy)', diffF.length + ' file(s)']];
+  if (back.length) rows.push(['Copy back to source', back.length + ' file(s)']);
+  if (dels.length) rows.push(['Move to Trash at destination', dels.length + ' file(s)\n' + dels.slice(0, 10).map(d => d.rel).join('\n') + (dels.length > 10 ? '\n... and ' + (dels.length - 10) + ' more' : '')]);
+  if (tk.mode === 'move') rows.push(['After copying', 'The originals that were copied are moved to the Trash']);
+  const c = await askApproval({title: 'Run sync task "' + tk.name + '"', path: tk.to, reason: quiet ? 'This task was scheduled and is due now.' : 'You ran this sync task.', rows: rows, primary: {label: 'Approve: run it', value: 'ok'}, note: 'Nothing is deleted for good. Removed files go to the Trash and Undo brings them back.'});
+  if (c === 'deny') { syncLog(tk, 'Cancelled by you.'); persist(); renderFiles(); return false; }
+  toast('Working...'); const msgs = [], ids = [];
+  const x1 = await fsCall('fsSyncRun', tk.from, tk.to, JSON.stringify(copyF), false); msgs.push(x1.msg || '');
+  if (diffF.length) { const x2 = await fsCall('fsSyncRun', tk.from, tk.to, JSON.stringify(diffF), true); msgs.push(x2.msg || ''); }
+  if (back.length) { const x3 = await fsCall('fsSyncRun', tk.to, tk.from, JSON.stringify(back), false); msgs.push('Back: ' + (x3.msg || '')); }
+  for (const d of dels) { const o = await fsOp({type: 'delete', path: joinPath(d.base, d.rel), reason: 'Sync task "' + tk.name + '" (full sync).'}); if (o.ok && o.entryId) ids.push(o.entryId); }
+  if (dels.length) msgs.push('Moved ' + ids.length + ' file(s) to Trash.');
+  if (tk.mode === 'move') { const mv = copyF.concat(diffF); for (const rel of mv) { const o = await fsOp({type: 'delete', path: joinPath(tk.from, rel), reason: 'Sync task "' + tk.name + '" (move).'}); if (o.ok && o.entryId) ids.push(o.entryId); } msgs.push('Moved ' + mv.length + ' original(s) to Trash.'); }
+  tk.last = syncStamp(); syncLog(tk, msgs.join(' ')); persist(); toast(msgs.join(' ')); if (ids.length) showUndo('Removed files are in the Trash.', ids); renderFiles(); return true;
+}
+let syncAsking = false;
+setInterval(async () => {
+  try {
+    if (syncAsking || !S.settings || !$('files').classList.contains('open')) return;
+    const now = new Date(), day = now.toDateString();
+    for (const tk of syncTasks()) { const s = tk.sched; if (!s || s.type === 'off' || !tk.from || !tk.to) continue;
+      let due = false;
+      if (s.type === 'periodic') due = Date.now() >= (s.next || 0);
+      else { const [hh, mm] = s.time.split(':').map(Number); due = s.lastDay !== day && (now.getHours() > hh || (now.getHours() === hh && now.getMinutes() >= mm)); }
+      if (!due) continue;
+      syncAsking = true;
+      if (s.type === 'periodic') s.next = Date.now() + s.mins * 60000; else s.lastDay = day;
+      persist(); try { await syncRun(tk, true); } finally { syncAsking = false; } break; }
+  } catch (e) { syncAsking = false; }
+}, 60000);
+
+/* ---- File sync (old one-shot, kept) ---- */
 async function folderPick(title, start) {
   let p = start || FS.root;
   for (;;) {

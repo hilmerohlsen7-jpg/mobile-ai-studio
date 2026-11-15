@@ -1076,12 +1076,13 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
             try {
                 val a = walkRel(File(src), 20000); val b = walkRel(File(dst), 20000)
-                val missing = JSONArray(); val changed = JSONArray(); var same = 0
+                val missing = JSONArray(); val changed = JSONArray(); val extra = JSONArray(); var same = 0
                 for ((rel, f) in a) { val g = b[rel]
                     if (g == null) missing.put(JSONObject().put("rel", rel).put("size", f.length()))
                     else if (g.length() != f.length()) changed.put(JSONObject().put("rel", rel).put("size", f.length()).put("dstSize", g.length()))
                     else same++ }
-                fsReply(reqId, null, JSONObject().put("ok", true).put("missing", missing).put("changed", changed).put("same", same).put("partial", a.size >= 20000 || b.size >= 20000))
+                for ((rel, g) in b) if (!a.containsKey(rel)) extra.put(JSONObject().put("rel", rel).put("size", g.length()))
+                fsReply(reqId, null, JSONObject().put("ok", true).put("missing", missing).put("changed", changed).put("extra", extra).put("same", same).put("partial", a.size >= 20000 || b.size >= 20000))
             } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not compare.")) }
         }
     }
