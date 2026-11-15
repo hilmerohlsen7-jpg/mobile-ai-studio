@@ -2421,6 +2421,7 @@ const SYNC_HELP = ['File synchronization lets you set up a pair of folders and k
   'Source to destination copies what is missing. Full sync also removes files from the destination that no longer exist in the source. Bidirectional copies missing files both ways. Move copies, then removes the originals.',
   'Nothing is ever deleted for good: removed files go to the Trash and Undo brings them back. If a file with the same name but a different size exists, it is saved as an extra copy, never replaced.',
   'Test shows what would happen without changing anything. Run asks you first, every time.',
+  'From and To can be a folder on this phone or on a saved server or Google Drive; one side must be this phone. Nothing is ever deleted on a server from here, and different-size files are not copied to or from servers.',
   'Schedule: when the app is open and a task is due, it asks you before running. Tasks do not run by themselves while the app is closed.'];
 function syncLog(tk, msg) { tk.logs = tk.logs || []; tk.logs.unshift({t: Date.now(), msg: msg}); tk.logs.length = Math.min(tk.logs.length, 50); }
 function syncStamp() { const d = new Date(); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
@@ -2453,8 +2454,8 @@ function syncPanel(pn, tk) {
     const act = (ic, t, sub, fn) => body.append(h('div', {style: 'display:flex;align-items:center;gap:10px;padding:10px 0', onclick: fn}, h('span', {style: 'font-size:1.5rem'}, ic), h('div', null, h('b', null, t), sub ? h('div', {style: 'font-size:.8rem;color:#555'}, sub) : null)));
     body.append(h('div', null, h('b', null, 'Last sync: '), tk.last || 'Not yet synced'));
     fld('Name:', tk.name, async () => { const n = await askText('New name for this task', tk.name); if (n && n.trim()) { tk.name = n.trim().slice(0, 40); persist(); re(); } });
-    fld('From', tk.from, async () => { const p = await folderPick('Copy FROM this folder', tk.from || FS.root); if (p) { tk.from = p; persist(); re(); } });
-    fld('To', tk.to, async () => { const p = await folderPick('Copy TO this folder', tk.to || FS.root); if (p) { tk.to = p; persist(); re(); } });
+    fld('From', epLabel(tk.from), async () => { const p = await epPick('Copy FROM', tk.from); if (p) { tk.from = p; persist(); re(); } });
+    fld('To', epLabel(tk.to), async () => { const p = await epPick('Copy TO', tk.to); if (p) { tk.to = p; persist(); re(); } });
     const m = SYNC_MODES.find(x => x[0] === tk.mode) || SYNC_MODES[0];
     dd('Mode', m[1], m[2], async () => { const v = await choose('Mode', SYNC_MODES.map(x => ({label: x[1] + ' — ' + x[2], value: x[0]}))); if (v) { tk.mode = v; persist(); re(); } });
     dd('Schedule', syncSchedText(tk.sched), '', async () => {
@@ -2469,43 +2470,90 @@ function syncPanel(pn, tk) {
   }
   return box;
 }
+const epC = x => x && typeof x === 'object' ? (S.settings.conns || []).find(c => c.id === x.c) : null;
+const epP = x => x && typeof x === 'object' ? x.p : (x || '');
+const epLabel = x => !x ? '' : typeof x === 'object' ? ((epC(x) || {name: '?'}).name + ' ' + x.p) : x;
+const epRem = x => !!(x && typeof x === 'object');
+async function remFolderPick(c, title, start) {
+  let p = start || c.path || '/';
+  for (;;) {
+    const r = await remoteCall({remote: c}, {type: 'list', path: p}); if (!r.ok) { toast(r.msg || 'Could not open that.'); return null; }
+    const kids = r.items.filter(x => x.dir).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const opts = [{label: '✔ Use this folder', value: '#use'}]; if (p !== '/') opts.push({label: '⬆ Up', value: '#up'});
+    kids.forEach(k => opts.push({label: '\u{1F4C1} ' + k.name, value: k.name}));
+    const v = await choose(title + ': ' + c.name + ' ' + p, opts); if (!v) return null;
+    if (v === '#use') return p; if (v === '#up') p = parentOf(p); else p = joinPath(p, v);
+  }
+}
+async function epPick(title, cur) {
+  const conns = S.settings.conns || [];
+  const opts = [{label: '\u{1F4F1} This phone', value: '#local'}].concat(conns.map(c => ({label: '☁ ' + c.name + '  (' + (c.type === 'gdrive' ? 'Google Drive' : c.type === 'saf' ? 'picked folder' : c.type.toUpperCase()) + ')', value: c.id})));
+  const v = await choose(title + ': where?', opts); if (!v) return null;
+  if (v === '#local') { const p = await folderPick(title, typeof cur === 'string' && cur ? cur : FS.root); return p || null; }
+  const c = conns.find(x => x.id === v), p = await remFolderPick(c, title, epRem(cur) && cur.c === v ? cur.p : null); return p ? {c: v, p: p} : null;
+}
+async function epWalk(x) {
+  if (epRem(x)) { const c = epC(x); if (!c) throw new Error('That server is not saved any more.'); const r = await remoteCall({remote: c}, {type: 'walk', path: x.p}); if (!r.ok) throw new Error(r.msg || 'Could not read the server.'); const m = new Map(); r.files.forEach(f => m.set(f.rel, f.size)); return m; }
+  const m = new Map(), st = [[x, '']]; while (st.length && m.size < 20000) { const [d, rel] = st.pop(); const r = fsJson('fsList', d); if (!r.ok) continue; r.items.forEach(it => { if (it.dir) st.push([joinPath(d, it.name), rel + it.name + '/']); else m.set(rel + it.name, it.size || 0); }); }
+  return m;
+}
 async function syncPlan(tk) {
-  if (!tk.from || !tk.to) { toast('Set both From and To first.'); return null; }
-  if (tk.from === tk.to || tk.to.startsWith(tk.from + '/') || tk.from.startsWith(tk.to + '/')) { toast('From and To must be two separate folders (not one inside the other).'); return null; }
-  const r = await fsCall('fsSyncPlan', tk.from, tk.to); if (!r.ok) { toast(r.msg || 'Could not compare.'); return null; } return r;
+  if (!epP(tk.from) || !epP(tk.to)) { toast('Set both From and To first.'); return null; }
+  if (epRem(tk.from) && epRem(tk.to)) { toast('Server to server is not supported yet. One side must be this phone.'); return null; }
+  if (!epRem(tk.from) && !epRem(tk.to) && (tk.from === tk.to || tk.to.startsWith(tk.from + '/') || tk.from.startsWith(tk.to + '/'))) { toast('From and To must be two separate folders (not one inside the other).'); return null; }
+  if (!epRem(tk.from) && !epRem(tk.to)) { const r = await fsCall('fsSyncPlan', tk.from, tk.to); if (!r.ok) { toast(r.msg || 'Could not compare.'); return null; } return r; }
+  try {
+    const A = await epWalk(tk.from), B = await epWalk(tk.to), missing = [], changed = [], extra = []; let same = 0;
+    A.forEach((sz, rel) => { if (!B.has(rel)) missing.push({rel: rel, size: sz}); else if (B.get(rel) !== sz) changed.push({rel: rel, size: sz}); else same++; });
+    B.forEach((sz, rel) => { if (!A.has(rel)) extra.push({rel: rel, size: sz}); });
+    return {ok: true, missing: missing, changed: changed, extra: extra, same: same, remote: true};
+  } catch (e) { toast(e.message || 'Could not compare.'); return null; }
+}
+/* copy the listed files from endpoint a to endpoint b. Returns a message. */
+async function epCopy(a, b, rels, asCopy) {
+  if (!rels.length) return '';
+  if (!epRem(a) && !epRem(b)) { const x = await fsCall('fsSyncRun', a, b, JSON.stringify(rels), asCopy); return x.msg || ''; }
+  if (asCopy) return rels.length + ' different file(s) skipped (servers cannot make extra copies yet).';
+  let x; if (epRem(a)) x = await remoteCall({remote: epC(a)}, {type: 'getMany', path: a.p, destDir: b, rels: rels}); else x = await remoteCall({remote: epC(b)}, {type: 'putMany', path: a, destDir: b.p, rels: rels});
+  return x.ok ? 'Copied ' + x.done + ' file(s)' + (x.failed ? ', ' + x.failed + ' could not be copied.' : '.') : (x.msg || 'Copy failed.');
 }
 async function syncTest(tk) {
   toast('Comparing...'); const r = await syncPlan(tk); if (!r) return;
-  const del = tk.mode === 'full' ? r.extra.length : tk.mode === 'move' ? r.missing.length + r.same : 0, back = tk.mode === 'bi' ? r.extra.length : 0;
+  const delSide = tk.mode === 'full' ? !epRem(tk.to) : tk.mode === 'move' ? !epRem(tk.from) : false;
+  const del = tk.mode === 'full' ? (delSide ? r.extra.length : 0) : tk.mode === 'move' && delSide ? r.missing.length : 0, back = tk.mode === 'bi' ? r.extra.length : 0;
   const msg = 'Test: ' + r.missing.length + ' to copy, ' + r.changed.length + ' different, ' + r.same + ' same' + (back ? ', ' + back + ' to copy back' : '') + (del ? ', ' + del + ' to move to Trash' : '') + '. Nothing was changed.';
   syncLog(tk, msg); persist(); toast(msg); renderFiles();
 }
 async function syncRun(tk, quiet) {
   toast('Comparing...'); const r = await syncPlan(tk); if (!r) return false;
+  const rem = epRem(tk.from) || epRem(tk.to);
   const copyF = r.missing.map(m => m.rel), diffF = r.changed.map(m => m.rel), back = tk.mode === 'bi' ? r.extra.map(m => m.rel) : [];
-  const dels = tk.mode === 'full' ? r.extra.map(m => ({base: tk.to, rel: m.rel})) : [];
+  const delOk = tk.mode === 'full' ? !epRem(tk.to) : false;
+  const dels = delOk ? r.extra.map(m => ({base: tk.to, rel: m.rel})) : [];
+  const moveOk = tk.mode === 'move' && !epRem(tk.from);
   if (!copyF.length && !diffF.length && !back.length && !dels.length) { syncLog(tk, 'Nothing to do. The folders match.'); tk.last = syncStamp(); persist(); toast('Nothing to do. The folders match.'); renderFiles(); return true; }
-  const rows = [['From', tk.from], ['To', tk.to], ['Mode', (SYNC_MODES.find(x => x[0] === tk.mode) || SYNC_MODES[0])[1]], ['Copy to destination', copyF.length + ' file(s)'], ['Different size (saved as extra copy)', diffF.length + ' file(s)']];
+  const rows = [['From', epLabel(tk.from)], ['To', epLabel(tk.to)], ['Mode', (SYNC_MODES.find(x => x[0] === tk.mode) || SYNC_MODES[0])[1]], ['Copy to destination', copyF.length + ' file(s)'], ['Different size', diffF.length + ' file(s)' + (rem ? ' (skipped: not copied to or from servers)' : ' (saved as extra copies)')]];
   if (back.length) rows.push(['Copy back to source', back.length + ' file(s)']);
   if (dels.length) rows.push(['Move to Trash at destination', dels.length + ' file(s)\n' + dels.slice(0, 10).map(d => d.rel).join('\n') + (dels.length > 10 ? '\n... and ' + (dels.length - 10) + ' more' : '')]);
-  if (tk.mode === 'move') rows.push(['After copying', 'The originals that were copied are moved to the Trash']);
-  const c = await askApproval({title: 'Run sync task "' + tk.name + '"', path: tk.to, reason: quiet ? 'This task was scheduled and is due now.' : 'You ran this sync task.', rows: rows, primary: {label: 'Approve: run it', value: 'ok'}, note: 'Nothing is deleted for good. Removed files go to the Trash and Undo brings them back.'});
+  if (moveOk) rows.push(['After copying', 'The originals that were copied are moved to the Trash']);
+  if (rem && ((tk.mode === 'full' && !delOk) || (tk.mode === 'move' && !moveOk))) rows.push(['Not deleted', 'Nothing is ever deleted on a server from here, so this run only copies']);
+  const c = await askApproval({title: 'Run sync task "' + tk.name + '"', path: epLabel(tk.to), reason: quiet ? 'This task was scheduled and is due now.' : 'You ran this sync task.', rows: rows, primary: {label: 'Approve: run it', value: 'ok'}, note: 'Nothing is deleted for good. Removed files go to the Trash and Undo brings them back.'});
   if (c === 'deny') { syncLog(tk, 'Cancelled by you.'); persist(); renderFiles(); return false; }
   toast('Working...'); const msgs = [], ids = [];
-  const x1 = await fsCall('fsSyncRun', tk.from, tk.to, JSON.stringify(copyF), false); msgs.push(x1.msg || '');
-  if (diffF.length) { const x2 = await fsCall('fsSyncRun', tk.from, tk.to, JSON.stringify(diffF), true); msgs.push(x2.msg || ''); }
-  if (back.length) { const x3 = await fsCall('fsSyncRun', tk.to, tk.from, JSON.stringify(back), false); msgs.push('Back: ' + (x3.msg || '')); }
+  msgs.push(await epCopy(tk.from, tk.to, copyF, false));
+  if (diffF.length) msgs.push(await epCopy(tk.from, tk.to, diffF, true));
+  if (back.length) msgs.push('Back: ' + await epCopy(tk.to, tk.from, back, false));
   for (const d of dels) { const o = await fsOp({type: 'delete', path: joinPath(d.base, d.rel), reason: 'Sync task "' + tk.name + '" (full sync).'}); if (o.ok && o.entryId) ids.push(o.entryId); }
   if (dels.length) msgs.push('Moved ' + ids.length + ' file(s) to Trash.');
-  if (tk.mode === 'move') { const mv = copyF.concat(diffF); for (const rel of mv) { const o = await fsOp({type: 'delete', path: joinPath(tk.from, rel), reason: 'Sync task "' + tk.name + '" (move).'}); if (o.ok && o.entryId) ids.push(o.entryId); } msgs.push('Moved ' + mv.length + ' original(s) to Trash.'); }
-  tk.last = syncStamp(); syncLog(tk, msgs.join(' ')); persist(); toast(msgs.join(' ')); if (ids.length) showUndo('Removed files are in the Trash.', ids); renderFiles(); return true;
+  if (moveOk) { const mv = copyF.concat(diffF); for (const rel of mv) { const o = await fsOp({type: 'delete', path: joinPath(tk.from, rel), reason: 'Sync task "' + tk.name + '" (move).'}); if (o.ok && o.entryId) ids.push(o.entryId); } msgs.push('Moved ' + mv.length + ' original(s) to Trash.'); }
+  tk.last = syncStamp(); syncLog(tk, msgs.filter(Boolean).join(' ')); persist(); toast(msgs.filter(Boolean).join(' ')); if (ids.length) showUndo('Removed files are in the Trash.', ids); renderFiles(); return true;
 }
 let syncAsking = false;
 setInterval(async () => {
   try {
     if (syncAsking || !S.settings || !$('files').classList.contains('open')) return;
     const now = new Date(), day = now.toDateString();
-    for (const tk of syncTasks()) { const s = tk.sched; if (!s || s.type === 'off' || !tk.from || !tk.to) continue;
+    for (const tk of syncTasks()) { const s = tk.sched; if (!s || s.type === 'off' || !epP(tk.from) || !epP(tk.to)) continue;
       let due = false;
       if (s.type === 'periodic') due = Date.now() >= (s.next || 0);
       else { const [hh, mm] = s.time.split(':').map(Number); due = s.lastDay !== day && (now.getHours() > hh || (now.getHours() === hh && now.getMinutes() >= mm)); }

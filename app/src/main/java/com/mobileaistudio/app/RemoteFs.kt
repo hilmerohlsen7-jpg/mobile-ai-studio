@@ -306,4 +306,32 @@ object RemoteFs {
         }
         go(path)
     }
+
+    // ---- File sync helpers: one connection for a whole batch. Never replace or delete anything. ----
+    fun walk(c: Conn, root: String, cap: Int = 20000): JSONArray = open(c).use { cl ->
+        val out = JSONArray(); val stack = ArrayDeque<String>(); stack.add(root.trimEnd('/')); var dirs = 0
+        while (stack.isNotEmpty() && out.length() < cap && dirs++ < 5000) {
+            val d = stack.removeLast()
+            for (i in cl.list(if (d.isEmpty()) "/" else d)) {
+                val p = d + "/" + i.name
+                if (i.dir) stack.add(p) else out.put(JSONObject().put("rel", p.removePrefix(root.trimEnd('/')).trimStart('/')).put("size", i.size))
+            }
+        }
+        out
+    }
+    fun getMany(c: Conn, base: String, destDir: File, rels: List<String>): IntArray = open(c).use { cl ->
+        var ok = 0; var bad = 0
+        for (rel in rels) { try { if (rel.contains("..")) { bad++; continue }
+            val t = File(destDir, rel); if (t.exists()) { bad++; continue }
+            t.parentFile?.mkdirs(); cl.download(join(base, rel), t); ok++ } catch (e: Exception) { bad++ } }
+        intArrayOf(ok, bad)
+    }
+    fun putMany(c: Conn, srcDir: File, base: String, rels: List<String>): IntArray = open(c).use { cl ->
+        var ok = 0; var bad = 0; val made = HashSet<String>()
+        for (rel in rels) { try { if (rel.contains("..")) { bad++; continue }
+            val parts = rel.split("/"); var cur = base.trimEnd('/')
+            for (k in 0 until parts.size - 1) { cur = cur + "/" + parts[k]; if (made.add(cur)) { try { cl.mkdir(cur) } catch (e: Exception) {} } }
+            cl.upload(File(srcDir, rel), join(base, rel)); ok++ } catch (e: Exception) { bad++ } }
+        intArrayOf(ok, bad)
+    }
 }

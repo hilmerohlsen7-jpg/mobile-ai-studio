@@ -919,6 +919,19 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                         val n = RemoteFs.upload(c, File(o.getString("path")), o.getString("destDir"))
                         fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Sent $n file(s) to the server."))
                     }
+                    "walk" -> fsReply(reqId, null, JSONObject().put("ok", true).put("files", RemoteFs.walk(c, o.getString("path"))))
+                    "getMany" -> {
+                        if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@Thread }
+                        val a = o.getJSONArray("rels"); val l = (0 until a.length()).map { a.getString(it) }
+                        val r = RemoteFs.getMany(c, o.getString("path"), File(o.getString("destDir")), l)
+                        fsReply(reqId, null, JSONObject().put("ok", true).put("done", r[0]).put("failed", r[1]))
+                    }
+                    "putMany" -> {
+                        if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@Thread }
+                        val a = o.getJSONArray("rels"); val l = (0 until a.length()).map { a.getString(it) }
+                        val r = RemoteFs.putMany(c, File(o.getString("path")), o.getString("destDir"), l)
+                        fsReply(reqId, null, JSONObject().put("ok", true).put("done", r[0]).put("failed", r[1]))
+                    }
                     "mkdir" -> { RemoteFs.mkdir(c, o.getString("path")); fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Folder created.")) }
                     "rename" -> { RemoteFs.rename(c, o.getString("path"), o.getString("to")); fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Renamed.")) }
                     "delete" -> { RemoteFs.delete(c, o.getString("path")); fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Deleted from the server.")) }
