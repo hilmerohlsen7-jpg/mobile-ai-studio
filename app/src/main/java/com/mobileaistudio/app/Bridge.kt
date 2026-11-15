@@ -1198,7 +1198,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface fun lanCancel() { lanCancel = true }
     @JavascriptInterface fun lanProgress(): String = JSONObject().put("pct", lanDone * 100 / 254).put("found", lanFound).toString()
     @JavascriptInterface
-    fun lanScan(reqId: String) {
+    fun lanScan(reqId: String) { lanScanPort(reqId, 445) }
+    @JavascriptInterface
+    fun lanScanPort(reqId: String, port: Int) {
         lanCancel = false; lanDone = 0; lanFound = 0
         Thread {
             val found = java.util.Collections.synchronizedList(ArrayList<String>())
@@ -1213,7 +1215,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 for (i in 1..254) pool.execute {
                     val ip = "$base.$i"
                     try {
-                        if (!lanCancel && ip != mine) { java.net.Socket().use { it.connect(java.net.InetSocketAddress(ip, 445), 400); found.add(ip); lanFound = found.size } }
+                        if (!lanCancel && ip != mine) { java.net.Socket().use { it.connect(java.net.InetSocketAddress(ip, port), 400); found.add(ip); lanFound = found.size } }
                     } catch (e: Exception) {}
                     lanDone++
                 }
