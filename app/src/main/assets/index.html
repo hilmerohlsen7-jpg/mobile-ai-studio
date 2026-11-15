@@ -2128,14 +2128,14 @@ function buildHome(o, idx) {
   const wrap = h('div', {class: 'xwrap'}), list = h('div', {class: 'xlist'});
   pn.hopen = pn.hopen || new Set();
   let into = null;
-  const row = (ico, title, sub, fn, ind, key, open, tog, hold, tf) => {
+  const row = (ico, title, sub, fn, ind, key, open, tog, hold, tf, tail) => {
     const fk = key || (ind ? null : '~t:' + title), setF = () => { if (fk) pn.focus = fk; };
     const fkk = fk && fk[0] === '~' ? (fk.startsWith('~t:') ? ((HOME_ITEMS.find(x => x[1] === title) || [])[0] || (title === 'Show...' ? 'show' : null)) : fk.slice(1)) : null;
     if (!tog && !hold && !ind && fkk) hold = () => { FS.active = idx; featureMenu(fkk, idx); };
     const flip = () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); };
     const el = h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
     h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; setF(); if (tf) { tf(); return; } flip(); renderFiles(); }}, key ? (open ? '▼' : '▶') : ''),
-    h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null));
+    h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null), tail || null);
     if (tog && key) holdOpen(el, () => { setF(); if (tf) tf(); else { flip(); renderFiles(); } }, () => { setF(); fn(); }); else if (hold) holdOpen(el, () => { setF(); fn(); }, hold); else el.onclick = () => { setF(); fn(); };
     const tgt = into || list;
     if (fk && !key && pn.focus === fk) { const b = h('div', {class: 'xbox'}); b.append(el); tgt.append(b); } else tgt.append(el); };
@@ -2234,12 +2234,18 @@ function buildHome(o, idx) {
       }
       else if (k === 'sync') {
         const op = pn.hopen.has('~sync'), tasks = syncTasks().filter(x => !pn.sfilter || x.name.toLowerCase().includes(pn.sfilter.toLowerCase()));
-        grp('~sync', list, () => row(ico, t, '', () => { act(); featureMenu('sync', idx); }, 0, '~sync', op, true), L => {
-          if (!op) return;
-          tasks.forEach(tk => { const key = 'sy:' + tk.id, cop = pn.hopen.has(key);
-            grp(key, L, () => row('\u{1F4C5}', tk.name, tk.last ? 'Last sync: ' + tk.last : '', () => {}, 1, key, cop, true, () => syncTaskMenu(pn, tk)), L2 => { if (cop) L2.append(syncPanel(pn, tk)); }); });
+        const fs = pn.focus === '~sync', anc = op && !!pn.focus && pn.focus.startsWith('sy:'), sbx = fs || anc ? h('div', {class: 'xbox' + (fs ? '' : ' gr')}) : null, prev0 = into, L = sbx || list;
+        into = L; row(ico, t, '', () => { act(); featureMenu('sync', idx); }, 0, '~sync', op, true);
+        if (op) {
+          tasks.forEach(tk => { const key = 'sy:' + tk.id, cop = pn.hopen.has(key), tb = pn.focus === key ? h('div', {class: 'xbox'}) : null;
+            into = tb || L;
+            row('\u{1F4C5}', tk.name, tk.last ? 'Last sync: ' + tk.last : '', () => syncTaskMenu(pn, tk), 1, key, cop, true, null, null,
+              h('span', {style: 'font-size:1.5rem;padding:4px 10px;color:#4aa3e8', onclick: e => { e.stopPropagation(); pn.focus = key; act(); syncRun(tk); }}, '\u21BB'));
+            into = L; if (tb) L.append(tb);
+            if (cop) L.append(syncPanel(pn, tk)); });
           row('+', 'Add task', '', () => { act(); syncAdd(pn); }, 1, null, false, false, () => { act(); ctxMenu('Add task', [{ic: 'plus', label: 'Add task', col: '#6cc24a', fn: () => syncAdd(pn)}]); });
-        });
+        }
+        into = prev0; if (sbx) list.append(sbx);
       }
       else if (k === 'dlna') {
         const op = pn.hopen.has('~dlna');
@@ -2431,11 +2437,7 @@ async function syncAdd(pn) {
   syncTasks().push(tk); pn.hopen.add('~sync'); pn.hopen.add('sy:' + tk.id); pn.focus = 'sy:' + tk.id; persist(); renderFiles();
 }
 function syncTaskMenu(pn, tk) {
-  ctxMenu(tk.name, [
-    {ic: 'play', label: 'Run now...', col: '#e8b84a', fn: () => syncRun(tk)},
-    {ic: 'check', label: 'Test (changes nothing)', col: '#4aa3e8', fn: () => syncTest(tk)},
-    {ic: 'pencil', label: 'Rename', col: '#9aa4b2', fn: async () => { const n = await askText('New name for this task', tk.name); if (n && n.trim()) { tk.name = n.trim().slice(0, 40); persist(); renderFiles(); } }},
-    {ic: 'trash', label: 'Delete this task...', danger: true, fn: async () => { if (await askConfirm('Delete the task "' + tk.name + '"? Your folders are not touched.', 'Delete')) { S.settings.syncTasks = syncTasks().filter(x => x !== tk); pn.hopen.delete('sy:' + tk.id); pn.focus = '~sync'; persist(); renderFiles(); } }}]);
+  ctxMenu(tk.name, [{ic: 'minus', label: 'Remove', col: '#6cc24a', fn: async () => { if (await askConfirm('Remove the task "' + tk.name + '"? Your folders are not touched.', 'Remove')) { S.settings.syncTasks = syncTasks().filter(x => x !== tk); pn.hopen.delete('sy:' + tk.id); pn.focus = '~sync'; persist(); renderFiles(); } }}]);
 }
 function syncSchedText(s) { return !s || s.type === 'off' ? 'Disabled' : s.type === 'daily' ? 'Daily at ' + s.time : 'Every ' + (s.mins >= 1440 ? '1 day' : s.mins >= 60 ? (s.mins / 60) + (s.mins === 60 ? ' hour' : ' hours') : s.mins + ' minutes'); }
 function syncPanel(pn, tk) {
@@ -2466,7 +2468,6 @@ function syncPanel(pn, tk) {
       persist(); re(); });
     act('\u{1F4BE}', 'Save', '', () => { persist(); toast('Saved.'); });
     act('✅', 'Test', 'Verify settings. No files are copied or deleted during test', () => syncTest(tk));
-    act('▶', 'Run now', 'Asks you first, then copies', () => syncRun(tk));
   }
   return box;
 }
@@ -3539,6 +3540,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
     alert: '<path d="M10.3 4.3L2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     eyeOff: '<path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.6 7.6C3.8 9.3 2 12 2 12s3.5 6 10 6a9.7 9.7 0 0 0 4-.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+    minus: '<path d="M5 12h14"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
     pencil: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
