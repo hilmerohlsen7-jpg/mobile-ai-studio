@@ -972,6 +972,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     @JavascriptInterface
+    fun appListAsync(reqId: String) {
+        fsPool.execute { try { fsReply(reqId, null, JSONObject().put("ok", true).put("apps", JSONArray(appList()))) } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not read the apps.")) } }
+    }
+
+    @JavascriptInterface
     fun appList(): String {
         val pm = activity.packageManager; val arr = JSONArray()
         try {
@@ -1255,7 +1260,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 else -> activity.packageManager.getLaunchIntentForPackage(pkg) ?: return JSONObject().put("ok", false).put("msg", "This app has no screen to open.").toString()
             }
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            ui.post { try { activity.startActivity(i) } catch (e: Exception) {} }
+            val sys = try { (activity.packageManager.getApplicationInfo(pkg, 0).flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 } catch (e: Exception) { false }
+            if (action == "uninstall" && sys) return JSONObject().put("ok", false).put("msg", "This is a system app. Android only lets it be updated or disabled from App info.").toString()
+            ui.post { try { activity.startActivity(i) } catch (e: Exception) { activity.runOnUiThread { android.widget.Toast.makeText(activity, "Android would not open that: " + (e.message ?: ""), android.widget.Toast.LENGTH_LONG).show() } } }
             JSONObject().put("ok", true).toString()
         } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not.").toString() }
     }

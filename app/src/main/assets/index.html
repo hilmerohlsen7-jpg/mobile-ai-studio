@@ -259,6 +259,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 #files,#files *,.xmback,.xmback *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 #files input,#files textarea,.xhex{-webkit-user-select:text;user-select:text}
 .xbox.gr{border-color:#555}
+.xspin{display:inline-block;width:22px;height:22px;border:3px solid #444;border-top-color:#1f9d9d;border-radius:50%;animation:xsp .8s linear infinite;margin-right:8px}@keyframes xsp{to{transform:rotate(360deg)}}
 .xmback{position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.35)}
 .xmenu{position:absolute;top:4vh;left:30vw;right:4vw;max-height:92vh;overflow-y:auto;background:#212121;border-radius:6px;box-shadow:0 6px 24px #000a}
 .xmt{background:#3a3a3a;padding:10px 14px;font-size:.95rem;color:#ccc;position:sticky;top:0;word-break:break-all;z-index:1}
@@ -2212,14 +2213,15 @@ function buildHome(o, idx) {
       else if (k === 'recent') row(ico, t, 'Files changed in the last 7 days', async () => { act(); toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); });
       else if (k === 'apps') {
         const op = pn.hopen.has('~apps');
-        const all = () => { if (!pn.allApps) { try { pn.allApps = JSON.parse(Android.appList()).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())); } catch (e) { pn.allApps = []; } } return pn.allApps; };
+        const all = () => { if (!pn.allApps && !pn.appsBusy) { pn.appsBusy = true; fsCall('appListAsync').then(r => { pn.appsBusy = false; pn.allApps = r.ok ? r.apps.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())) : []; if (!r.ok) toast(r.msg || 'Could not read the apps.'); if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); } return pn.allApps || []; };
         pn.icons = pn.icons || {};
         const icons = pkgs => { const todo = pkgs.filter(k2 => !pn.icons[k2] && !(pn.iconAsked || (pn.iconAsked = {}))[k2]); if (!todo.length) return; todo.forEach(k2 => pn.iconAsked[k2] = 1);
           (async () => { for (let i = 0; i < todo.length; i += 20) { const r = await fsCall('appIcons', JSON.stringify(todo.slice(i, i + 20))); if (r && r.icons) Object.assign(pn.icons, r.icons); if ($('files').classList.contains('open') && FS.view === 'list' && !pn.sub) renderFiles(); } })(); };
         const sec = (key, title, ico2, test, L) => {
-          const so = pn.hopen.has(key);
-          grp(key, L, () => row(ico2, title, '', () => {}, 1, key, so, true), L2 => {
+          const so = pn.hopen.has(key); if (so) all();
+          grp(key, L, () => row(ico2, title, '', () => {}, 1, key, so, true, null, null, so && pn.appsBusy ? h('span', {class: 'xspin'}) : null), L2 => {
             if (!so) return; const items = all().filter(test); icons(items.map(a => a.pkg));
+            if (!items.length && pn.appsBusy) return;
             if (!items.length) L2.append(h('div', {class: 'xrow', style: 'padding-left:46px'}, h('span', {class: 'xnm'}, h('small', null, 'Empty'))));
             items.forEach(a => { const ak = 'apk:' + a.pkg; pn.anames = pn.anames || {}; pn.anames[ak] = a.name;
               grp(ak, L2, () => { const el = h('div', {class: 'xrow', style: 'padding-left:46px;align-items:center'},
