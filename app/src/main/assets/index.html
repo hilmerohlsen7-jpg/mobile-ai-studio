@@ -2153,6 +2153,7 @@ function buildHome(o, idx) {
     const el = h('div', {class: 'xrow' + (marked ? ' sel' : ''), style: 'padding-left:' + (6 + ind * 20) + 'px'},
       h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); togg(); }}, it.dir ? (op ? '▼' : '▶') : ''),
       h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? 'Folder' : fmtSize(it.size || 0) + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
+      (c && it.dir && pn.rl && pn.rl[fk] ? h('span', {class: 'xspin'}) : null),
       h('span', {class: 'xchk', onclick: e => { e.stopPropagation(); if (c) { pn.rsel = pn.rsel || new Map(); if (pn.rsel.has(fk)) pn.rsel.delete(fk); else pn.rsel.set(fk, {c: c, p: p, name: it.name, dir: it.dir, size: it.size || 0}); } else { if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); } renderFiles(); }}, '✔'));
     const menu = () => itemMenu(idx, c, p, it, true);
     if (it.dir) holdOpen(el, togg, menu);
@@ -2168,7 +2169,7 @@ function buildHome(o, idx) {
     if (pn.rerr[k0]) { parent.append(h('div', {class: 'xrow', style: pad, onclick: () => { delete pn.rerr[k0]; renderFiles(); }}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', {style: 'color:#ff8a8a'}, pn.rerr[k0] + '  ·  tap to retry')))); return; }
     if (!pn.rc[k0]) {
       if (!pn.rl[k0]) { pn.rl[k0] = true; remoteCall({remote: c}, {type: 'list', path: path}).then(r => { delete pn.rl[k0]; if (r.ok) pn.rc[k0] = r.items; else pn.rerr[k0] = r.msg || 'Could not open this.'; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); }
-      parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'Loading...')))); return; }
+      parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('span', {class: 'xspin'}), h('small', null, 'Loading...')))); return; }
     const items = pn.rc[k0].filter(x => FS.hidden || x.name[0] !== '.');
     if (!items.length) parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'Empty'))));
     fsSortItems(items).forEach(it => { const p = joinPath(path, it.name), fk = fkey(c, p), op = pn.hopen.has(fk);
@@ -2201,7 +2202,7 @@ function buildHome(o, idx) {
             davServerRow(bx);
             ((pn.wscan && pn.wscan.hosts) || []).filter(x => !conns.some(c => c.host.indexOf(x.host) >= 0)).forEach(x => row('\u{1F4F1}', x.name || x.host, x.host + '  \u00b7  a phone sharing files. Tap to add.', () => { act(); addServer('dav', null, {host: 'http://' + x.host + ':8090/', name: x.name !== x.host ? x.name : x.host}); }, 1));
           }
-          mine.forEach(c => { const ck = 'c:' + c.id, cop = pn.hopen.has(ck); grp(ck, bx, () => row(c.type === 'gdrive' || c.type === 'saf' ? '\u2601' : '\u2022', c.name, c.type === 'gdrive' ? 'Google Drive (own key)' : c.type === 'saf' ? 'Picked from this phone' : T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => connMenu(c), 1, ck, cop, true), L2 => { if (cop) { act(); rtree(c, c.path || '/', 2, L2); } }); });
+          mine.forEach(c => { const ck = 'c:' + c.id, cop = pn.hopen.has(ck); grp(ck, bx, () => row(c.type === 'gdrive' || c.type === 'saf' ? '\u2601' : '\u2022', c.name, c.type === 'gdrive' ? 'Google Drive (own key)' : c.type === 'saf' ? 'Picked from this phone' : T === 'dav' ? c.host.replace(/^https?:\/\//, '') : c.host + ':' + c.port, () => connMenu(c), 1, ck, cop, true, null, null, cop && pn.rl && pn.rl[fkey(c, c.path || '/')] ? h('span', {class: 'xspin'}) : null), L2 => { if (cop) { act(); rtree(c, c.path || '/', 2, L2); } }); });
           if (k === 'smb') {
             if (pn.lan && pn.lan.busy) bx.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching LAN servers...'), h('small', {id: 'lanpct'}, pn.lan.pct + '%  \u00b7  found ' + pn.lan.found)), h('span', {class: 'xchk', style: 'display:inline-block', onclick: () => { try { Android.lanCancel(); } catch (e) {} }}, '\u2715')));
             ((pn.lan && pn.lan.hosts) || []).filter(x => !conns.some(c => c.host === x.host)).forEach(x => row('\u{1F5A5}', x.name || x.host, x.host + '  \u00b7  found on this Wi-Fi. Tap to add.', () => { act(); addServer('smb', null, {host: x.host, name: x.name !== x.host ? x.name : ''}); }, 1));
@@ -2226,8 +2227,8 @@ function buildHome(o, idx) {
             items.forEach(a => { const ak = 'apk:' + a.pkg; pn.anames = pn.anames || {}; pn.anames[ak] = a.name;
               grp(ak, L2, () => { const el = h('div', {class: 'xrow', style: 'padding-left:46px;align-items:center'},
                 h('span', {class: 'xic'}, pn.icons[a.pkg] ? h('img', {src: 'data:image/png;base64,' + pn.icons[a.pkg], style: 'width:40px;height:40px;border-radius:8px'}) : '\u{1F4E6}'),
-                h('span', {class: 'xnm'}, h('b', null, a.name), h('small', null, a.pkg), a.splits ? h('small', null, 'Split APK ' + (a.splits + 1) + 'x') : null, h('small', {style: 'text-align:right'}, a.time ? fmtDate(a.time) : '')),
-                h('span', {style: 'text-align:right;font-size:.75rem;color:var(--mute);min-width:60px'}, h('div', null, a.version || ''), h('div', null, fmtSize(a.size))));
+                h('span', {class: 'xnm', style: 'min-width:0;flex:1;overflow:hidden'}, h('b', null, a.name), h('small', {style: 'word-break:break-all'}, a.pkg), a.splits ? h('small', null, 'Split APK ' + (a.splits + 1) + 'x') : null, h('small', {style: 'text-align:right'}, a.time ? fmtDate(a.time) : '')),
+                h('span', {style: 'text-align:right;font-size:.75rem;color:var(--mute);flex:0 0 76px;max-width:76px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis'}, h('div', {style: 'overflow:hidden;text-overflow:ellipsis'}, a.version || ''), h('div', null, fmtSize(a.size))));
                 const go = () => { act(); pn.focus = ak; renderFiles(); appSheet(a); };
                 holdOpen(el, go, go); (into || list).append(el); }); });
           });
@@ -2244,7 +2245,7 @@ function buildHome(o, idx) {
         grp('~vault', list, () => row(ico, t, '', menu, 0, '~vault', op, true), L => {
           if (!op) return;
           row('⚙', 'Options', '', opts, 1);
-          if (!pn.vlist) { vcall({type: 'list'}).then(x => { pn.vlist = x.vaults || []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xnm'}, h('small', null, 'Loading...')))); return; }
+          if (!pn.vlist) { vcall({type: 'list'}).then(x => { pn.vlist = x.vaults || []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xnm'}, h('span', {class: 'xspin'}), h('small', null, 'Loading...')))); return; }
           pn.vaults = pn.vaults || {};
           (pn.vlist || []).filter(v => !pn.vfilter || v.name.toLowerCase().includes(pn.vfilter.toLowerCase())).forEach(v => {
             const key = 'v:' + v.name, U = pn.vaults[v.name];
@@ -2282,7 +2283,7 @@ function buildHome(o, idx) {
           const D = pn.dl, ck = dev.control + '|' + id, pad = 'padding-left:' + (6 + ind * 20) + 'px';
           if (!D.c[ck]) {
             if (!D.l[ck]) { D.l[ck] = 1; fsCall('dlnaBrowse', dev.control, id).then(x => { delete D.l[ck]; if (!x.ok) toast(x.msg || 'Could not read.'); D.c[ck] = x.ok ? x.items : []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); }
-            parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'Loading...')))); return; }
+            parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('span', {class: 'xspin'}), h('small', null, 'Loading...')))); return; }
           if (!D.c[ck].length) parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'No files to show'))));
           D.c[ck].forEach(it => { const key = 'dc:' + dev.control + '|' + it.id; D.names[key] = it.title;
             if (it.container) { const o2 = pn.hopen.has(key); grp(key, parent, () => row('\u{1F4C1}', it.title, '', () => {}, ind, key, o2, true), L => { if (o2) dtree(dev, it.id, ind + 1, L); }); }
