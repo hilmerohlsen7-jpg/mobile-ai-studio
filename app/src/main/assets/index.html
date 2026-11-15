@@ -2092,6 +2092,7 @@ function openConn(cn) { const pn = FS.panes[FS.active]; pn.home = false; pn.remo
 function focusLabel(pn) {
   const f = pn.focus; if (!f) return 'Home';
   if (f.startsWith('~t:')) return f.slice(3);
+  if (f.startsWith('d:') || f.startsWith('dc:')) return 'DLNA' + (pn.dl && pn.dl.names[f] ? '/' + pn.dl.names[f] : '');
   if (f[0] === '~') { const it = HOME_ITEMS.find(x => x[0] === f.slice(1)); return it ? it[1] : 'Home'; }
   const conns = S.settings.conns || [], tn = c => c.type === 'gdrive' || c.type === 'saf' ? 'Google Drive' : c.type === 'dav' ? 'WebDAV' : c.type.toUpperCase();
   if (f.startsWith('c:')) { const c = conns.find(x => x.id === f.slice(2)); return c ? tn(c) + '/' + c.name : 'Home'; }
@@ -2185,7 +2186,30 @@ function buildHome(o, idx) {
       else if (k === 'apps') row(ico, t, 'Installed apps: open, info, uninstall, back up', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); });
       else if (k === 'vault') row(ico, t, 'Password-locked files', () => { pn.sub = 'vault'; pn.vault = null; renderFiles(); });
       else if (k === 'sync') row(ico, t, 'Compare two folders and copy what is missing', () => { act(); syncUi(); });
-      else if (k === 'dlna') row(ico, t, 'TVs, PCs and NAS sharing media on your Wi-Fi', () => { pn.sub = 'dlna'; pn.dl = null; renderFiles(); });
+      else if (k === 'dlna') {
+        const op = pn.hopen.has('~dlna');
+        const dscan = () => { pn.dl = {devs: null, c: {}, l: {}, names: {}}; const D = pn.dl; fsCall('dlnaScan').then(x => { if (pn.dl !== D) return; D.devs = x.devices || []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); };
+        const dtree = (dev, id, ind, parent) => {
+          const D = pn.dl, ck = dev.control + '|' + id, pad = 'padding-left:' + (6 + ind * 20) + 'px';
+          if (!D.c[ck]) {
+            if (!D.l[ck]) { D.l[ck] = 1; fsCall('dlnaBrowse', dev.control, id).then(x => { delete D.l[ck]; if (!x.ok) toast(x.msg || 'Could not read.'); D.c[ck] = x.ok ? x.items : []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); }
+            parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'Loading...')))); return; }
+          if (!D.c[ck].length) parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'No files to show'))));
+          D.c[ck].forEach(it => { const key = 'dc:' + dev.control + '|' + it.id; D.names[key] = it.title;
+            if (it.container) { const o2 = pn.hopen.has(key); grp(key, parent, () => row('\u{1F4C1}', it.title, '', () => {}, ind, key, o2, true), L => { if (o2) dtree(dev, it.id, ind + 1, L); }); }
+            else grp(key, parent, () => row('\u{1F4C4}', it.title, it.size ? fmtSize(it.size) : 'Media file', () => { pn.focus = key; renderFiles(); dlnaGet(it); }, ind, null, false, false, null)); });
+        };
+        grp('~dlna', list, () => row(ico, t, '', () => { act(); }, 0, '~dlna', op, true), L => {
+          if (!op) return;
+          if (!pn.dl) dscan();
+          const D = pn.dl;
+          if (!D.devs) { L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xic'}, '\u{1F50D}'), h('span', {class: 'xnm'}, h('b', null, 'Searching'), h('small', null, 'Looking for servers on your Wi-Fi...')))); return; }
+          D.devs.forEach(d => { const key = 'd:' + d.control; D.names[key] = d.name; const o2 = pn.hopen.has(key);
+            grp(key, L, () => row('\u{1F5A5}', d.name, '', () => {}, 1, key, o2, true), L2 => { if (o2) dtree(d, '0', 2, L2); }); });
+          if (!D.devs.length) L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xnm'}, h('small', null, 'No files to show'))));
+          row('\u{1F504}', 'Search again', '', () => { pn.dl = null; renderFiles(); }, 1);
+        });
+      }
       else row(ico, t, 'Coming soon', () => toast(t + ' is not built yet.'));
     });
     const act0 = () => { FS.active = idx; };
