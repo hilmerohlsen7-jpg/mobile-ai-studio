@@ -256,6 +256,8 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xrow.sel{background:#0f2f2f}
 .x,.xmback{--txt:#F2F1EB;--mute:#9C9A92;--panel:#20201E;--line:#30302E;color:#F2F1EB}
 .xbox{border:2px solid #1f9d9d;margin:2px 0}
+#files,#files *,.xmback,.xmback *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+#files input,#files textarea,.xhex{-webkit-user-select:text;user-select:text}
 .xbox.gr{border-color:#555}
 .xmback{position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.35)}
 .xmenu{position:absolute;top:4vh;left:30vw;right:4vw;max-height:92vh;overflow-y:auto;background:#212121;border-radius:6px;box-shadow:0 6px 24px #000a}
@@ -2089,6 +2091,25 @@ function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () =>
 function goHome() { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = true; pn.sub = ''; pn.remote = null; pn.cache = {}; FS.sel.clear(); renderFiles(); }
 function openLocal(path) { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
 function openConn(cn) { const pn = FS.panes[FS.active]; pn.home = false; pn.remote = Object.assign({}, cn); pn.path = cn.path || '/'; pn.cache = {}; pn.err = ''; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
+function featureMenu(k, idx) {
+  const pn = FS.panes[idx]; FS.active = idx;
+  const t = k === 'show' ? 'Show' : (HOME_ITEMS.find(x => x[0] === k) || [0, 'Home'])[1];
+  const E = (ic, label, fn, col, o) => Object.assign({ic: ic, label: label, fn: fn, col: col}, o || {});
+  const A = [], G = '#6cc24a', B = '#4aa3e8', Y = '#e8b84a', Z = '#9aa4b2';
+  const run = fn => () => { FS.active = idx; fn(); };
+  if (k === 'smb') A.push(E('plus', 'Add server', run(() => addMenu('smb', pn)), G), E('search', 'Scan for servers', run(() => lanScanUi(pn)), B));
+  else if (k === 'ftp') A.push(E('plus', 'Add server', run(() => addMenu('ftp', pn)), G), E('settings', 'Server settings', run(ftpConfig), B), E(ftpState().running ? 'stop' : 'play', ftpState().running ? 'Stop my FTP server' : 'Start my FTP server', run(ftpToggle), Y));
+  else if (k === 'sftp') A.push(E('plus', 'Add server', run(() => addMenu('sftp', pn)), G));
+  else if (k === 'web') A.push(E('plus', 'Add web storage', run(() => addMenu('web', pn)), G));
+  else if (k === 'wifi') A.push(E('plus', 'Add device', run(() => addServer('dav', null, {host: 'http://', name: ''})), G), E('search', 'Search again', () => { pn.wscan = null; pn.hopen.add('~wifi'); renderFiles(); }, B), E('settings', 'Server settings', run(davSheet), B), E(davState().running ? 'stop' : 'play', davState().running ? 'Stop sharing' : 'Start sharing', run(davToggle), Y));
+  else if (k === 'dlna') A.push(E('search', 'Search again', () => { pn.dl = null; pn.hopen.add('~dlna'); renderFiles(); }, B));
+  else if (k === 'apps') A.push(E('folderOpen', 'Open', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); }, Y));
+  else if (k === 'sync') A.push(E('refresh', 'New file sync', run(syncUi), G));
+  else if (k === 'recent') A.push(E('refresh', 'Look again', async () => { FS.active = idx; toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); }, B));
+  if (k !== 'show') A.push(E('eyeOff', 'Hide from this panel', () => { homeShownMap(idx)[k] = false; persist(); renderFiles(); toast(t + ' is hidden here. Bring it back with Show.'); }, Z));
+  A.push(E('checkSq', 'Choose what to show...', () => homeShowSheet(idx), '#2fbfa8'));
+  ctxMenu(t, A);
+}
 function focusLabel(pn) {
   const f = pn.focus; if (!f) return 'Home';
   if (f.startsWith('~t:')) return f.slice(3);
@@ -2108,6 +2129,8 @@ function buildHome(o, idx) {
   let into = null;
   const row = (ico, title, sub, fn, ind, key, open, tog, hold, tf) => {
     const fk = key || (ind ? null : '~t:' + title), setF = () => { if (fk) pn.focus = fk; };
+    const fkk = fk && fk[0] === '~' ? (fk.startsWith('~t:') ? ((HOME_ITEMS.find(x => x[1] === title) || [])[0] || (title === 'Show...' ? 'show' : null)) : fk.slice(1)) : null;
+    if (!tog && !hold && !ind && fkk) hold = () => { FS.active = idx; featureMenu(fkk, idx); };
     const flip = () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); };
     const el = h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
     h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; setF(); if (tf) { tf(); return; } flip(); renderFiles(); }}, key ? (open ? '▼' : '▶') : ''),
@@ -2222,7 +2245,7 @@ function buildHome(o, idx) {
             if (it.container) { const o2 = pn.hopen.has(key); grp(key, parent, () => row('\u{1F4C1}', it.title, '', () => {}, ind, key, o2, true), L => { if (o2) dtree(dev, it.id, ind + 1, L); }); }
             else grp(key, parent, () => row('\u{1F4C4}', it.title, it.size ? fmtSize(it.size) : 'Media file', () => { pn.focus = key; renderFiles(); dlnaGet(it); }, ind, null, false, false, null)); });
         };
-        grp('~dlna', list, () => row(ico, t, '', () => { act(); }, 0, '~dlna', op, true), L => {
+        grp('~dlna', list, () => row(ico, t, '', () => { act(); featureMenu('dlna', idx); }, 0, '~dlna', op, true), L => {
           if (!op) return;
           if (!pn.dl) dscan();
           const D = pn.dl;
