@@ -2092,6 +2092,8 @@ function openConn(cn) { const pn = FS.panes[FS.active]; pn.home = false; pn.remo
 function focusLabel(pn) {
   const f = pn.focus; if (!f) return 'Home';
   if (f.startsWith('~t:')) return f.slice(3);
+  if (f.startsWith('v:')) return 'Vault/' + f.slice(2);
+  if (f.startsWith('ve:')) return 'Vault/' + f.slice(3).replace('|', '/');
   if (f.startsWith('d:') || f.startsWith('dc:')) return 'DLNA' + (pn.dl && pn.dl.names[f] ? '/' + pn.dl.names[f] : '');
   if (f[0] === '~') { const it = HOME_ITEMS.find(x => x[0] === f.slice(1)); return it ? it[1] : 'Home'; }
   const conns = S.settings.conns || [], tn = c => c.type === 'gdrive' || c.type === 'saf' ? 'Google Drive' : c.type === 'dav' ? 'WebDAV' : c.type.toUpperCase();
@@ -2184,7 +2186,26 @@ function buildHome(o, idx) {
       }
       else if (k === 'recent') row(ico, t, 'Files changed in the last 7 days', async () => { act(); toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); });
       else if (k === 'apps') row(ico, t, 'Installed apps: open, info, uninstall, back up', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); });
-      else if (k === 'vault') row(ico, t, 'Password-locked files', () => { pn.sub = 'vault'; pn.vault = null; renderFiles(); });
+      else if (k === 'vault') {
+        const op = pn.hopen.has('~vault'), opts = () => { act(); ctxMenu('Vault', [{ic: 'info', label: 'Help', fn: vaultHelp, col: '#2ab3d6'}, {ic: 'plus', label: 'New', fn: () => vaultNew(pn), col: '#6cc24a'}]); };
+        const menu = () => { act(); ctxMenu('Vault', [{ic: 'filter', label: 'Filter', col: '#6cc24a', fn: async () => { const t = await askText('Show only catalogs whose name contains...', pn.vfilter || ''); pn.vfilter = (t || '').trim(); renderFiles(); }}, {ic: 'info', label: 'Help', fn: vaultHelp, col: '#2ab3d6'}, {ic: 'plus', label: 'New', fn: () => vaultNew(pn), col: '#6cc24a'}]); };
+        grp('~vault', list, () => row(ico, t, '', menu, 0, '~vault', op, true), L => {
+          if (!op) return;
+          row('⚙', 'Options', '', opts, 1);
+          if (!pn.vlist) { vcall({type: 'list'}).then(x => { pn.vlist = x.vaults || []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xnm'}, h('small', null, 'Loading...')))); return; }
+          pn.vaults = pn.vaults || {};
+          (pn.vlist || []).filter(v => !pn.vfilter || v.name.toLowerCase().includes(pn.vfilter.toLowerCase())).forEach(v => {
+            const key = 'v:' + v.name, U = pn.vaults[v.name];
+            const hold = () => ctxMenu(v.name, [U ? {ic: 'lock', label: 'Lock (forget the password)', fn: () => { delete pn.vaults[v.name]; renderFiles(); }} : {ic: 'folderOpen', label: 'Unlock', fn: async () => { pn.focus = key; await vaultOpenUi(pn, v.name); }}, {ic: 'trash', label: 'Delete this catalog...', danger: true, fn: () => vaultDelete(pn, v.name)}]);
+            grp(key, L, () => row(U ? '\u{1F513}' : '\u{1F512}', v.name, U ? (U.entries.length + ' locked files  ·  tap to lock') : fmtSize(v.size), async () => { pn.focus = key; if (U) { delete pn.vaults[v.name]; renderFiles(); } else await vaultOpenUi(pn, v.name); }, 1, null, false, false, hold), L2 => {
+              if (!U) return;
+              if (!U.entries.length) L2.append(h('div', {class: 'xrow', style: 'padding-left:46px'}, h('span', {class: 'xnm'}, h('small', null, 'Empty. In the file list, mark files and tap "Lock in vault".'))));
+              U.entries.forEach(e => { const k2 = 've:' + v.name + '|' + e.name; grp(k2, L2, () => row('\u{1F4C4}', baseName(e.name), fmtSize(e.size), () => { pn.focus = k2; pn.vault = U; renderFiles(); vaultEntry(pn, e); }, 2)); });
+            });
+          });
+          if (!(pn.vlist || []).length) L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xnm'}, h('small', null, 'No catalogs yet. Tap Options, then New.'))));
+        });
+      }
       else if (k === 'sync') row(ico, t, 'Compare two folders and copy what is missing', () => { act(); syncUi(); });
       else if (k === 'dlna') {
         const op = pn.hopen.has('~dlna');
@@ -2271,7 +2292,7 @@ async function appSheet(a) {
 
 /* ---- Vault ---- */
 const vcall = op => fsCall('vaultOp', JSON.stringify(op));
-async function vaultAsk(name) { const pw = await askText('Password for vault "' + name + '" (never stored)', ''); return pw || null; }
+async function vaultAsk(name) { const pw = await askPassword('Password for vault "' + name + '" (never stored)', ''); return pw || null; }
 function buildVault(list, idx) {
   const pn = FS.panes[idx];
   const head = (t, sub) => list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F512}'), h('span', {class: 'xnm'}, h('b', null, t), h('small', null, sub))));
@@ -2291,11 +2312,33 @@ function buildVault(list, idx) {
     const pw = await askText('Choose a password (at least 4 characters). If you forget it, nobody can open the vault, not even this app.', ''); if (!pw) return;
     const r = await vcall({type: 'create', name: name.trim(), password: pw}); toast(r.msg || ''); pn.vlist = null; renderFiles(); }}, h('span', {class: 'xic'}, '+'), h('span', {class: 'xnm'}, h('b', null, 'New vault'))));
 }
+function vaultHelp() {
+  const o = $('sheet'); o.textContent = ''; const close = () => o.classList.remove('open');
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Vault'));
+  [['What it is', 'A place for sensitive files. Each catalog is one password-protected ZIP file (AES-256 encryption) kept in this app’s private storage.'],
+   ['Catalogs', 'Make as many as you like with Options, then New. A catalog uses one password for everything inside it. Tap a catalog to unlock it, tap it again to lock it. Locking forgets the password.'],
+   ['Putting files in', 'In the normal file list, mark files and tap "Lock in vault". You are asked before anything is changed.'],
+   ['Taking files out', 'Tap a file inside an unlocked catalog. You can save a copy to Download or remove it, and the app asks first.'],
+   ['If you forget the password', 'Nobody can open the catalog, not even this app. There is no reset.']].forEach(([t, b]) => box.append(h('div', {class: 'note'}, h('b', null, t + '. '), b)));
+  box.append(h('button', {onclick: close}, 'Close')); o.append(box); o.classList.add('open'); sheetDone = close;
+}
+function vaultNew(pn) {
+  const o = $('sheet'); o.textContent = ''; const close = () => o.classList.remove('open');
+  const st = 'width:100%;box-sizing:border-box;padding:12px;margin:6px 0;background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;font-size:1rem';
+  const n = h('input', {placeholder: 'Name', style: st}), p = h('input', {type: 'password', placeholder: 'Password', style: st}), p2 = h('input', {type: 'password', placeholder: 'Repeat password', style: st});
+  const msg = h('div', {class: 'note'}, 'At least 4 characters. If you forget the password, nobody can open the catalog.');
+  const ok = h('button', {class: 'pri', disabled: true}, 'OK');
+  const check = () => { const good = n.value.trim() && p.value.length >= 4 && p.value === p2.value; ok.disabled = !good; msg.textContent = p2.value && p.value !== p2.value ? 'The two passwords are different.' : 'At least 4 characters. If you forget the password, nobody can open the catalog.'; };
+  [n, p, p2].forEach(i => i.addEventListener('input', check));
+  ok.onclick = async () => { close(); const r = await vcall({type: 'create', name: n.value.trim(), password: p.value}); toast(r.msg || (r.ok ? 'Catalog created.' : 'Could not create it.')); pn.vlist = null; renderFiles(); };
+  o.append(h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'New catalog'), n, p, p2, msg, ok, h('button', {onclick: close}, 'Cancel'))); o.classList.add('open'); sheetDone = close;
+  setTimeout(() => n.focus(), 100);
+}
 async function vaultOpenUi(pn, name) {
   for (let i = 0; i < 3; i++) {
     const pw = await vaultAsk(name); if (!pw) return;
     const r = await vcall({type: 'contents', name: name, password: pw});
-    if (r.ok) { pn.vault = {name: name, pw: pw, entries: r.entries}; renderFiles(); return; }
+    if (r.ok) { pn.vaults = pn.vaults || {}; pn.vault = pn.vaults[name] = {name: name, pw: pw, entries: r.entries}; renderFiles(); return; }
     toast(r.msg || 'Could not open.'); if (r.code !== 'password') return;
   }
 }
@@ -2320,7 +2363,7 @@ async function vaultEntry(pn, e) {
 }
 async function vaultLock(paths) {
   const l = await vcall({type: 'list'}); const vs = l.vaults || [];
-  if (!vs.length) { toast('Make a vault first: Home, then Vault, then New vault.'); return; }
+  if (!vs.length) { toast('Make a catalog first: Vault, then Options, then New.'); return; }
   const name = await choose('Lock into which vault?', vs.map(v => ({label: v.name, value: v.name}))); if (!name) return;
   const pw = await vaultAsk(name); if (!pw) return;
   const chk = await vcall({type: 'contents', name: name, password: pw}); if (!chk.ok) { toast(chk.msg || 'Wrong password.'); return; }
