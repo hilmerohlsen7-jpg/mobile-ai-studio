@@ -2113,6 +2113,7 @@ function featureMenu(k, idx) {
 function focusLabel(pn) {
   const f = pn.focus; if (!f) return 'Home';
   if (f.startsWith('~t:')) return f.slice(3);
+  if (f === 'ap:i') return 'Installed'; if (f === 'ap:s') return 'System'; if (f.startsWith('apk:')) return (pn.anames && pn.anames[f]) || 'App manager';
   if (f.startsWith('sy:')) { const t = syncTasks().find(x => x.id === f.slice(3)); return 'File sync' + (t ? '/' + t.name : ''); }
   if (f.startsWith('v:')) return 'Vault/' + f.slice(2);
   if (f.startsWith('ve:')) return 'Vault/' + f.slice(3).replace('|', '/');
@@ -2209,7 +2210,32 @@ function buildHome(o, idx) {
         });
       }
       else if (k === 'recent') row(ico, t, 'Files changed in the last 7 days', async () => { act(); toast('Looking...'); const r = await fsCall('fsRecent', FS.root, 7); if (!r.ok) { toast(r.msg || 'Could not look.'); return; } FS.results = {title: 'Recent files', files: r.files, note: r.partial ? 'Showing the newest 150.' : ''}; FS.view = 'results'; renderFiles(); });
-      else if (k === 'apps') row(ico, t, 'Installed apps: open, info, uninstall, back up', () => { pn.sub = 'apps'; pn.q = ''; renderFiles(); });
+      else if (k === 'apps') {
+        const op = pn.hopen.has('~apps');
+        const all = () => { if (!pn.allApps) { try { pn.allApps = JSON.parse(Android.appList()).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())); } catch (e) { pn.allApps = []; } } return pn.allApps; };
+        pn.icons = pn.icons || {};
+        const icons = pkgs => { const todo = pkgs.filter(k2 => !pn.icons[k2] && !(pn.iconAsked || (pn.iconAsked = {}))[k2]); if (!todo.length) return; todo.forEach(k2 => pn.iconAsked[k2] = 1);
+          (async () => { for (let i = 0; i < todo.length; i += 20) { const r = await fsCall('appIcons', JSON.stringify(todo.slice(i, i + 20))); if (r && r.icons) Object.assign(pn.icons, r.icons); if ($('files').classList.contains('open') && FS.view === 'list' && !pn.sub) renderFiles(); } })(); };
+        const sec = (key, title, ico2, test, L) => {
+          const so = pn.hopen.has(key);
+          grp(key, L, () => row(ico2, title, '', () => {}, 1, key, so, true), L2 => {
+            if (!so) return; const items = all().filter(test); icons(items.map(a => a.pkg));
+            if (!items.length) L2.append(h('div', {class: 'xrow', style: 'padding-left:46px'}, h('span', {class: 'xnm'}, h('small', null, 'Empty'))));
+            items.forEach(a => { const ak = 'apk:' + a.pkg; pn.anames = pn.anames || {}; pn.anames[ak] = a.name;
+              grp(ak, L2, () => { const el = h('div', {class: 'xrow', style: 'padding-left:46px;align-items:center'},
+                h('span', {class: 'xic'}, pn.icons[a.pkg] ? h('img', {src: 'data:image/png;base64,' + pn.icons[a.pkg], style: 'width:40px;height:40px;border-radius:8px'}) : '\u{1F4E6}'),
+                h('span', {class: 'xnm'}, h('b', null, a.name), h('small', null, a.pkg), a.splits ? h('small', null, 'Split APK ' + (a.splits + 1) + 'x') : null, h('small', {style: 'text-align:right'}, a.time ? fmtDate(a.time) : '')),
+                h('span', {style: 'text-align:right;font-size:.75rem;color:var(--mute);min-width:60px'}, h('div', null, a.version || ''), h('div', null, fmtSize(a.size))));
+                const go = () => { act(); pn.focus = ak; renderFiles(); appSheet(a); };
+                holdOpen(el, go, go); (into || list).append(el); }); });
+          });
+        };
+        grp('~apps', list, () => row(ico, t, '', () => { act(); featureMenu('apps', idx); }, 0, '~apps', op, true), L => {
+          if (!op) return;
+          sec('ap:i', 'Installed', '\u{1F4E5}', a => !a.system, L);
+          sec('ap:s', 'System', '\u{1F4C1}', a => a.system, L);
+        });
+      }
       else if (k === 'vault') {
         const op = pn.hopen.has('~vault'), opts = () => { act(); ctxMenu('Vault', [{ic: 'info', label: 'Help', fn: vaultHelp, col: '#2ab3d6'}, {ic: 'plus', label: 'New', fn: () => vaultNew(pn), col: '#6cc24a'}]); };
         const menu = () => { act(); ctxMenu('Vault', [{ic: 'filter', label: 'Filter', col: '#6cc24a', fn: async () => { const t = await askText('Show only catalogs whose name contains...', pn.vfilter || ''); pn.vfilter = (t || '').trim(); renderFiles(); }}, {ic: 'info', label: 'Help', fn: vaultHelp, col: '#2ab3d6'}, {ic: 'plus', label: 'New', fn: () => vaultNew(pn), col: '#6cc24a'}]); };
@@ -2304,7 +2330,7 @@ async function xMenu() {
 function buildApps(list, idx) {
   const pn = FS.panes[idx];
   pn.icons = pn.icons || {};
-  if (!pn.apps) { try { pn.apps = JSON.parse(Android.appList()).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())); } catch (e) { pn.apps = []; } }
+  if (!pn.apps) { try { pn.apps = JSON.parse(Android.appList()).filter(a => !a.system || a.launch).sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())); } catch (e) { pn.apps = []; } }
   list.append(h('div', {class: 'xhead'}, h('span', {class: 'xic'}, '\u{1F4E6}'), h('span', {class: 'xnm'}, h('b', null, 'App manager'), h('small', null, pn.apps.length + ' apps'))));
   const inp = h('input', {type: 'search', placeholder: 'Search apps', value: pn.q || '', style: 'margin:6px 10px;width:calc(100% - 20px)'});
   inp.oninput = () => { pn.q = inp.value; drawApps(); };

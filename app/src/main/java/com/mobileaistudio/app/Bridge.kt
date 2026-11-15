@@ -977,10 +977,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         try {
             for (a in pm.getInstalledApplications(0)) {
                 val system = (a.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
-                if (system && pm.getLaunchIntentForPackage(a.packageName) == null) continue
-                val vn = try { pm.getPackageInfo(a.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
+                val launch = pm.getLaunchIntentForPackage(a.packageName) != null
+                val pi = try { pm.getPackageInfo(a.packageName, 0) } catch (e: Exception) { null }
+                val vn = pi?.versionName ?: ""
                 arr.put(JSONObject().put("pkg", a.packageName).put("name", pm.getApplicationLabel(a).toString()).put("size", File(a.sourceDir).length())
-                    .put("version", vn).put("system", system).put("splits", (a.splitSourceDirs?.size ?: 0)))
+                    .put("version", vn).put("system", system).put("launch", launch).put("time", pi?.lastUpdateTime ?: 0L).put("splits", (a.splitSourceDirs?.size ?: 0)))
             }
         } catch (e: Exception) {}
         return arr.toString()
