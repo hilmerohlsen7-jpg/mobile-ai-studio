@@ -217,7 +217,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 #sheet .sbox.add .st b{font-weight:500}
 .xtabs{display:flex;gap:6px;padding:6px 8px;background:#151515}
 .xtabs button{flex:1;background:#222;border:0;border-radius:10px;padding:8px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.xtabs button.on{background:#0f2f2f;color:#fff;outline:2px solid #1f9d9d}
+.xtabs button.on{background:color-mix(in srgb,var(--acc) 22%,#0a0a0a);color:#fff;outline:2px solid var(--acc)}
 .xtabs button.swap{flex:0 0 44px;color:#fff;font-size:1.2rem}
 .xclip{flex:1;overflow:hidden;min-height:0}
 .xslide{display:flex;width:200%;height:100%;transition:transform .32s ease}
@@ -252,14 +252,16 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xtb span{font-size:1.5rem}
 .xtb.off{opacity:.35}
 .xhead,.xrow{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #222}
-.xhead{background:#0f2f2f;border:2px solid #1f9d9d}
-.xrow.sel{background:#0f2f2f}
+.xhead{background:color-mix(in srgb,var(--acc) 22%,#0a0a0a);border:2px solid var(--acc)}
+.xrow.sel{background:color-mix(in srgb,var(--acc) 22%,#0a0a0a)}
 .x,.xmback{--txt:#F2F1EB;--mute:#9C9A92;--panel:#20201E;--line:#30302E;color:#F2F1EB}
-.xbox{border:2px solid #1f9d9d;margin:2px 0}
+.xbox{border:2px solid var(--acc);margin:2px 0}
 #files,#files *,.xmback,.xmback *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 #files input,#files textarea,.xhex{-webkit-user-select:text;user-select:text}
 .xbox.gr{border-color:#555}
-.xspin{display:inline-block;width:22px;height:22px;border:3px solid #444;border-top-color:#1f9d9d;border-radius:50%;animation:xsp .8s linear infinite;margin-right:8px}@keyframes xsp{to{transform:rotate(360deg)}}
+.vi.vf{fill:color-mix(in srgb,var(--acc) 34%,transparent)}
+.accsw{width:34px!important;height:34px!important;min-width:34px!important;flex:0 0 34px!important;border-radius:50%!important;border:2px solid var(--line)!important;padding:0!important;margin:0!important}.emb{width:46px!important;height:46px!important;min-width:46px!important;flex:0 0 46px!important;border-radius:12px!important;padding:0!important;margin:0!important;display:inline-flex!important;align-items:center;justify-content:center}#accPick{flex:0 0 48px}.emb.sel{outline:2px solid var(--acc)}
+.xspin{display:inline-block;width:22px;height:22px;border:3px solid #444;border-top-color:var(--acc);border-radius:50%;animation:xsp .8s linear infinite;margin-right:8px}@keyframes xsp{to{transform:rotate(360deg)}}
 .xmback{position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.35)}
 .xmenu{position:absolute;top:4vh;left:30vw;right:4vw;max-height:92vh;overflow-y:auto;background:#212121;border-radius:6px;box-shadow:0 6px 24px #000a}
 .xmt{background:#3a3a3a;padding:10px 14px;font-size:.95rem;color:#ccc;position:sticky;top:0;word-break:break-all;z-index:1}
@@ -360,6 +362,16 @@ header #model{display:none}
 <div class="modes" id="modes">
 <button data-m="light"><i class="th l"></i>Light</button><button data-m="dark"><i class="th d"></i>Dark</button><button data-m="auto"><i class="th a"></i>System</button></div>
   <label hidden><select id="s_theme"><option value="auto">Match my phone</option><option value="light">Light</option><option value="dark">Dark</option></select></label></div>
+<div class="scard"><div class="sct">Accent color</div>
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input type="color" id="accPick" style="width:48px;height:40px;border:0;background:none;padding:0">
+<span id="accSw" style="display:flex;gap:6px;flex-wrap:wrap"></span><button id="accReset">Original orange</button></div>
+<div style="color:var(--mute);font-size:.8rem;margin-top:6px">Changes the orange, the squares around files and folders, the loading wheels and the icon bodies.</div></div>
+<div class="scard"><div class="sct">App icon</div>
+<div style="display:flex;gap:14px;align-items:center"><canvas id="iconPrev" width="192" height="192" style="width:84px;height:84px;border-radius:22%"></canvas>
+<div style="flex:1"><div id="embRow" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+<input id="embText" maxlength="2" placeholder="or type 1-2 characters" style="margin-top:8px;width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--txt)"></div></div>
+<button id="iconApply" class="pri" style="margin-top:10px;width:100%">Put this icon on my home screen</button>
+<div style="color:var(--mute);font-size:.8rem;margin-top:6px">Android shows its own question first. The original icon stays until you remove it yourself.</div></div>
 <div class="scard"><div class="sct">Font style</div>
 <div class="modes" id="fonts"><button data-f="default">Default</button><button data-f="sans">Sans</button><button data-f="serif">Serif</button></div></div>
 <button class="srow" data-go="voice"><span class="si">&#127908;</span><span class="st"><b>Voice and dictation</b><small>Speech, wake word, voice match</small></span><span class="sc">&#8250;</span></button>
@@ -684,6 +696,9 @@ window.__onWake = () => {
 };
 function applyTheme() {
   try { applyFont(); } catch (e) {}
+  try { const a = S.settings && S.settings.accent, st = document.documentElement.style;
+    if (/^#[0-9a-f]{6}$/i.test(a || '')) { const n = parseInt(a.slice(1), 16), lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; st.setProperty('--acc', a); st.setProperty('--onacc', lum > 0.62 ? '#141413' : '#FFFFFF'); }
+    else { st.removeProperty('--acc'); st.removeProperty('--onacc'); } } catch (e) {}
   const t = S.settings && S.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
 }
@@ -2348,6 +2363,10 @@ function buildApps(list, idx) {
       if (pn.sub === 'apps' && $('files').classList.contains('open') && !document.activeElement.matches('input')) drawApps(); }
     pn.iconsBusy = false; })(); }
 }
+function watchUninstall(a) {
+  let n = 0; const t = setInterval(() => { n++; let gone = false; try { gone = !Android.appInstalled(a.pkg); } catch (e) {}
+    if (gone || n > 60) { clearInterval(t); if (gone) { FS.panes.forEach(pn => { if (pn.allApps) pn.allApps = pn.allApps.filter(x => x.pkg !== a.pkg); if (pn.apps) pn.apps = pn.apps.filter(x => x.pkg !== a.pkg); if (pn.focus === 'apk:' + a.pkg) pn.focus = ''; }); toast(a.name + ' was uninstalled.'); try { renderFiles(); } catch (e) {} } } }, 2000);
+}
 async function appSheet(a) {
   const v = await choose(a.name, [{label: 'Open', value: 'launch'}, {label: 'App info', value: 'info'}, {label: 'Back up APK to Download', value: 'backup'}, {label: 'Uninstall...', value: 'uninstall', danger: true}]);
   if (!v) return;
@@ -2356,7 +2375,7 @@ async function appSheet(a) {
     if (c === 'deny') return; toast('Saving...'); const r = await fsCall('appBackup', a.pkg); toast(r.msg || (r.ok ? 'Done.' : 'Failed.')); return;
   }
   if (v === 'uninstall') { const c = await askApproval({title: 'Uninstall ' + a.name, path: a.pkg, reason: 'You chose Uninstall in the app manager.', rows: [['App', a.name]], primary: {label: 'Continue to Android', value: 'ok'}, note: 'Android asks you once more. The app is not touched until you confirm there.'}); if (c === 'deny') return; }
-  const r = JSON.parse(Android.appAction(a.pkg, v)); if (!r.ok) toast(r.msg || 'Could not.');
+  const r = JSON.parse(Android.appAction(a.pkg, v)); if (!r.ok) toast(r.msg || 'Could not.'); else if (v === 'uninstall') watchUninstall(a);
 }
 
 /* ---- Vault ---- */
@@ -3529,10 +3548,51 @@ $('setBtn').onclick = () => { setGo('home'); $('settings').classList.add('open')
 let setPage = 'home';
 function setGo(p) { setPage = p; if (p === 'skills') renderSkillsPage(); document.querySelectorAll('#settings .pg').forEach(e => e.hidden = e.id !== 'pg_' + p); $('setTitle').textContent = p === 'home' ? 'Settings' : $('pg_' + p).dataset.title; $('setBody').scrollTop = 0; }
 function setHome() {
+  try { accUi(); } catch (e) {}
   const n = (S.settings.userName || '').trim(); $('setName').textContent = n || 'You'; $('setAv').textContent = (n || 'Y')[0].toUpperCase();
   const t = S.settings.theme || 'auto'; document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.m === t));
   const f = S.settings.font || 'default'; document.querySelectorAll('#fonts button').forEach(b => b.classList.toggle('sel', b.dataset.f === f));
 }
+
+/* ---- accent colour + app icon emblem ---- */
+const EMBLEMS = {
+  bolt: {d: 'M13 2L4 14h6l-1 8 9-12h-6z'}, chat: {d: 'M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'},
+  folder: {d: 'M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'}, star: {d: 'M12 2l3 7 7 .6-5.3 4.7 1.7 7.2L12 17.8 5.6 21.5l1.7-7.2L2 9.6 9 9z'},
+  heart: {d: 'M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-2.5A4.5 4.5 0 0 1 20 10c0 6-8 11-8 11z'}, sparkle: {d: 'M12 2l2.2 6.8L21 11l-6.8 2.2L12 20l-2.2-6.8L3 11l6.8-2.2z'},
+  cloud: {d: 'M7 19a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18 11.2 3.9 3.9 0 0 1 17.5 19z'}, shield: {d: 'M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z'},
+  flame: {d: 'M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-6 1 2 2 2 3-6z'}, code: {d: 'M8 7l-5 5 5 5M16 7l5 5-5 5', stroke: true}
+};
+const ACC_PRESETS = ['#D97757', '#E8B84A', '#4CAF7A', '#1F9D9D', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444'];
+function accColor() { return /^#[0-9a-f]{6}$/i.test(S.settings.accent || '') ? S.settings.accent : (getComputedStyle(document.documentElement).getPropertyValue('--acc').trim() || '#D97757'); }
+function drawAppIcon(cv, round) {
+  const z = cv.width, c = cv.getContext('2d'); c.clearRect(0, 0, z, z); c.fillStyle = accColor(); c.fillRect(0, 0, z, z);
+  const em = S.settings.emblem || 'bolt', txt = (S.settings.emblemText || '').trim(); c.fillStyle = '#fff'; c.strokeStyle = '#fff';
+  if (em === 'text' && txt) { c.font = '700 ' + Math.round(z * (txt.length > 1 ? .3 : .4)) + 'px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, z / 2, z / 2 + z * .02); return; }
+  const E = EMBLEMS[em] || EMBLEMS.bolt, k = z * .44 / 24; c.save(); c.translate(z / 2 - 12 * k, z / 2 - 12 * k); c.scale(k, k);
+  const p = new Path2D(E.d); if (E.stroke) { c.lineWidth = 3; c.lineCap = c.lineJoin = 'round'; c.stroke(p); } else c.fill(p); c.restore();
+}
+function accUi() {
+  const pick = $('accPick'); if (!pick) return;
+  const sw = $('accSw'); sw.textContent = ''; ACC_PRESETS.forEach(col => { const b = h('button', {class: 'accsw', style: 'background:' + col, onclick: () => setAcc(col)}); sw.append(b); });
+  pick.value = accColor().length === 7 ? accColor() : '#d97757';
+  pick.oninput = () => setAcc(pick.value, true);
+  $('accReset').onclick = () => { delete S.settings.accent; applyTheme(); persist(); accUi(); try { renderFiles(); } catch (e) {} };
+  const row = $('embRow'); row.textContent = '';
+  Object.keys(EMBLEMS).forEach(k => { const cv = document.createElement('canvas'); cv.width = cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = 'currentColor'; c.fillStyle = getComputedStyle(document.body).color; c.strokeStyle = c.fillStyle;
+    const E = EMBLEMS[k], q = 1.4; c.scale(q, q); c.translate(1.2, 1.2); const p = new Path2D(E.d); if (E.stroke) { c.lineWidth = 2.5; c.lineCap = c.lineJoin = 'round'; c.stroke(p); } else c.fill(p);
+    const b = h('button', {class: 'emb' + ((S.settings.emblem || 'bolt') === k ? ' sel' : ''), onclick: () => { S.settings.emblem = k; persist(); accUi(); }}); b.append(cv); row.append(b); });
+  const et = $('embText'); et.value = S.settings.emblem === 'text' ? (S.settings.emblemText || '') : '';
+  et.oninput = () => { S.settings.emblemText = et.value.slice(0, 2); S.settings.emblem = et.value.trim() ? 'text' : 'bolt'; persist(); drawAppIcon($('iconPrev')); document.querySelectorAll('#embRow .emb').forEach(b => b.classList.remove('sel')); };
+  drawAppIcon($('iconPrev'));
+  $('iconApply').onclick = async () => {
+    if (!hasBridge || !Android.setAppIcon) { toast('This only works in the installed app.'); return; }
+    const c = await askApproval({title: 'Add your icon to the home screen', path: 'Home screen', reason: 'You chose a new app icon color and emblem.', rows: [['Color', accColor()], ['Emblem', S.settings.emblem === 'text' ? '"' + (S.settings.emblemText || '') + '"' : (S.settings.emblem || 'bolt')]], primary: {label: 'Approve: ask Android to add it', value: 'ok'}, note: 'Android asks you once more. The original icon stays; remove it yourself if you only want the new one.'});
+    if (c === 'deny') return;
+    const big = document.createElement('canvas'); big.width = big.height = 432; drawAppIcon(big);
+    const r = JSON.parse(Android.setAppIcon(big.toDataURL('image/png').split(',')[1])); toast(r.msg || (r.ok ? 'Done.' : 'Failed.'));
+  };
+}
+function setAcc(col, live) { S.settings.accent = col; applyTheme(); persist(); if (!live) accUi(); else drawAppIcon($('iconPrev')); try { renderFiles(); } catch (e) {} }
 $('setBack').onclick = () => { if (setPage !== 'home') setGo('home'); else $('settings').classList.remove('open'); };
 document.querySelectorAll('#settings [data-go]').forEach(b => b.onclick = () => setGo(b.dataset.go));
 document.querySelectorAll('#modes button').forEach(b => b.onclick = () => { S.settings.theme = b.dataset.m; $('s_theme').value = b.dataset.m; applyTheme(); persist(); setHome(); });
@@ -3630,10 +3690,11 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
   };
   const re = new RegExp('(' + Object.keys(M).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\uFE0F?|\\uFE0F', 'g');
   const colour = {folder: '#e8b84a', folderOpen: '#e8b84a', file: '#aab4c4', alert: '#e0a030', check: 'inherit', star: '#e8b84a'};
+  const FILLED = new Set(['folder', 'folderOpen', 'file', 'filePlus', 'camera', 'image', 'package', 'archive', 'clipboard', 'copy', 'checkSq', 'info', 'lock', 'unlock', 'monitor', 'phone', 'chat', 'save', 'hex', 'globe', 'clock', 'plug', 'cloudSun', 'play', 'alert']);
   function svg(name) {
     const e = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     e.setAttribute('viewBox', '0 0 24 24'); e.setAttribute('class', 'vi vi-' + name); e.setAttribute('aria-hidden', 'true');
-    e.innerHTML = P[name]; if (colour[name] && colour[name] !== 'inherit') e.style.color = colour[name];
+    e.innerHTML = P[name]; if (FILLED.has(name)) e.classList.add('vf'); if (colour[name] && colour[name] !== 'inherit') e.style.color = colour[name];
     if (name === 'star') e.style.fill = 'currentColor';
     return e;
   }

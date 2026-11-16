@@ -1252,6 +1252,26 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     }
 
     @JavascriptInterface
+    fun appInstalled(pkg: String): Boolean = try { activity.packageManager.getPackageInfo(pkg, 0); true } catch (e: Exception) { false }
+
+    /** Puts (or updates) a home-screen shortcut that uses the user's own colour and emblem as its icon. */
+    @JavascriptInterface
+    fun setAppIcon(pngBase64: String): String {
+        return try {
+            val raw = android.util.Base64.decode(pngBase64, android.util.Base64.DEFAULT)
+            val bmp = android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return JSONObject().put("ok", false).put("msg", "Could not read the icon.").toString()
+            val sm = activity.getSystemService(android.content.pm.ShortcutManager::class.java)
+            val intent = android.content.Intent(activity, activity.javaClass).setAction(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            val info = android.content.pm.ShortcutInfo.Builder(activity, "mas-custom-icon").setShortLabel("AI Studio").setLongLabel("Mobile AI Studio")
+                .setIcon(android.graphics.drawable.Icon.createWithAdaptiveBitmap(bmp)).setIntent(intent).build()
+            val already = sm.pinnedShortcuts.any { it.id == "mas-custom-icon" }
+            if (already) { sm.updateShortcuts(listOf(info)); JSONObject().put("ok", true).put("msg", "Your icon on the home screen was updated.").toString() }
+            else if (sm.isRequestPinShortcutSupported) { sm.requestPinShortcut(info, null); JSONObject().put("ok", true).put("msg", "Android is asking if it may add the icon. Say yes there.").toString() }
+            else JSONObject().put("ok", false).put("msg", "Your launcher cannot add shortcuts.").toString()
+        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not add the icon.").toString() }
+    }
+
+    @JavascriptInterface
     fun appAction(pkg: String, action: String): String {
         return try {
             val i = when (action) {
