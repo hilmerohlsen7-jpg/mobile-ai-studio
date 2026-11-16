@@ -779,6 +779,25 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }.start()
     }
 
+    @JavascriptInterface
+    fun fsSpace(path: String): String = try { val st = android.os.StatFs(path); JSONObject().put("ok", true).put("free", st.availableBytes).put("total", st.totalBytes).toString() } catch (e: Exception) { JSONObject().put("ok", false).toString() }
+
+    /** How many folders and files sit directly inside each of the given folders. */
+    @JavascriptInterface
+    fun fsCounts(reqId: String, pathsJson: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val a = JSONArray(pathsJson); val o = JSONObject()
+                for (i in 0 until minOf(a.length(), 200)) {
+                    val p = a.getString(i); val kids = File(p).listFiles()
+                    if (kids != null) { var d = 0; var f = 0; for (k in kids) { if (k.isDirectory) d++ else f++ }; o.put(p, JSONArray().put(d).put(f)) } else o.put(p, JSONArray().put(0).put(0))
+                }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("counts", o))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not count.")) }
+        }
+    }
+
     // ---- Wi-Fi file server ----
     @JavascriptInterface
     fun wifiStatus(): String {

@@ -2110,6 +2110,18 @@ async function addServer(type, after, pre) {
 const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'Root', '\u{1F4BB}'], ['smb', 'LAN', '\u{1F5A5}'], ['ftp', 'FTP', '\u{1F310}'], ['web', 'Web storage', '☁'], ['sftp', 'SSH File Transfer', '\u{1F511}'], ['wifi', 'WiFi file sharing', '\u{1F4F6}'], ['dlna', 'DLNA', '\u{1F4FA}'], ['vault', 'Vault', '\u{1F512}'], ['sync', 'File sync', '\u{1F504}'], ['apps', 'App manager', '\u{1F4E6}'], ['recent', 'Recent files', '\u{1F552}']];
 function homeShownMap(idx) { const P = S.settings.homeShowP = S.settings.homeShowP || [null, null]; if (!P[idx]) P[idx] = Object.assign({}, S.settings.homeShow || {}); return P[idx]; }
 function homeShown(k, idx) { const v = homeShownMap(idx === undefined ? FS.active : idx)[k]; return v === undefined ? true : v; }
+
+FS.cnt = FS.cnt || {}; FS.cntAsked = FS.cntAsked || {}; let cntTimer = null;
+function cntNeed(path) { if (FS.cnt[path] || FS.cntAsked[path]) return; FS.cntAsked[path] = 1; (FS.cntq = FS.cntq || []).push(path);
+  if (cntTimer) return; cntTimer = setTimeout(async () => { cntTimer = null; const q = FS.cntq.splice(0, FS.cntq.length); let got = false;
+    for (let i = 0; i < q.length; i += 100) { const r = await fsCall('fsCounts', JSON.stringify(q.slice(i, i + 100))); if (r && r.ok) { Object.assign(FS.cnt, r.counts); got = true; } }
+    if (got && $('files').classList.contains('open') && FS.view === 'list') renderFiles(); }, 60); }
+function cntNode(path) { const c = FS.cnt[path]; if (!c || (!c[0] && !c[1])) return null; const sp = h('span', {style: 'display:inline-flex;gap:14px;align-items:center'});
+  if (c[0]) sp.append(h('span', null, '\u{1F4C1} ' + c[0])); if (c[1]) sp.append(h('span', null, '\u{1F4C4} ' + c[1])); return sp; }
+const fmtGB = b => Math.round(b / 1073741824) + 'GB';
+function spaceTail() { let r = {}; try { r = JSON.parse(Android.fsSpace(FS.root)); } catch (e) {} if (!r.ok) return null; const used = Math.max(0, Math.min(100, (r.total - r.free) / r.total * 100));
+  return h('span', {style: 'margin-left:auto;text-align:right;font-size:.8rem;color:var(--mute);min-width:112px;padding-right:6px'}, h('div', null, 'Free'), h('div', null, fmtGB(r.free) + '/' + fmtGB(r.total)),
+    h('div', {style: 'height:6px;border-radius:3px;background:#243332;margin-top:4px;overflow:hidden'}, h('div', {style: 'height:100%;width:' + used + '%;background:var(--acc)'}))); }
 function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () => { fired = false; t = setTimeout(() => { fired = true; hold(); }, 500); }, en = () => { clearTimeout(t); };
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
@@ -2176,7 +2188,7 @@ function buildHome(o, idx) {
     const togg = () => { if (!it.dir) { pn.focus = fk; renderFiles(); return; } if (op) pn.hopen.delete(fk); else pn.hopen.add(fk); pn.focus = fk; if (c && !op) delete (pn.rerr || {})[fk]; renderFiles(); };
     const el = h('div', {class: 'xrow' + (marked ? ' sel' : ''), style: 'padding-left:' + (6 + ind * 20) + 'px'},
       h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); togg(); }}, it.dir ? (op ? '▼' : '▶') : ''),
-      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? 'Folder' : fmtSize(it.size || 0) + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
+      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (c ? 'Folder' : (cntNeed(p), cntNode(p))) : fmtSize(it.size || 0) + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
       (c && it.dir && pn.rl && pn.rl[fk] ? h('span', {class: 'xspin'}) : null),
       h('span', {class: 'xchk', onclick: e => { e.stopPropagation(); if (c) { pn.rsel = pn.rsel || new Map(); if (pn.rsel.has(fk)) pn.rsel.delete(fk); else pn.rsel.set(fk, {c: c, p: p, name: it.name, dir: it.dir, size: it.size || 0}); } else { if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); } renderFiles(); }}, '✔'));
     const menu = () => itemMenu(idx, c, p, it, true);
@@ -2212,7 +2224,8 @@ function buildHome(o, idx) {
       if (!homeShown(k, idx)) return;
       const act = () => { FS.active = idx; };
       if (k === 'int' || k === 'root') { const p = k === 'int' ? FS.root : '/', op = pn.hopen.has('~' + k), menu = () => { act(); itemMenu(idx, null, p, {name: t, dir: true, size: 0}, true, true); };
-        grp('~' + k, list, () => row(ico, t, p, menu, 0, '~' + k, op, true), L => { if (op) tree(p, 1, L); }); }
+        cntNeed(p); const cn = cntNode(p), subn = h('span', null, cn ? h('div', null, cn) : null, h('div', null, p));
+        grp('~' + k, list, () => row(ico, t, subn, menu, 0, '~' + k, op, true, null, null, spaceTail()), L => { if (op) tree(p, 1, L); }); }
       else if (k === 'smb' || k === 'ftp' || k === 'sftp' || k === 'web' || k === 'wifi') {
         const T = k === 'web' || k === 'wifi' ? 'dav' : k;
         const op = pn.hopen.has('~' + k), tg = () => { if (pn.hopen.has('~' + k)) { pn.hopen.delete('~' + k); if (k === 'wifi') pn.wscan = null; } else pn.hopen.add('~' + k); renderFiles(); };
