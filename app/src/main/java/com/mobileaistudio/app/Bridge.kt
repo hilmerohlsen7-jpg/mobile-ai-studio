@@ -1254,21 +1254,20 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun appInstalled(pkg: String): Boolean = try { activity.packageManager.getPackageInfo(pkg, 0); true } catch (e: Exception) { false }
 
-    /** Puts (or updates) a home-screen shortcut that uses the user's own colour and emblem as its icon. */
+    /** Switches the app's own launcher icon in place (no new icon is added). One alias is on at a time. */
     @JavascriptInterface
-    fun setAppIcon(pngBase64: String): String {
+    fun setLauncherIcon(color: String, emblem: String): String {
         return try {
-            val raw = android.util.Base64.decode(pngBase64, android.util.Base64.DEFAULT)
-            val bmp = android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return JSONObject().put("ok", false).put("msg", "Could not read the icon.").toString()
-            val sm = activity.getSystemService(android.content.pm.ShortcutManager::class.java)
-            val intent = android.content.Intent(activity, activity.javaClass).setAction(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-            val info = android.content.pm.ShortcutInfo.Builder(activity, "mas-custom-icon").setShortLabel("AI Studio").setLongLabel("Mobile AI Studio")
-                .setIcon(android.graphics.drawable.Icon.createWithAdaptiveBitmap(bmp)).setIntent(intent).build()
-            val already = sm.pinnedShortcuts.any { it.id == "mas-custom-icon" }
-            if (already) { sm.updateShortcuts(listOf(info)); JSONObject().put("ok", true).put("msg", "Your icon on the home screen was updated.").toString() }
-            else if (sm.isRequestPinShortcutSupported) { sm.requestPinShortcut(info, null); JSONObject().put("ok", true).put("msg", "Android is asking if it may add the icon. Say yes there.").toString() }
-            else JSONObject().put("ok", false).put("msg", "Your launcher cannot add shortcuts.").toString()
-        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not add the icon.").toString() }
+            val colors = listOf("orange", "yellow", "green", "teal", "blue", "purple", "pink", "red")
+            val emblems = listOf("bolt", "chat", "folder", "star", "heart", "sparkle", "cloud", "shield", "flame", "code")
+            if (color !in colors || emblem !in emblems) return JSONObject().put("ok", false).put("msg", "That icon is not available.").toString()
+            val pm = activity.packageManager; val pkg = activity.packageName
+            val all = listOf("A_default") + colors.flatMap { c -> emblems.map { e -> "A_${c}_$e" } }
+            val want = "A_${color}_$emblem"
+            pm.setComponentEnabledSetting(android.content.ComponentName(pkg, "$pkg.$want"), android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED, android.content.pm.PackageManager.DONT_KILL_APP)
+            for (n in all) if (n != want) pm.setComponentEnabledSetting(android.content.ComponentName(pkg, "$pkg.$n"), android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED, android.content.pm.PackageManager.DONT_KILL_APP)
+            JSONObject().put("ok", true).put("msg", "Icon changed. Your launcher may take a few seconds to show it.").toString()
+        } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not change the icon.").toString() }
     }
 
     @JavascriptInterface

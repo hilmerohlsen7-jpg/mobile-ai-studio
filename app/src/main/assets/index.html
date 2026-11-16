@@ -357,7 +357,13 @@ header #model{display:none}
 <button class="srow" data-go="cap"><span class="si">&#9889;</span><span class="st"><b>Capabilities</b><small>What the AI is allowed to do</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="skills"><span class="si">&#10024;</span><span class="st"><b>Skills</b><small>Add, remove and create skills</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="conn"><span class="si">&#128268;</span><span class="st"><b>Connectors</b><small>Gemini, Claude, Grok keys</small></span><span class="sc">&#8250;</span></button>
+<button class="srow" data-go="theme"><span class="si">&#127912;</span><span class="st"><b>Theme</b><small>Color mode, accent color, app icon, font</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" id="openPerms"><span class="si">&#128274;</span><span class="st"><b>Permissions</b><small>Mic, files, notifications</small></span><span class="sc">&#8250;</span></button>
+<button class="srow" data-go="voice"><span class="si">&#127908;</span><span class="st"><b>Voice and dictation</b><small>Speech, wake word, voice match</small></span><span class="sc">&#8250;</span></button>
+<button class="srow" id="openModels"><span class="si">&#128190;</span><span class="st"><b>Models</b><small>Download and choose models</small></span><span class="sc">&#8250;</span></button>
+<button class="srow" data-go="eng"><span class="si">&#9881;</span><span class="st"><b>Model settings</b><small>Reply length, memory, threads</small></span><span class="sc">&#8250;</span></button>
+</div>
+<div class="pg" id="pg_theme" data-title="Theme" hidden>
 <div class="scard"><div class="sct">Color mode</div>
 <div class="modes" id="modes">
 <button data-m="light"><i class="th l"></i>Light</button><button data-m="dark"><i class="th d"></i>Dark</button><button data-m="auto"><i class="th a"></i>System</button></div>
@@ -369,16 +375,11 @@ header #model{display:none}
 <div class="scard"><div class="sct">App icon</div>
 <div style="display:flex;gap:14px;align-items:center"><canvas id="iconPrev" width="192" height="192" style="width:84px;height:84px;border-radius:22%"></canvas>
 <div style="flex:1"><div id="embRow" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-<input id="embText" maxlength="2" placeholder="or type 1-2 characters" style="margin-top:8px;width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--txt)"></div></div>
-<button id="iconApply" class="pri" style="margin-top:10px;width:100%">Put this icon on my home screen</button>
-<div style="color:var(--mute);font-size:.8rem;margin-top:6px">Android shows its own question first. The original icon stays until you remove it yourself.</div></div>
+</div></div>
+<button id="iconApply" class="pri" style="margin-top:10px;width:100%">Change my app icon</button>
+<div style="color:var(--mute);font-size:.8rem;margin-top:6px">Replaces the current icon. The launcher icon uses the nearest of 8 ready-made colors to your accent.</div></div>
 <div class="scard"><div class="sct">Font style</div>
 <div class="modes" id="fonts"><button data-f="default">Default</button><button data-f="sans">Sans</button><button data-f="serif">Serif</button></div></div>
-<button class="srow" data-go="voice"><span class="si">&#127908;</span><span class="st"><b>Voice and dictation</b><small>Speech, wake word, voice match</small></span><span class="sc">&#8250;</span></button>
-<button class="srow" id="openModels"><span class="si">&#128190;</span><span class="st"><b>Models</b><small>Download and choose models</small></span><span class="sc">&#8250;</span></button>
-<button class="srow" id="openDl"><span class="si">&#11015;</span><span class="st"><b>Downloads</b><small>Downloads and torrents</small></span><span class="sc">&#8250;</span></button>
-<button class="srow" id="openFiles"><span class="si">&#128193;</span><span class="st"><b>Files on this phone</b><small>Browse, undo, trash</small></span><span class="sc">&#8250;</span></button>
-<button class="srow" data-go="eng"><span class="si">&#9881;</span><span class="st"><b>Model settings</b><small>Reply length, memory, threads</small></span><span class="sc">&#8250;</span></button>
 </div>
 <div class="pg" id="pg_skills" data-title="Skills" hidden>
 <div class="note">Skills tell the AI how to behave. Switch them on per project from the left menu.</div>
@@ -977,7 +978,9 @@ function renderDrawer() {
     d.append(h('label', null, 'Files in this project (' + cur.files.length + '). Use \u{1F4CE} to add more.'));
     cur.files.forEach((f, i) => d.append(h('div', {class: 'row'}, h('span', null, f.name), h('button', {onclick: () => delFile(i)}, '✕'))));
   }
-  d.append(h('button', {class: 'setlink', onclick: () => { closeDrawer(); $('setBtn').onclick(); }}, '\u2699  Settings'));
+  d.append(h('button', {class: 'setlink', style: 'margin-top:auto;text-align:left', onclick: () => { closeDrawer(); openDownloads(); }}, '\u2B07  Downloads'));
+  d.append(h('button', {onclick: () => { closeDrawer(); openFiles(); }}, '\u{1F4C1}  Files on this phone'));
+  d.append(h('button', {class: 'setlink', style: 'margin-top:0;text-align:left', onclick: () => { closeDrawer(); $('setBtn').onclick(); }}, '\u2699  Settings'));
 }
 function renderSkillsPage() {
   const b = $('skillsBody'); b.textContent = '';
@@ -1277,8 +1280,8 @@ function renderDownloads() {
 }
 function openDownloads() { loadDlSettings(); pullDownloads(); renderDownloads(); $('downloads').classList.add('open'); $('settings').classList.remove('open'); }
 function closeDownloads() { $('downloads').classList.remove('open'); }
-$('openDl').onclick = openDownloads;
-$('openFiles').onclick = () => openFiles();
+if ($('openDl')) $('openDl').onclick = openDownloads;
+if ($('openFiles')) $('openFiles').onclick = () => openFiles();
 $('dlBtn').onclick = openDownloads;
 
 /* ---------- find models online (Hugging Face) ---------- */
@@ -3562,10 +3565,12 @@ const EMBLEMS = {
   cloud: {d: 'M7 19a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18 11.2 3.9 3.9 0 0 1 17.5 19z'}, shield: {d: 'M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z'},
   flame: {d: 'M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-6 1 2 2 2 3-6z'}, code: {d: 'M8 7l-5 5 5 5M16 7l5 5-5 5', stroke: true}
 };
-const ACC_PRESETS = ['#D97757', '#E8B84A', '#4CAF7A', '#1F9D9D', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444'];
+const ICON_COLORS = {orange: '#D97757', yellow: '#E8B84A', green: '#4CAF7A', teal: '#1F9D9D', blue: '#3B82F6', purple: '#8B5CF6', pink: '#EC4899', red: '#EF4444'};
+const ACC_PRESETS = Object.values(ICON_COLORS);
+function snapIconColor() { const n = parseInt(accColor().slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; let best = 'orange', bd = 1e9; Object.entries(ICON_COLORS).forEach(([k, v]) => { const m = parseInt(v.slice(1), 16), d = (r - (m >> 16)) ** 2 + (g - ((m >> 8) & 255)) ** 2 + (b - (m & 255)) ** 2; if (d < bd) { bd = d; best = k; } }); return best; }
 function accColor() { return /^#[0-9a-f]{6}$/i.test(S.settings.accent || '') ? S.settings.accent : (getComputedStyle(document.documentElement).getPropertyValue('--acc').trim() || '#D97757'); }
 function drawAppIcon(cv, round) {
-  const z = cv.width, c = cv.getContext('2d'); c.clearRect(0, 0, z, z); c.fillStyle = accColor(); c.fillRect(0, 0, z, z);
+  const z = cv.width, c = cv.getContext('2d'); c.clearRect(0, 0, z, z); c.fillStyle = ICON_COLORS[snapIconColor()]; c.fillRect(0, 0, z, z);
   const em = S.settings.emblem || 'bolt', txt = (S.settings.emblemText || '').trim(); c.fillStyle = '#fff'; c.strokeStyle = '#fff';
   if (em === 'text' && txt) { c.font = '700 ' + Math.round(z * (txt.length > 1 ? .3 : .4)) + 'px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, z / 2, z / 2 + z * .02); return; }
   const E = EMBLEMS[em] || EMBLEMS.bolt, k = z * .44 / 24; c.save(); c.translate(z / 2 - 12 * k, z / 2 - 12 * k); c.scale(k, k);
@@ -3581,15 +3586,13 @@ function accUi() {
   Object.keys(EMBLEMS).forEach(k => { const cv = document.createElement('canvas'); cv.width = cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = 'currentColor'; c.fillStyle = getComputedStyle(document.body).color; c.strokeStyle = c.fillStyle;
     const E = EMBLEMS[k], q = 1.4; c.scale(q, q); c.translate(1.2, 1.2); const p = new Path2D(E.d); if (E.stroke) { c.lineWidth = 2.5; c.lineCap = c.lineJoin = 'round'; c.stroke(p); } else c.fill(p);
     const b = h('button', {class: 'emb' + ((S.settings.emblem || 'bolt') === k ? ' sel' : ''), onclick: () => { S.settings.emblem = k; persist(); accUi(); }}); b.append(cv); row.append(b); });
-  const et = $('embText'); et.value = S.settings.emblem === 'text' ? (S.settings.emblemText || '') : '';
-  et.oninput = () => { S.settings.emblemText = et.value.slice(0, 2); S.settings.emblem = et.value.trim() ? 'text' : 'bolt'; persist(); drawAppIcon($('iconPrev')); document.querySelectorAll('#embRow .emb').forEach(b => b.classList.remove('sel')); };
   drawAppIcon($('iconPrev'));
   $('iconApply').onclick = async () => {
-    if (!hasBridge || !Android.setAppIcon) { toast('This only works in the installed app.'); return; }
-    const c = await askApproval({title: 'Add your icon to the home screen', path: 'Home screen', reason: 'You chose a new app icon color and emblem.', rows: [['Color', accColor()], ['Emblem', S.settings.emblem === 'text' ? '"' + (S.settings.emblemText || '') + '"' : (S.settings.emblem || 'bolt')]], primary: {label: 'Approve: ask Android to add it', value: 'ok'}, note: 'Android asks you once more. The original icon stays; remove it yourself if you only want the new one.'});
+    if (!hasBridge || !Android.setLauncherIcon) { toast('This only works in the installed app.'); return; }
+    const col = snapIconColor(), em = S.settings.emblem || 'bolt';
+    const c = await askApproval({title: 'Change the app icon', path: 'This app\'s own icon', reason: 'You chose a new app icon color and emblem.', rows: [['Color', col + (ICON_COLORS[col].toLowerCase() === accColor().toLowerCase() ? '' : ' (nearest to your accent)')], ['Emblem', em]], primary: {label: 'Approve: change my icon', value: 'ok'}, note: 'The current icon is replaced, no second icon is added. Some phones need a few seconds, and a few drop the icon from the home screen; if yours does, drag it back from the app list.'});
     if (c === 'deny') return;
-    const big = document.createElement('canvas'); big.width = big.height = 432; drawAppIcon(big);
-    const r = JSON.parse(Android.setAppIcon(big.toDataURL('image/png').split(',')[1])); toast(r.msg || (r.ok ? 'Done.' : 'Failed.'));
+    const r = JSON.parse(Android.setLauncherIcon(col, em)); if (r.ok) { S.settings.appIcon = {c: col, e: em}; persist(); } toast(r.msg || (r.ok ? 'Done.' : 'Failed.'));
   };
 }
 function setAcc(col, live) { S.settings.accent = col; applyTheme(); persist(); if (!live) accUi(); else drawAppIcon($('iconPrev')); try { renderFiles(); } catch (e) {} }
@@ -3676,7 +3679,12 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
     hex: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h3M13 8h3M8 12h3M13 12h3M8 16h3"/>',
     shortcut: '<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
     filter: '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>'
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    laptop: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>',
+    tv: '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 3l4 4 4-4"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
+    cloud: '<path d="M7 19a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18 11.2 3.9 3.9 0 0 1 17.5 19z"/>',
+    palette: '<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.5-2.5H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><path d="M7.5 11h.01M10 7.5h.01M14.5 7.5h.01"/>'
   };
   const M = {
     '\u{1F4C1}': 'folder', '\u{1F5C2}': 'folder', '\u{1F4C2}': 'folderOpen', '\u{1F4C4}': 'file', '\u{1F4DD}': 'filePlus', '\u{1F4CE}': 'clip', '\u{1F4F7}': 'camera',
@@ -3686,11 +3694,11 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
     '⚙': 'settings', '✨': 'sparkles', '\u{1F50C}': 'plug', '\u{1F310}': 'globe', '\u{1F504}': 'refresh', '♻': 'refresh', '\u{1F552}': 'clock', '\u{1F4CA}': 'chart',
     '\u{1F4F6}': 'wifi', '\u{1F4E6}': 'package', '\u{1F5DC}': 'archive', '\u{1F4E4}': 'upload', '\u{1F4CB}': 'clipboard', '\u{1F4D1}': 'copy', '✂': 'scissors',
     '☑': 'checkSq', 'ℹ': 'info', '\u{1F50D}': 'search', '\u{1F50E}': 'search', '\u{1F512}': 'lock', '\u{1F513}': 'unlock', '\u{1F5A5}': 'monitor', '\u{1F4F1}': 'phone',
-    '\u{1F326}': 'cloudSun', '\u{1F4AC}': 'chat', '\u{1F4BE}': 'save', '⏹': 'stop', '■': 'stop', '⋮': 'dots', '➕': 'plus'
+    '\u{1F326}': 'cloudSun', '\u{1F4AC}': 'chat', '\u{1F4BE}': 'save', '⏹': 'stop', '■': 'stop', '⋮': 'dots', '➕': 'plus', '\u{1F4BB}': 'laptop', '\u{1F4FA}': 'tv', '\u{1F511}': 'key', '☁': 'cloud', '\u{1F3A8}': 'palette'
   };
   const re = new RegExp('(' + Object.keys(M).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\uFE0F?|\\uFE0F', 'g');
   const colour = {folder: '#e8b84a', folderOpen: '#e8b84a', file: '#aab4c4', alert: '#e0a030', check: 'inherit', star: '#e8b84a'};
-  const FILLED = new Set(['folder', 'folderOpen', 'file', 'filePlus', 'camera', 'image', 'package', 'archive', 'clipboard', 'copy', 'checkSq', 'info', 'lock', 'unlock', 'monitor', 'phone', 'chat', 'save', 'hex', 'globe', 'clock', 'plug', 'cloudSun', 'play', 'alert']);
+  const FILLED = new Set(['folder', 'folderOpen', 'file', 'filePlus', 'camera', 'image', 'package', 'archive', 'clipboard', 'copy', 'checkSq', 'info', 'lock', 'unlock', 'monitor', 'phone', 'chat', 'save', 'hex', 'globe', 'clock', 'plug', 'cloudSun', 'play', 'alert', 'laptop', 'tv', 'key', 'cloud', 'palette']);
   function svg(name) {
     const e = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     e.setAttribute('viewBox', '0 0 24 24'); e.setAttribute('class', 'vi vi-' + name); e.setAttribute('aria-hidden', 'true');
