@@ -262,7 +262,10 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .vi.vf{fill:color-mix(in srgb,var(--acc) 12%,transparent)}
 .xic .vi,.xtb span .vi,.xmic .vi{color:#EEF1EA!important;stroke-width:1.5;filter:drop-shadow(0 0 2.5px color-mix(in srgb,var(--acc) 80%,transparent)) drop-shadow(0 0 7px color-mix(in srgb,var(--acc) 38%,transparent))}
 .xic .vi.vf,.xtb span .vi.vf,.xmic .vi.vf{fill:color-mix(in srgb,var(--acc) 14%,transparent)}
-.accsw{width:34px!important;height:34px!important;min-width:34px!important;flex:0 0 34px!important;border-radius:50%!important;border:2px solid var(--line)!important;padding:0!important;margin:0!important}.emb{width:46px!important;height:46px!important;min-width:46px!important;flex:0 0 46px!important;border-radius:12px!important;padding:0!important;margin:0!important;display:inline-flex!important;align-items:center;justify-content:center}#accPick{flex:0 0 48px}.emb.sel{outline:2px solid var(--acc)}
+.accsw{width:34px!important;height:34px!important;min-width:34px!important;flex:0 0 34px!important;border-radius:50%!important;border:2px solid var(--line)!important;padding:0!important;margin:0!important}.emb{width:46px!important;height:46px!important;min-width:46px!important;flex:0 0 46px!important;border-radius:12px!important;padding:0!important;margin:0!important;display:inline-flex!important;align-items:center;justify-content:center}#hueWrap{position:relative;width:176px;height:176px;flex:0 0 176px;touch-action:none;user-select:none}
+#hueWheel{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,hsl(0 78% 58%),hsl(40 78% 58%),hsl(80 78% 58%),hsl(120 78% 58%),hsl(160 78% 58%),hsl(200 78% 58%),hsl(240 78% 58%),hsl(280 78% 58%),hsl(320 78% 58%),hsl(360 78% 58%));-webkit-mask:radial-gradient(circle,transparent 62%,#000 63%);mask:radial-gradient(circle,transparent 62%,#000 63%)}
+#hueCenter{position:absolute;left:50%;top:50%;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;background:var(--acc);border:2px solid var(--line)}
+#hueKnob{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.5);background:var(--acc);pointer-events:none}.emb.sel{outline:2px solid var(--acc)}
 .xspin{display:inline-block;width:22px;height:22px;border:3px solid #444;border-top-color:var(--acc);border-radius:50%;animation:xsp .8s linear infinite;margin-right:8px}@keyframes xsp{to{transform:rotate(360deg)}}
 .xmback{position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.35)}
 .xmenu{position:absolute;top:4vh;left:30vw;right:4vw;max-height:92vh;overflow-y:auto;background:#212121;border-radius:6px;box-shadow:0 6px 24px #000a}
@@ -371,8 +374,9 @@ header #model{display:none}
 <button data-m="light"><i class="th l"></i>Light</button><button data-m="dark"><i class="th d"></i>Dark</button><button data-m="auto"><i class="th a"></i>System</button></div>
   <label hidden><select id="s_theme"><option value="auto">Match my phone</option><option value="light">Light</option><option value="dark">Dark</option></select></label></div>
 <div class="scard"><div class="sct">Accent color</div>
-<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input type="color" id="accPick" style="width:48px;height:40px;border:0;background:none;padding:0">
-<span id="accSw" style="display:flex;gap:6px;flex-wrap:wrap"></span><button id="accReset">Original orange</button></div>
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><div id="hueWrap"><div id="hueWheel"></div><div id="hueCenter"></div><div id="hueKnob"></div></div>
+<div style="flex:1;min-width:150px"><div style="font-size:.8rem;color:var(--mute)">Brightness</div><input type="range" id="accL" min="30" max="78" style="width:100%">
+<span id="accSw" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></span><button id="accReset">Original orange</button></div></div>
 <div style="color:var(--mute);font-size:.8rem;margin-top:6px">Changes the orange, the squares around files and folders, the loading wheels and the icon bodies.</div></div>
 <div class="scard"><div class="sct">App icon</div>
 <div style="display:flex;gap:14px;align-items:center"><canvas id="iconPrev" width="192" height="192" style="width:84px;height:84px;border-radius:22%"></canvas>
@@ -3578,11 +3582,22 @@ function drawAppIcon(cv, round) {
   const E = EMBLEMS[em] || EMBLEMS.bolt, k = z * .44 / 24; c.save(); c.translate(z / 2 - 12 * k, z / 2 - 12 * k); c.scale(k, k);
   const p = new Path2D(E.d); if (E.stroke) { c.lineWidth = 3; c.lineCap = c.lineJoin = 'round'; c.stroke(p); } else c.fill(p); c.restore();
 }
+function hexToHsl(hx) { const n = parseInt(hx.slice(1), 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; let hh = 0, ss = 0; if (mx !== mn) { const d = mx - mn; ss = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); hh = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; hh *= 60; } return [hh, ss * 100, l * 100]; }
+function hslToHex(hh, ss, l) { ss /= 100; l /= 100; const k = n => (n + hh / 30) % 12, a = ss * Math.min(l, 1 - l), f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))), x = v => Math.round(v * 255).toString(16).padStart(2, '0'); return '#' + x(f(0)) + x(f(8)) + x(f(4)); }
 function accUi() {
-  const pick = $('accPick'); if (!pick) return;
+  const wrap = $('hueWrap'); if (!wrap) return;
   const sw = $('accSw'); sw.textContent = ''; ACC_PRESETS.forEach(col => { const b = h('button', {class: 'accsw', style: 'background:' + col, onclick: () => setAcc(col)}); sw.append(b); });
-  pick.value = accColor().length === 7 ? accColor() : '#d97757';
-  pick.oninput = () => setAcc(pick.value, true);
+  let [hue, sat, lig] = hexToHsl(accColor().length === 7 ? accColor() : '#d97757'); if (sat < 20) sat = 72;
+  const R = 88, knob = $('hueKnob'), L = $('accL');
+  const place = () => { const a = hue * Math.PI / 180, r = R * .815; knob.style.left = (R + r * Math.sin(a)) + 'px'; knob.style.top = (R - r * Math.cos(a)) + 'px'; };
+  L.value = Math.max(30, Math.min(78, Math.round(lig))); place();
+  const apply = fin => { setAcc(hslToHex(hue, Math.max(sat, 55), +L.value), !fin); place(); if (fin) { try { renderFiles(); } catch (e) {} } };
+  const fromEv = e => { const q = wrap.getBoundingClientRect(), dx = e.clientX - q.left - R, dy = e.clientY - q.top - R; hue = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360; apply(false); };
+  wrap.onpointerdown = e => { wrap.setPointerCapture(e.pointerId); wrap.dragging = true; fromEv(e); };
+  wrap.onpointermove = e => { if (wrap.dragging) fromEv(e); };
+  wrap.onpointerup = wrap.onpointercancel = () => { if (wrap.dragging) { wrap.dragging = false; apply(true); } };
+  L.oninput = () => apply(false); L.onchange = () => apply(true);
+  $('accReset').onclick = () => { delete S.settings.accent; applyTheme(); persist(); accUi(); try { renderFiles(); } catch (e) {} };
   $('accReset').onclick = () => { delete S.settings.accent; applyTheme(); persist(); accUi(); try { renderFiles(); } catch (e) {} };
   const row = $('embRow'); row.textContent = '';
   Object.keys(EMBLEMS).forEach(k => { const cv = document.createElement('canvas'); cv.width = cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = 'currentColor'; c.fillStyle = getComputedStyle(document.body).color; c.strokeStyle = c.fillStyle;
@@ -3597,7 +3612,7 @@ function accUi() {
     const r = JSON.parse(Android.setLauncherIcon(col, em)); if (r.ok) { S.settings.appIcon = {c: col, e: em}; persist(); } toast(r.msg || (r.ok ? 'Done.' : 'Failed.'));
   };
 }
-function setAcc(col, live) { S.settings.accent = col; applyTheme(); persist(); if (!live) accUi(); else drawAppIcon($('iconPrev')); try { renderFiles(); } catch (e) {} }
+function setAcc(col, live) { S.settings.accent = col; applyTheme(); if (live) { drawAppIcon($('iconPrev')); return; } persist(); accUi(); try { renderFiles(); } catch (e) {} }
 $('setBack').onclick = () => { if (setPage !== 'home') setGo('home'); else $('settings').classList.remove('open'); };
 document.querySelectorAll('#settings [data-go]').forEach(b => b.onclick = () => setGo(b.dataset.go));
 document.querySelectorAll('#modes button').forEach(b => b.onclick = () => { S.settings.theme = b.dataset.m; $('s_theme').value = b.dataset.m; applyTheme(); persist(); setHome(); });
