@@ -1615,6 +1615,11 @@ function closeFiles() { $('files').classList.remove('open'); }
 window.__onResume = () => { if ($('settings').classList.contains('open')) { try { assistRefresh(); wakeRefresh(); } catch (e) {} } if ($('perms').classList.contains('open')) permsRender();  if ($('files').classList.contains('open')) { FS.access = !!Android.fsAccess(); if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; } renderFiles(); } };
 function topbar(title, back) { return h('div', {class: 'topbar'}, h('h2', null, title), back ? h('button', {onclick: back}, 'Back') : null, h('button', {onclick: closeFiles}, 'Close')); }
 function renderFiles() {
+  const o0 = $('files'), key = FS.view + '|' + FS.path, tops = [...o0.querySelectorAll('.xlist')].map(e => e.scrollTop), same = FS._rk === key;
+  FS._rk = key; renderFilesRaw();
+  if (same) o0.querySelectorAll('.xlist').forEach((e, i) => { if (tops[i]) e.scrollTop = tops[i]; });
+}
+function renderFilesRaw() {
   const o = $('files'); o.textContent = ''; o.classList.remove('x');
   if (!hasBridge) { o.append(topbar('File Manager')); o.append(h('div', {class: 'sub'}, 'The file browser only works in the app.')); return; }
   if (!FS.access) {
