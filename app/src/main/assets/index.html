@@ -1700,9 +1700,9 @@ function buildPane(o, idx) {
         const row = h('div', {class: 'xrow' + (FS.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (8 + depth * 18) + 'px'});
         const togg = () => { if (open) FS.open.delete(p); else FS.open.add(p); pr0.focus = fk; renderFiles(); };
         row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; togg(); }}, it.dir ? (open ? '▼' : '▶') : ''));
-        row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'));
+        row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : fileIcon(it.name, p)));
         const cnt = FS.cnt[p];
-        const nm = h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + ' · ' + fmtDate(it.mtime)));
+        const nm = h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + ' · ' + fmtDate(it.mtime)));
         const menu = () => itemMenu(FS.active, C, p, it, false);
         if (it.dir) holdOpen(nm, togg, menu);
         else holdOpen(nm, () => { pr0.focus = fk; if (C) { FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p); renderFiles(); } else openFileView(it, p); }, menu);
@@ -2111,6 +2111,33 @@ const HOME_ITEMS = [['int', 'Internal shared storage', '\u{1F4F1}'], ['root', 'R
 function homeShownMap(idx) { const P = S.settings.homeShowP = S.settings.homeShowP || [null, null]; if (!P[idx]) P[idx] = Object.assign({}, S.settings.homeShow || {}); return P[idx]; }
 function homeShown(k, idx) { const v = homeShownMap(idx === undefined ? FS.active : idx)[k]; return v === undefined ? true : v; }
 
+
+/* ---- file icons: previews for images/videos/PDF/APK, music note, zip and extension badge for the rest ---- */
+FS.thumb = FS.thumb || {}; FS.thumbAsked = FS.thumbAsked || {}; let thTimer = null;
+const EXT_IMG = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif']), EXT_VID = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', '3gp', 'm4v', 'ts', 'flv', 'wmv']),
+  EXT_AUD = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'amr', 'mid', 'midi']), EXT_ZIP = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'jar', 'war', 'ear', 'cab', 'iso', 'lz', 'zst']),
+  EXT_THUMB = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif', 'mp4', 'mkv', 'avi', 'mov', 'webm', '3gp', 'm4v', 'ts', 'flv', 'wmv', 'pdf', 'apk']);
+function extOf(n) { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; }
+function thumbNeed(p) { if (FS.thumb[p] || FS.thumbAsked[p]) return; FS.thumbAsked[p] = 1; (FS.thq = FS.thq || []).push(p);
+  if (thTimer) return; thTimer = setTimeout(async function run() { thTimer = null; const q = FS.thq.splice(0, 12); if (!q.length) return; let got = false;
+    const r = await fsCall('fsThumbs', JSON.stringify(q)); if (r && r.ok) { Object.entries(r.thumbs).forEach(([k, v]) => { FS.thumb[k] = v; }); got = true; } else q.forEach(k => FS.thumb[k] = {t: ''});
+    if (got && $('files').classList.contains('open') && FS.view === 'list') renderFiles(); if (FS.thq.length) thTimer = setTimeout(run, 30); }, 80); }
+function extBadgeIcon(ext, zip) {
+  const e = vecIcon('file'); e.classList.add('vf'); if (zip) e.insertAdjacentHTML('beforeend', '<path d="M9 3v2M9 6v2M9 9v2" stroke-width="1.3"/>');
+  const t = (ext || '?').toUpperCase().slice(0, 4), fs = t.length <= 2 ? 6.4 : t.length === 3 ? 5.4 : 4.2;
+  e.insertAdjacentHTML('beforeend', '<text x="12" y="' + (zip ? 17.2 : 16.6) + '" text-anchor="middle" font-size="' + fs + '" font-weight="700" font-family="system-ui,sans-serif" fill="currentColor" stroke="none">' + t.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</text>');
+  return e;
+}
+function fileIcon(name, p) {
+  const ext = extOf(name);
+  if (EXT_THUMB.has(ext) && p) { const t = FS.thumb[p]; if (t && t.t) return h('img', {src: 'data:image/' + (t.m || 'jpeg') + ';base64,' + t.t, style: 'width:1.95em;height:1.95em;object-fit:' + (ext === 'apk' ? 'contain' : 'cover') + ';border-radius:' + (ext === 'apk' ? '9px' : '6px') + ';border:1px solid #333;background:#111'}); if (!t) thumbNeed(p); }
+  if (EXT_AUD.has(ext)) return vecIcon('music');
+  if (EXT_VID.has(ext)) return vecIcon('film');
+  if (EXT_IMG.has(ext)) return vecIcon('image');
+  if (ext === 'apk') return vecIcon('package');
+  if (EXT_ZIP.has(ext)) return extBadgeIcon(ext, true);
+  return extBadgeIcon(ext, false);
+}
 FS.cnt = FS.cnt || {}; FS.cntAsked = FS.cntAsked || {}; let cntTimer = null;
 function cntNeed(path) { if (FS.cnt[path] || FS.cntAsked[path]) return; FS.cntAsked[path] = 1; (FS.cntq = FS.cntq || []).push(path);
   if (cntTimer) return; cntTimer = setTimeout(async () => { cntTimer = null; const q = FS.cntq.splice(0, FS.cntq.length); let got = false;
@@ -2188,7 +2215,7 @@ function buildHome(o, idx) {
     const togg = () => { if (!it.dir) { pn.focus = fk; renderFiles(); return; } if (op) pn.hopen.delete(fk); else pn.hopen.add(fk); pn.focus = fk; if (c && !op) delete (pn.rerr || {})[fk]; renderFiles(); };
     const el = h('div', {class: 'xrow' + (marked ? ' sel' : ''), style: 'padding-left:' + (6 + ind * 20) + 'px'},
       h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); togg(); }}, it.dir ? (op ? '▼' : '▶') : ''),
-      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (c ? 'Folder' : (cntNeed(p), cntNode(p))) : fmtSize(it.size || 0) + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
+      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : (c ? '\u{1F4C4}' : fileIcon(it.name, p))), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (c ? 'Folder' : (cntNeed(p), cntNode(p))) : fmtSize(it.size || 0) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
       (c && it.dir && pn.rl && pn.rl[fk] ? h('span', {class: 'xspin'}) : null),
       h('span', {class: 'xchk', onclick: e => { e.stopPropagation(); if (c) { pn.rsel = pn.rsel || new Map(); if (pn.rsel.has(fk)) pn.rsel.delete(fk); else pn.rsel.set(fk, {c: c, p: p, name: it.name, dir: it.dir, size: it.size || 0}); } else { if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); } renderFiles(); }}, '✔'));
     const menu = () => itemMenu(idx, c, p, it, true);
@@ -3710,6 +3737,8 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
     shortcut: '<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
     filter: '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/>',
     laptop: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>',
     tv: '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 3l4 4 4-4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
@@ -3728,7 +3757,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) persi
   };
   const re = new RegExp('(' + Object.keys(M).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\uFE0F?|\\uFE0F', 'g');
   const colour = {folder: '#e8b84a', folderOpen: '#e8b84a', file: '#aab4c4', alert: '#e0a030', check: 'inherit', star: '#e8b84a'};
-  const FILLED = new Set(['folder', 'folderOpen', 'file', 'filePlus', 'camera', 'image', 'package', 'archive', 'clipboard', 'copy', 'checkSq', 'info', 'lock', 'unlock', 'monitor', 'phone', 'chat', 'save', 'hex', 'globe', 'clock', 'plug', 'cloudSun', 'play', 'alert', 'laptop', 'tv', 'key', 'cloud', 'palette']);
+  const FILLED = new Set(['folder', 'folderOpen', 'file', 'filePlus', 'camera', 'image', 'package', 'archive', 'clipboard', 'copy', 'checkSq', 'info', 'lock', 'unlock', 'monitor', 'phone', 'chat', 'save', 'hex', 'globe', 'clock', 'plug', 'cloudSun', 'play', 'alert', 'laptop', 'tv', 'key', 'cloud', 'palette', 'music', 'film']);
   function svg(name) {
     const e = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     e.setAttribute('viewBox', '0 0 24 24'); e.setAttribute('class', 'vi vi-' + name); e.setAttribute('aria-hidden', 'true');

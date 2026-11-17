@@ -782,6 +782,49 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun fsSpace(path: String): String = try { val st = android.os.StatFs(path); JSONObject().put("ok", true).put("free", st.availableBytes).put("total", st.totalBytes).toString() } catch (e: Exception) { JSONObject().put("ok", false).toString() }
 
+    /** Small previews for images, videos, PDFs and APK icons. Reply: {path: {t: base64, w, h, m: mime}}. */
+    @JavascriptInterface
+    fun fsThumbs(reqId: String, pathsJson: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            val out = JSONObject()
+            try {
+                val a = JSONArray(pathsJson)
+                for (i in 0 until minOf(a.length(), 24)) {
+                    val p = a.getString(i); val ext = p.substringAfterLast('.', "").lowercase(); val f = File(p)
+                    try {
+                        var bmp: android.graphics.Bitmap? = null; var w = 0; var h = 0; var png = false
+                        when (ext) {
+                            "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif" -> {
+                                val o = android.graphics.BitmapFactory.Options(); o.inJustDecodeBounds = true; android.graphics.BitmapFactory.decodeFile(p, o); w = o.outWidth; h = o.outHeight
+                                var ss = 1; while (o.outWidth / (ss * 2) >= 128 && o.outHeight / (ss * 2) >= 128) ss *= 2
+                                val o2 = android.graphics.BitmapFactory.Options(); o2.inSampleSize = ss; bmp = android.graphics.BitmapFactory.decodeFile(p, o2)
+                            }
+                            "mp4", "mkv", "avi", "mov", "webm", "3gp", "m4v", "ts", "flv", "wmv" -> {
+                                val r = android.media.MediaMetadataRetriever(); try { r.setDataSource(p); bmp = r.getFrameAtTime(1_000_000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC); w = bmp?.width ?: 0; h = bmp?.height ?: 0 } finally { try { r.release() } catch (e: Exception) {} }
+                            }
+                            "pdf" -> {
+                                val fd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY); val r = android.graphics.pdf.PdfRenderer(fd)
+                                try { val pg = r.openPage(0); val sc = 160f / pg.width; val b = android.graphics.Bitmap.createBitmap(160, (pg.height * sc).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888); b.eraseColor(android.graphics.Color.WHITE); pg.render(b, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY); pg.close(); bmp = b } finally { r.close(); fd.close() }
+                            }
+                            "apk" -> {
+                                val pm = activity.packageManager; val pi = pm.getPackageArchiveInfo(p, 0)
+                                if (pi?.applicationInfo != null) { pi.applicationInfo!!.sourceDir = p; pi.applicationInfo!!.publicSourceDir = p; val d = pi.applicationInfo!!.loadIcon(pm)
+                                    val b = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888); val c = android.graphics.Canvas(b); d.setBounds(0, 0, 96, 96); d.draw(c); bmp = b; png = true }
+                            }
+                        }
+                        if (bmp != null) {
+                            val sc = 96f / maxOf(bmp.width, bmp.height); val sm = if (sc < 1f) android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * sc).toInt().coerceAtLeast(1), (bmp.height * sc).toInt().coerceAtLeast(1), true) else bmp
+                            val bo = java.io.ByteArrayOutputStream(); sm.compress(if (png) android.graphics.Bitmap.CompressFormat.PNG else android.graphics.Bitmap.CompressFormat.JPEG, 72, bo)
+                            out.put(p, JSONObject().put("t", android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP)).put("w", w).put("h", h).put("m", if (png) "png" else "jpeg"))
+                        } else out.put(p, JSONObject().put("t", "").put("w", w).put("h", h))
+                    } catch (e: Throwable) { out.put(p, JSONObject().put("t", "").put("w", 0).put("h", 0)) }
+                }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("thumbs", out))
+            } catch (e: Exception) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "No previews.")) }
+        }
+    }
+
     /** How many folders and files sit directly inside each of the given folders. */
     @JavascriptInterface
     fun fsCounts(reqId: String, pathsJson: String) {
