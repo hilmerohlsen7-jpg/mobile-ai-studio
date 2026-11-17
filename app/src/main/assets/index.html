@@ -2198,7 +2198,7 @@ function buildHome(o, idx) {
     const fkk = fk && fk[0] === '~' ? (fk.startsWith('~t:') ? ((HOME_ITEMS.find(x => x[1] === title) || [])[0] || (title === 'Show...' ? 'show' : null)) : fk.slice(1)) : null;
     if (!tog && !hold && !ind && fkk) hold = () => { FS.active = idx; featureMenu(fkk, idx); };
     const flip = () => { if (pn.hopen.has(key)) pn.hopen.delete(key); else pn.hopen.add(key); };
-    const el = h('div', {class: 'xrow', style: 'padding-left:' + (6 + (ind || 0) * 20) + 'px'},
+    const el = h('div', {class: 'xrow', style: 'padding-left:' + (4 + Math.min(ind || 0, 6) * 8) + 'px'},
     h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!key) return; setF(); if (tf) { tf(); return; } flip(); renderFiles(); }}, key ? (open ? '▼' : '▶') : ''),
     h('span', {class: 'xic'}, ico), h('span', {class: 'xnm'}, h('b', null, title), sub ? h('small', null, sub) : null), tail || null);
     if (tog && key) holdOpen(el, () => { setF(); if (tf) tf(); else { flip(); renderFiles(); } }, () => { setF(); fn(); }); else if (hold) holdOpen(el, () => { setF(); fn(); }, hold); else el.onclick = () => { setF(); fn(); };
@@ -2215,7 +2215,7 @@ function buildHome(o, idx) {
     const togg = () => { if (!it.dir) { pn.focus = fk; renderFiles(); return; } if (op) pn.hopen.delete(fk); else pn.hopen.add(fk); pn.focus = fk; if (c && !op) delete (pn.rerr || {})[fk]; renderFiles(); };
     const el = h('div', {class: 'xrow' + (marked ? ' sel' : ''), style: 'padding-left:' + (4 + Math.min(ind, 6) * 8) + 'px'},
       h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); togg(); }}, it.dir ? (op ? '▼' : '▶') : ''),
-      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : (c ? '\u{1F4C4}' : fileIcon(it.name, p))), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (c ? 'Folder' : (cntNeed(p), cntNode(p))) : fmtSize(it.size || 0) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
+      h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : (c ? fileIcon(it.name) : fileIcon(it.name, p))), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (c ? 'Folder' : (cntNeed(p), cntNode(p))) : fmtSize(it.size || 0) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
       (c && it.dir && pn.rl && pn.rl[fk] ? h('span', {class: 'xspin'}) : null),
       h('span', {class: 'xchk', onclick: e => { e.stopPropagation(); if (c) { pn.rsel = pn.rsel || new Map(); if (pn.rsel.has(fk)) pn.rsel.delete(fk); else pn.rsel.set(fk, {c: c, p: p, name: it.name, dir: it.dir, size: it.size || 0}); } else { if (pn.sel.has(p)) pn.sel.delete(p); else pn.sel.add(p); } renderFiles(); }}, '✔'));
     const menu = () => itemMenu(idx, c, p, it, true);
@@ -2319,7 +2319,7 @@ function buildHome(o, idx) {
             grp(key, L, () => row(U ? '\u{1F513}' : '\u{1F512}', v.name, U ? U.entries.length + ' locked files' : 'Locked  ·  ' + fmtSize(v.size), () => {}, 1, key, cop, true, hold, flipV), L2 => {
               if (!cop) return;
               if (!U.entries.length) L2.append(h('div', {class: 'xrow', style: 'padding-left:46px'}, h('span', {class: 'xnm'}, h('small', null, 'Empty. In the file list, mark files and tap "Lock in vault".'))));
-              U.entries.forEach(e => { const k2 = 've:' + v.name + '|' + e.name; grp(k2, L2, () => row('\u{1F4C4}', baseName(e.name), fmtSize(e.size), () => { pn.focus = k2; pn.vault = U; renderFiles(); vaultEntry(pn, e); }, 2)); });
+              U.entries.forEach(e => { const k2 = 've:' + v.name + '|' + e.name; grp(k2, L2, () => row(fileIcon(baseName(e.name)), baseName(e.name), fmtSize(e.size), () => { pn.focus = k2; pn.vault = U; renderFiles(); vaultEntry(pn, e); }, 2)); });
             });
           });
           if (!(pn.vlist || []).length) L.append(h('div', {class: 'xrow', style: 'padding-left:26px'}, h('span', {class: 'xnm'}, h('small', null, 'No catalogs yet. Tap Options, then New.'))));
@@ -2351,7 +2351,7 @@ function buildHome(o, idx) {
           if (!D.c[ck].length) parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', null, 'No files to show'))));
           D.c[ck].forEach(it => { const key = 'dc:' + dev.control + '|' + it.id; D.names[key] = it.title;
             if (it.container) { const o2 = pn.hopen.has(key); grp(key, parent, () => row('\u{1F4C1}', it.title, '', () => {}, ind, key, o2, true), L => { if (o2) dtree(dev, it.id, ind + 1, L); }); }
-            else grp(key, parent, () => row('\u{1F4C4}', it.title, it.size ? fmtSize(it.size) : 'Media file', () => { pn.focus = key; renderFiles(); dlnaGet(it); }, ind, null, false, false, null)); });
+            else grp(key, parent, () => row(fileIcon(it.title), it.title, it.size ? fmtSize(it.size) : 'Media file', () => { pn.focus = key; renderFiles(); dlnaGet(it); }, ind, null, false, false, null)); });
         };
         grp('~dlna', list, () => row(ico, t, '', () => { act(); featureMenu('dlna', idx); }, 0, '~dlna', op, true), L => {
           if (!op) return;
@@ -2436,7 +2436,7 @@ function buildVault(list, idx) {
   if (pn.vault) {
     const V = pn.vault; head('Vault: ' + V.name, V.entries ? V.entries.length + ' locked files' : 'Opening...');
     list.append(h('div', {class: 'xrow', onclick: () => { pn.vault = null; renderFiles(); }}, h('span', {class: 'xic'}, '↰'), h('span', {class: 'xnm'}, h('b', null, 'Lock and leave'), h('small', null, 'Forgets the password'))));
-    (V.entries || []).forEach(e => list.append(h('div', {class: 'xrow', onclick: () => vaultEntry(pn, e)}, h('span', {class: 'xic'}, '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, e.name), h('small', null, fmtSize(e.size))))));
+    (V.entries || []).forEach(e => list.append(h('div', {class: 'xrow', onclick: () => vaultEntry(pn, e)}, h('span', {class: 'xic'}, fileIcon(e.name)), h('span', {class: 'xnm'}, h('b', null, e.name), h('small', null, fmtSize(e.size))))));
     if (V.entries && !V.entries.length) list.append(h('div', {class: 'sub'}, 'Empty. In the normal file list, tick files and tap "Lock in vault".'));
     return;
   }
@@ -2714,7 +2714,7 @@ function buildDlna(list, idx) {
   head(D.cur.title, D.items ? D.items.length + ' entries' : 'Loading...');
   list.append(h('div', {class: 'xrow', onclick: () => { const st = D.stack; st.pop(); if (!st.length) { D.cur = null; renderFiles(); } else { const t = st[st.length - 1]; st.pop(); dlnaOpen(pn, D.cur.dev, t.id, t.title); } }}, h('span', {class: 'xic'}, '\u21B0'), h('span', {class: 'xnm'}, h('b', null, 'Up'))));
   (D.items || []).forEach(it => list.append(h('div', {class: 'xrow', onclick: () => it.container ? dlnaOpen(pn, D.cur.dev, it.id, it.title) : dlnaGet(it)},
-    h('span', {class: 'xic'}, it.container ? '\u{1F4C1}' : '\u{1F4C4}'), h('span', {class: 'xnm'}, h('b', null, it.title), it.container ? null : h('small', null, it.size ? fmtSize(it.size) : 'Media file')))));
+    h('span', {class: 'xic'}, it.container ? '\u{1F4C1}' : fileIcon(it.title)), h('span', {class: 'xnm'}, h('b', null, it.title), it.container ? null : h('small', null, it.size ? fmtSize(it.size) : 'Media file')))));
 }
 async function dlnaOpen(pn, dev, id, title) {
   const D = pn.dl; D.cur = {dev: dev, id: id, title: title}; D.items = null; D.stack.push({id: id, title: title}); renderFiles();

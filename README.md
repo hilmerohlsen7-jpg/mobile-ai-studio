@@ -33,7 +33,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 ## Not done yet
 
 - Still to add: SMB2 toggle, key shortcuts, Configure buttons, Tweaks, Link storage, Add shortcut
-- File-type icons and folder counts in Vault, DLNA and server folder lists
+- Folder counts and image/APK previews in Vault, DLNA and server folder lists (they have type icons now)
 - Tick boxes / batch select on app rows
 - Weather city bug
 
