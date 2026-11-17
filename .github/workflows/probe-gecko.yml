@@ -1,0 +1,18 @@
+name: Probe GeckoView
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: "17"}
+      - name: Look at GeckoView
+        shell: bash
+        run: |
+          B=https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a
+          curl -sf $B/maven-metadata.xml | grep -E "<(latest|release)>|<version>" | tail -6
+          V=$(curl -sf $B/maven-metadata.xml | grep -oP "(?<=<release>).*(?=</release>)")
+          echo "VERSION=$V"
+          curl -sfL -o g.aar $B/$V/geckoview-arm64-v8a-$V.aar; ls -la g.aar
+          unzip -q g.aar classes.jar -d g
+          for c in GeckoSession\$NavigationDelegate GeckoSession\$ProgressDelegate GeckoSession\$ContentDelegate GeckoSession\$PromptDelegate GeckoRuntime GeckoRuntimeSettings\$Builder WebExtensionController WebExtensionController\$PromptDelegate WebExtension GeckoSession\$HistoryDelegate; do echo "=== $c"; javap -cp g/classes.jar "org.mozilla.geckoview.$c" 2>&1 | head -60; done
