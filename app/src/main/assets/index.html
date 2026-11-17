@@ -308,7 +308,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 #voiceDots{display:flex;justify-content:center;gap:8px;margin-bottom:8px}
 #voiceDots i{width:7px;height:7px;border-radius:50%;background:#4a4a46}#voiceDots i.on{background:var(--txt)}
 .vi{width:1.1em;height:1.1em;vertical-align:-.2em;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.xic .vi{width:1.95em;height:1.95em}.aico .vi,.si .vi{width:1.2em;height:1.2em}.aico.big .vi{width:1.5em;height:1.5em}
+.xic .vi{width:1.55em;height:1.55em}.aico .vi,.si .vi{width:1.2em;height:1.2em}.aico.big .vi{width:1.5em;height:1.5em}
 .xtb span .vi{width:1.4rem;height:1.4rem}.xarrow .vi{width:.9em;height:.9em}.xarr .vi{width:1.3rem;height:1.3rem}
 .xchk .vi{width:1.3rem;height:1.3rem;stroke-width:2.4}
 footer .vi,header .vi{width:1.35rem;height:1.35rem}
@@ -2130,7 +2130,7 @@ function extBadgeIcon(ext, zip) {
 }
 function fileIcon(name, p) {
   const ext = extOf(name);
-  if (EXT_THUMB.has(ext) && p) { const t = FS.thumb[p]; if (t && t.t) return h('img', {src: 'data:image/' + (t.m || 'jpeg') + ';base64,' + t.t, style: 'width:1.95em;height:1.95em;object-fit:' + (ext === 'apk' ? 'contain' : 'cover') + ';border-radius:' + (ext === 'apk' ? '9px' : '6px') + ';border:1px solid #333;background:#111'}); if (!t) thumbNeed(p); }
+  if (EXT_THUMB.has(ext) && p) { const t = FS.thumb[p]; if (t && t.t) return h('img', {src: 'data:image/' + (t.m || 'jpeg') + ';base64,' + t.t, style: 'width:1.55em;height:1.55em;object-fit:' + (ext === 'apk' ? 'contain' : 'cover') + ';border-radius:' + (ext === 'apk' ? '9px' : '6px') + ';border:1px solid #333;background:#111'}); if (!t) thumbNeed(p); }
   if (EXT_AUD.has(ext)) return vecIcon('music');
   if (EXT_VID.has(ext)) return vecIcon('film');
   if (EXT_IMG.has(ext)) return vecIcon('image');
