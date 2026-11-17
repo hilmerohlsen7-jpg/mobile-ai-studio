@@ -276,10 +276,10 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xmic .vi{width:1.5rem;height:1.5rem}
 .xhex{font:12px/1.5 monospace;white-space:pre;overflow:auto;max-height:55vh;background:#111;padding:8px;border-radius:8px;color:#cfd8dc}
 .xarrow{width:18px;color:#2aa6e6;text-align:center;flex-shrink:0}
-.xic{font-size:1.3rem;flex-shrink:0}
+.xic{font-size:1.3rem;flex-shrink:0;min-width:1.5em;height:1.5em;display:flex;align-items:center;justify-content:center}.xrow{min-height:3.3rem}
 .xnm{flex:1;min-width:0;display:flex;flex-direction:column;word-break:break-all}
 .xnm b{font-weight:600;font-size:1rem}
-.xnm small{color:var(--mute);font-size:.75rem;white-space:pre-line}
+.xnm small{color:var(--mute);font-size:.75rem;white-space:pre-line;display:block;min-height:1.2em}
 .xchk{font-size:1.5rem;color:#444;padding:6px 8px;flex-shrink:0}
 .xrow.sel .xchk{color:#3ddc84}
 /* Claude Android look for the other screens */
@@ -2122,11 +2122,13 @@ FS.thumb = FS.thumb || {}; FS.thumbAsked = FS.thumbAsked || {}; let thTimer = nu
 const EXT_IMG = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif']), EXT_VID = new Set(['mp4', 'mkv', 'avi', 'mov', 'webm', '3gp', 'm4v', 'ts', 'flv', 'wmv']),
   EXT_AUD = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'amr', 'mid', 'midi']), EXT_ZIP = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'jar', 'war', 'ear', 'cab', 'iso', 'lz', 'zst']),
   EXT_THUMB = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif', 'mp4', 'mkv', 'avi', 'mov', 'webm', '3gp', 'm4v', 'ts', 'flv', 'wmv', 'pdf', 'apk']);
+document.addEventListener('scroll', () => { FS._ls = Date.now(); }, true);
+function softRender() { if (!$('files').classList.contains('open') || FS.view !== 'list') return; if (Date.now() - (FS._ls || 0) < 400) { clearTimeout(FS._sr); FS._sr = setTimeout(softRender, 250); return; } renderFiles(); }
 function extOf(n) { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; }
 function thumbNeed(p) { if (FS.thumb[p] || FS.thumbAsked[p]) return; FS.thumbAsked[p] = 1; (FS.thq = FS.thq || []).push(p);
   if (thTimer) return; thTimer = setTimeout(async function run() { thTimer = null; const q = FS.thq.splice(0, 12); if (!q.length) return; let got = false;
     const r = await fsCall('fsThumbs', JSON.stringify(q)); if (r && r.ok) { Object.entries(r.thumbs).forEach(([k, v]) => { FS.thumb[k] = v; }); got = true; } else q.forEach(k => FS.thumb[k] = {t: ''});
-    if (got && $('files').classList.contains('open') && FS.view === 'list') renderFiles(); if (FS.thq.length) thTimer = setTimeout(run, 30); }, 80); }
+    if (got) softRender(); if (FS.thq.length) thTimer = setTimeout(run, 30); }, 80); }
 function extBadgeIcon(ext, zip) {
   const e = vecIcon('file'); e.classList.add('vf'); if (zip) e.insertAdjacentHTML('beforeend', '<path d="M9 3v2M9 6v2M9 9v2" stroke-width="1.3"/>');
   const t = (ext || '?').toUpperCase().slice(0, 4), fs = t.length <= 2 ? 6.4 : t.length === 3 ? 5.4 : 4.2;
@@ -2147,7 +2149,7 @@ FS.cnt = FS.cnt || {}; FS.cntAsked = FS.cntAsked || {}; let cntTimer = null;
 function cntNeed(path) { if (FS.cnt[path] || FS.cntAsked[path]) return; FS.cntAsked[path] = 1; (FS.cntq = FS.cntq || []).push(path);
   if (cntTimer) return; cntTimer = setTimeout(async () => { cntTimer = null; const q = FS.cntq.splice(0, FS.cntq.length); let got = false;
     for (let i = 0; i < q.length; i += 100) { const r = await fsCall('fsCounts', JSON.stringify(q.slice(i, i + 100))); if (r && r.ok) { Object.assign(FS.cnt, r.counts); got = true; } }
-    if (got && $('files').classList.contains('open') && FS.view === 'list') renderFiles(); }, 60); }
+    if (got) softRender(); }, 60); }
 function cntNode(path) { const c = FS.cnt[path]; if (!c || (!c[0] && !c[1])) return null; const sp = h('span', {style: 'display:inline-flex;gap:14px;align-items:center'});
   if (c[0]) sp.append(h('span', null, '\u{1F4C1} ' + c[0])); if (c[1]) sp.append(h('span', null, '\u{1F4C4} ' + c[1])); return sp; }
 const fmtGB = b => Math.round(b / 1073741824) + 'GB';

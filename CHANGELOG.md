@@ -3,6 +3,7 @@
 Newest first. Every entry is one build pushed to `main`.
 
 ## 2026-11-17
+- Fix: file list no longer shifts while scrolling (rows keep a fixed height, and icons and counts load only once you stop scrolling)
 - Fix: big folders no longer jump back to the top while you scroll (the list keeps its position when icons and counts load)
 - File-type icons in Vault, DLNA and server folder lists; tighter indent in every Home list
 - Smaller icons, tighter indent, File Manager title, remove top Downloads button
