@@ -2,7 +2,33 @@
 
 An Android app that runs an AI model on the phone itself (llama.cpp), with no internet needed after the model is downloaded.
 
-Version 1: chat, projects, skills, adding text/code files to a project, and a model list (download or import your own .gguf).
+## Features
+
+**AI chat**
+- Runs a local model on the phone with llama.cpp, no internet needed after the model download
+- Model list: download a starter model or import your own .gguf
+- Projects, skills, and adding text/code files to a project
+- Camera and file attachments, web search, weather
+- Voice and the wake word "Hey Ajax"
+- Connectors to outside services
+
+**File Manager (modelled on X-plore)**
+- Two panes with a tree view: folders expand in place, the teal square follows your selection
+- Long-press menus, Trash and Undo (nothing is deleted for good; Undo survives restarts)
+- Root, SSH, DLNA, WiFi file sharing, Share to PC (WebDAV) and web storage (Google Drive, Dropbox, OneDrive)
+- Vault with catalogs
+- File sync tasks: copy, full, two-way and move modes, schedule, servers and Google Drive as source or target, never deletes on servers
+- App manager: installed and system apps, uninstall
+- Storage bars and folder/file counts on roots and folders
+- File icons: image, video, PDF and APK previews, music note, zip and extension badges
+- Loading wheels on slow folders
+
+**Look**
+- Claude-like theme with an accent colour hue wheel
+- Glowing outline icons
+- App icon colour and emblem change in place, no extra launcher icon
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each update.
 
 ## Get the app
 
