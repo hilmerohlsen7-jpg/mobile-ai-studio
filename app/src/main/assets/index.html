@@ -986,6 +986,7 @@ function renderDrawer() {
   }
   d.append(h('button', {class: 'setlink', style: 'margin-top:auto;text-align:left', onclick: () => { closeDrawer(); openDownloads(); }}, '\u2B07  Downloads'));
   d.append(h('button', {onclick: () => { closeDrawer(); openFiles(); }}, '\u{1F4C1}  File Manager'));
+  if (hasBridge) d.append(h('button', {onclick: () => { closeDrawer(); try { Android.openBrowser(''); } catch (e) { toast('Browser needs the new app version.'); } }}, '\u{1F310}  Browser'));
   d.append(h('button', {class: 'setlink', style: 'margin-top:0;text-align:left', onclick: () => { closeDrawer(); $('setBtn').onclick(); }}, '\u2699  Settings'));
 }
 function renderSkillsPage() {

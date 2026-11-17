@@ -89,6 +89,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     // ---------- saved data ----------
 
     @JavascriptInterface
+    fun openBrowser(url: String) { ui.post { activity.startActivity(android.content.Intent(activity, BrowserActivity::class.java).apply { if (url.isNotBlank()) data = android.net.Uri.parse(url) }) } }
+
+    @JavascriptInterface
     fun loadState(): String {
         return try {
             synchronized(stateFile) { if (stateFile.exists()) stateFile.readText() else "" }
