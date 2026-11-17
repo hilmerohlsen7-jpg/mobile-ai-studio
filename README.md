@@ -14,7 +14,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 - Voice and the wake word "Hey Ajax"
 - Connectors to outside services
 
-**File Manager (modelled on X-plore)**
+**File Manager**
 - Two panes with a tree view: folders expand in place, the teal square follows your selection
 - Long-press menus, Trash and Undo (nothing is deleted for good; Undo survives restarts)
 - Root, SSH, DLNA, WiFi file sharing, Share to PC (WebDAV) and web storage (Google Drive, Dropbox, OneDrive)
@@ -32,7 +32,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 
 ## Not done yet
 
-- X-plore parity: SMB2 toggle, key shortcuts, Configure buttons, Tweaks, Link storage, Add shortcut
+- Still to add: SMB2 toggle, key shortcuts, Configure buttons, Tweaks, Link storage, Add shortcut
 - File-type icons and folder counts in Vault, DLNA and server folder lists
 - Tick boxes / batch select on app rows
 - Weather city bug

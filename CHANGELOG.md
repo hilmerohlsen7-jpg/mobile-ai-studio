@@ -17,8 +17,8 @@ Newest first. Every entry is one build pushed to `main`.
 ## 2026-11-15
 - Fix app row layout with long version; loading wheels for server folders, DLNA and Vault
 - App manager: loading wheel, async app list; add REQUEST_DELETE_PACKAGES so Uninstall works
-- App manager inline: Installed and System lists under Home like X-plore
-- File sync: task row box, run icon, Remove-only hold menu like X-plore
+- App manager inline: Installed and System lists under Home
+- File sync: task row box, run icon, Remove-only hold menu
 - File sync: servers and Google Drive as From/To (copy, never delete on servers)
 - File sync as inline tasks: Add task, Sync task/Logs/Help panel, modes, schedule
 - Long-press menus for every Home function; no text selection in the file manager
@@ -26,11 +26,11 @@ Newest first. Every entry is one build pushed to `main`.
 - Vault inline in Home: catalogs, Options (Help/New), New catalog form, long-press menu
 - DLNA inline in the Home tree: servers and folders expand, square follows selection
 - Home: teal square follows the selected item (features, roots, drives, folders, files); title bar shows selection
-- WiFi file sharing like X-plore: Searching row, Server toggle, devices, Add device
+- WiFi file sharing: Searching row, Server toggle, devices, Add device
 - Show/hide per panel; box around each opened Home feature
 - Root rows like other folders; Share to PC (WebDAV network drive) server
 
 ## 2026-11-14
-- File manager: expand Web storage in the Home tree, teal box around open folders, X-plore long-press menus
+- File manager: expand Web storage in the Home tree, teal box around open folders, long-press menus
 - Web storage: pick Google Drive/Dropbox/OneDrive through Android's storage picker, with explanations
 
