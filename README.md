@@ -7,7 +7,9 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 **AI chat**
 - Runs a local model on the phone with llama.cpp, no internet needed after the model download
 - Model list: download a starter model or import your own .gguf
-- Projects, skills, and adding text/code files to a project
+- Projects: rename, clear chat, add text/code files, switch skills on or off per project
+- Online models (Gemini, Claude, Grok) when you add an API key; they show as "(online)" in the model list
+- Left panel shortcuts: Downloads, File Manager, Settings
 - Camera and file attachments, web search, weather
 - Voice and the wake word "Hey Ajax"
 - Connectors to outside services
@@ -27,6 +29,13 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 - Claude-like theme with an accent colour hue wheel
 - Glowing outline icons
 - App icon colour and emblem change in place, no extra launcher icon
+
+## Not done yet
+
+- X-plore parity: SMB2 toggle, key shortcuts, Configure buttons, Tweaks, Link storage, Add shortcut
+- File-type icons and folder counts in Vault, DLNA and server folder lists
+- Tick boxes / batch select on app rows
+- Weather city bug
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in each update.
 
