@@ -15,4 +15,6 @@ jobs:
           echo "VERSION=$V"
           curl -sfL -o g.aar $B/$V/geckoview-arm64-v8a-$V.aar; ls -la g.aar
           unzip -q g.aar classes.jar -d g
-          for c in GeckoSession\$NavigationDelegate GeckoSession\$ProgressDelegate GeckoSession\$ContentDelegate GeckoSession\$PromptDelegate GeckoRuntime GeckoRuntimeSettings\$Builder WebExtensionController WebExtensionController\$PromptDelegate WebExtension GeckoSession\$HistoryDelegate; do echo "=== $c"; javap -cp g/classes.jar "org.mozilla.geckoview.$c" 2>&1 | head -60; done
+          for c in 'WebExtension$PermissionPromptResponse' 'WebExtension$MetaData' 'WebExtensionController$EnableSource' GeckoView AllowOrDeny 'GeckoSession$Settings' 'GeckoSession$Settings$Builder' GeckoSessionSettings WebResponse 'GeckoSession$ContentDelegate$ContextElement' 'GeckoSession$NavigationDelegate$LoadRequest' WebExtensionController\$PromptDelegate; do echo "=== $c"; javap -cp g/classes.jar "org.mozilla.geckoview.$c" 2>&1 | grep -v "^  static\|^  private\|^  final" | head -45; done
+          javap -p -cp g/classes.jar 'org.mozilla.geckoview.GeckoSession' | grep -E " (open|close|loadUri|goBack|goForward|reload|stop|setNavigationDelegate|setProgressDelegate|setContentDelegate|setPromptDelegate|getSettings|setActive|setFocused|getWebExtensionController|requestAnalysis|exitFullScreen)\("
+          javap -cp g/classes.jar 'org.mozilla.geckoview.WebExtensionController$PromptDelegate' | grep onInstallPromptRequest -A2
