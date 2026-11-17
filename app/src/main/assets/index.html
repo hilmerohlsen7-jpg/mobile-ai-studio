@@ -255,7 +255,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xhead{background:color-mix(in srgb,var(--acc) 22%,#0a0a0a);border:2px solid var(--acc)}
 .xrow.sel{background:color-mix(in srgb,var(--acc) 22%,#0a0a0a)}
 .x,.xmback{--txt:#F2F1EB;--mute:#9C9A92;--panel:#20201E;--line:#30302E;color:#F2F1EB}
-.xbox{border:2px solid var(--acc);margin:2px 0}
+.xbox{border:2px solid var(--acc);margin:2px 0 2px 2px}
 #files,#files *,.xmback,.xmback *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 #files input,#files textarea,.xhex{-webkit-user-select:text;user-select:text}
 .xbox.gr{border-color:#555}
@@ -276,7 +276,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xmic .vi{width:1.5rem;height:1.5rem}
 .xhex{font:12px/1.5 monospace;white-space:pre;overflow:auto;max-height:55vh;background:#111;padding:8px;border-radius:8px;color:#cfd8dc}
 .xarrow{width:18px;color:#2aa6e6;text-align:center;flex-shrink:0}
-.xic{font-size:1.6rem;flex-shrink:0}
+.xic{font-size:1.3rem;flex-shrink:0}
 .xnm{flex:1;min-width:0;display:flex;flex-direction:column;word-break:break-all}
 .xnm b{font-weight:600;font-size:1rem}
 .xnm small{color:var(--mute);font-size:.75rem;white-space:pre-line}
@@ -308,7 +308,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 #voiceDots{display:flex;justify-content:center;gap:8px;margin-bottom:8px}
 #voiceDots i{width:7px;height:7px;border-radius:50%;background:#4a4a46}#voiceDots i.on{background:var(--txt)}
 .vi{width:1.1em;height:1.1em;vertical-align:-.2em;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.xic .vi{width:1.55em;height:1.55em}.aico .vi,.si .vi{width:1.2em;height:1.2em}.aico.big .vi{width:1.5em;height:1.5em}
+.xic .vi{width:1.25em;height:1.25em}.aico .vi,.si .vi{width:1.2em;height:1.2em}.aico.big .vi{width:1.5em;height:1.5em}
 .xtb span .vi{width:1.4rem;height:1.4rem}.xarrow .vi{width:.9em;height:.9em}.xarr .vi{width:1.3rem;height:1.3rem}
 .xchk .vi{width:1.3rem;height:1.3rem;stroke-width:2.4}
 footer .vi,header .vi{width:1.35rem;height:1.35rem}
@@ -328,7 +328,7 @@ header #model{display:none}
   <header>
     <button id="menuBtn" aria-label="Menu">&#9776;</button>
     <div id="title">Mobile AI Studio</div>
-    <button id="dlBtn" aria-label="Downloads">&#11015;<b id="dlBadge"></b></button>
+    <b id="dlBadge" style="display:none"></b>
     <select id="model" aria-label="Model"></select>
     <button id="setBtn" aria-label="Settings">&#9881;</button>
   </header>
@@ -985,7 +985,7 @@ function renderDrawer() {
     cur.files.forEach((f, i) => d.append(h('div', {class: 'row'}, h('span', null, f.name), h('button', {onclick: () => delFile(i)}, '✕'))));
   }
   d.append(h('button', {class: 'setlink', style: 'margin-top:auto;text-align:left', onclick: () => { closeDrawer(); openDownloads(); }}, '\u2B07  Downloads'));
-  d.append(h('button', {onclick: () => { closeDrawer(); openFiles(); }}, '\u{1F4C1}  Files on this phone'));
+  d.append(h('button', {onclick: () => { closeDrawer(); openFiles(); }}, '\u{1F4C1}  File Manager'));
   d.append(h('button', {class: 'setlink', style: 'margin-top:0;text-align:left', onclick: () => { closeDrawer(); $('setBtn').onclick(); }}, '\u2699  Settings'));
 }
 function renderSkillsPage() {
@@ -1288,7 +1288,7 @@ function openDownloads() { loadDlSettings(); pullDownloads(); renderDownloads();
 function closeDownloads() { $('downloads').classList.remove('open'); }
 if ($('openDl')) $('openDl').onclick = openDownloads;
 if ($('openFiles')) $('openFiles').onclick = () => openFiles();
-$('dlBtn').onclick = openDownloads;
+
 
 /* ---------- find models online (Hugging Face) ---------- */
 const httpCbs = {};
@@ -1616,9 +1616,9 @@ window.__onResume = () => { if ($('settings').classList.contains('open')) { try 
 function topbar(title, back) { return h('div', {class: 'topbar'}, h('h2', null, title), back ? h('button', {onclick: back}, 'Back') : null, h('button', {onclick: closeFiles}, 'Close')); }
 function renderFiles() {
   const o = $('files'); o.textContent = ''; o.classList.remove('x');
-  if (!hasBridge) { o.append(topbar('Files on this phone')); o.append(h('div', {class: 'sub'}, 'The file browser only works in the app.')); return; }
+  if (!hasBridge) { o.append(topbar('File Manager')); o.append(h('div', {class: 'sub'}, 'The file browser only works in the app.')); return; }
   if (!FS.access) {
-    o.append(topbar('Files on this phone'));
+    o.append(topbar('File Manager'));
     o.append(h('div', {class: 'box2'}, h('h3', null, 'Allow access to your files'),
       h('div', {class: 'meta', style: 'font-size:.85rem;line-height:1.5'}, 'To see and change files, Android needs your permission ("All files access"). Tap the button, switch it on for Mobile AI Studio, then come back here.'),
       h('div', {style: 'height:8px'}),
@@ -1659,7 +1659,7 @@ function fsSelItems() { return [...FS.sel].map(p => ({p: p, name: baseName(p), d
 FS.kind = {}; FS.size = {};
 function renderXplore(o) {
   o.classList.add('x');
-  o.append(h('div', {class: 'xtop'}, h('button', {onclick: fsBack, 'aria-label': 'Back'}, '←'), h('div', {class: 'xt'}, 'Files on this phone'), h('button', {onclick: xMenu, 'aria-label': 'Menu'}, '\u22EE'), h('button', {onclick: closeFiles, 'aria-label': 'Close'}, '✕')));
+  o.append(h('div', {class: 'xtop'}, h('button', {onclick: fsBack, 'aria-label': 'Back'}, '←'), h('div', {class: 'xt'}, 'File Manager'), h('button', {onclick: xMenu, 'aria-label': 'Menu'}, '\u22EE'), h('button', {onclick: closeFiles, 'aria-label': 'Close'}, '✕')));
   if (!FS.panes[1].path) FS.panes[1].path = FS.root;
   const clip = h('div', {class: 'xclip'}), slide = h('div', {class: 'xslide'});
   slide.style.transform = FS.active ? 'translateX(-50%)' : 'none';
@@ -1697,7 +1697,7 @@ function buildPane(o, idx) {
         const p = joinPath(base, it.name); FS.kind[p] = it.dir; FS.size[p] = it.size;
         if (q && !it.dir && !it.name.toLowerCase().includes(q)) return;
         const open = it.dir && FS.open.has(p), fk = fkey(C, p);
-        const row = h('div', {class: 'xrow' + (FS.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (8 + depth * 18) + 'px'});
+        const row = h('div', {class: 'xrow' + (FS.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (6 + Math.min(depth, 6) * 8) + 'px'});
         const togg = () => { if (open) FS.open.delete(p); else FS.open.add(p); pr0.focus = fk; renderFiles(); };
         row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; togg(); }}, it.dir ? (open ? '▼' : '▶') : ''));
         row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : fileIcon(it.name, p)));
@@ -2130,7 +2130,7 @@ function extBadgeIcon(ext, zip) {
 }
 function fileIcon(name, p) {
   const ext = extOf(name);
-  if (EXT_THUMB.has(ext) && p) { const t = FS.thumb[p]; if (t && t.t) return h('img', {src: 'data:image/' + (t.m || 'jpeg') + ';base64,' + t.t, style: 'width:1.55em;height:1.55em;object-fit:' + (ext === 'apk' ? 'contain' : 'cover') + ';border-radius:' + (ext === 'apk' ? '9px' : '6px') + ';border:1px solid #333;background:#111'}); if (!t) thumbNeed(p); }
+  if (EXT_THUMB.has(ext) && p) { const t = FS.thumb[p]; if (t && t.t) return h('img', {src: 'data:image/' + (t.m || 'jpeg') + ';base64,' + t.t, style: 'width:1.25em;height:1.25em;object-fit:' + (ext === 'apk' ? 'contain' : 'cover') + ';border-radius:' + (ext === 'apk' ? '9px' : '6px') + ';border:1px solid #333;background:#111'}); if (!t) thumbNeed(p); }
   if (EXT_AUD.has(ext)) return vecIcon('music');
   if (EXT_VID.has(ext)) return vecIcon('film');
   if (EXT_IMG.has(ext)) return vecIcon('image');
@@ -2213,7 +2213,7 @@ function buildHome(o, idx) {
   const mkrow = (it, p, fk, ind, op, c) => {
     const marked = c ? (pn.rsel && pn.rsel.has(fk)) : pn.sel.has(p);
     const togg = () => { if (!it.dir) { pn.focus = fk; renderFiles(); return; } if (op) pn.hopen.delete(fk); else pn.hopen.add(fk); pn.focus = fk; if (c && !op) delete (pn.rerr || {})[fk]; renderFiles(); };
-    const el = h('div', {class: 'xrow' + (marked ? ' sel' : ''), style: 'padding-left:' + (6 + ind * 20) + 'px'},
+    const el = h('div', {class: 'xrow' + (marked ? ' sel' : ''), style: 'padding-left:' + (4 + Math.min(ind, 6) * 8) + 'px'},
       h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); togg(); }}, it.dir ? (op ? '▼' : '▶') : ''),
       h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : (c ? '\u{1F4C4}' : fileIcon(it.name, p))), h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (c ? 'Folder' : (cntNeed(p), cntNode(p))) : fmtSize(it.size || 0) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + (it.mtime ? ' · ' + fmtDate(it.mtime) : ''))),
       (c && it.dir && pn.rl && pn.rl[fk] ? h('span', {class: 'xspin'}) : null),
@@ -2228,7 +2228,7 @@ function buildHome(o, idx) {
       FS.kind[p] = it.dir; FS.size[p] = it.size;
       wrapBox(mkrow(it, p, p, ind, op, null), p, ind, bx => tree(p, ind + 1, bx), parent, it.dir, op); }); };
   const rtree = (c, path, ind, parent) => {
-    pn.rc = pn.rc || {}; pn.rl = pn.rl || {}; pn.rerr = pn.rerr || {}; const k0 = fkey(c, path), pad = 'padding-left:' + (6 + ind * 20) + 'px';
+    pn.rc = pn.rc || {}; pn.rl = pn.rl || {}; pn.rerr = pn.rerr || {}; const k0 = fkey(c, path), pad = 'padding-left:' + (4 + Math.min(ind, 6) * 8) + 'px';
     if (pn.rerr[k0]) { parent.append(h('div', {class: 'xrow', style: pad, onclick: () => { delete pn.rerr[k0]; renderFiles(); }}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('small', {style: 'color:#ff8a8a'}, pn.rerr[k0] + '  ·  tap to retry')))); return; }
     if (!pn.rc[k0]) {
       if (!pn.rl[k0]) { pn.rl[k0] = true; remoteCall({remote: c}, {type: 'list', path: path}).then(r => { delete pn.rl[k0]; if (r.ok) pn.rc[k0] = r.items; else pn.rerr[k0] = r.msg || 'Could not open this.'; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); }
@@ -2344,7 +2344,7 @@ function buildHome(o, idx) {
         const op = pn.hopen.has('~dlna');
         const dscan = () => { pn.dl = {devs: null, c: {}, l: {}, names: {}}; const D = pn.dl; fsCall('dlnaScan').then(x => { if (pn.dl !== D) return; D.devs = x.devices || []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); };
         const dtree = (dev, id, ind, parent) => {
-          const D = pn.dl, ck = dev.control + '|' + id, pad = 'padding-left:' + (6 + ind * 20) + 'px';
+          const D = pn.dl, ck = dev.control + '|' + id, pad = 'padding-left:' + (4 + Math.min(ind, 6) * 8) + 'px';
           if (!D.c[ck]) {
             if (!D.l[ck]) { D.l[ck] = 1; fsCall('dlnaBrowse', dev.control, id).then(x => { delete D.l[ck]; if (!x.ok) toast(x.msg || 'Could not read.'); D.c[ck] = x.ok ? x.items : []; if ($('files').classList.contains('open') && FS.view === 'list') renderFiles(); }); }
             parent.append(h('div', {class: 'xrow', style: pad}, h('span', {class: 'xarrow'}), h('span', {class: 'xnm'}, h('span', {class: 'xspin'}), h('small', null, 'Loading...')))); return; }
@@ -3262,7 +3262,7 @@ function bigFilesText(res, minMb) {
   if (!res.files.length) return 'No files bigger than ' + minMb + ' MB were found.';
   return res.files.map((f, i) => (i + 1) + '. ' + fmtSize(f.size) + '  ' + f.path + '  (modified ' + new Date(f.mtime).toISOString().slice(0, 10) + ')').join('\n') + (res.partial ? '\n(The scan was stopped early, there may be more.)' : '');
 }
-const noAccess = () => ({text: 'Error: the app does not have permission to see files yet. Tell the person to open Settings > Files on this phone and allow access.', chip: {icon: '🔒', label: 'Needs permission to see your files', action: () => openFiles()}});
+const noAccess = () => ({text: 'Error: the app does not have permission to see files yet. Tell the person to open Settings > File Manager and allow access.', chip: {icon: '🔒', label: 'Needs permission to see your files', action: () => openFiles()}});
 /* runs one tool, returns {text for the AI, chip for the person, note for the history} */
 async function runTool(name, args) {
   const filesTool = name !== 'search_web' && name !== 'get_weather' && name !== 'read_url';
