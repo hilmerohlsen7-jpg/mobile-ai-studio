@@ -2,6 +2,9 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-18
+- New Browser (Firefox engine) with tabs and an Add-ons page: uBlock Origin, Bitwarden, Dark Reader, SponsorBlock, or any add-on link. Opens from the left panel.
+
 ## 2026-11-17
 - Fix: file list no longer shifts while scrolling (rows keep a fixed height, and icons and counts load only once you stop scrolling)
 - Fix: big folders no longer jump back to the top while you scroll (the list keeps its position when icons and counts load)
