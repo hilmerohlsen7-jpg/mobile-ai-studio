@@ -282,14 +282,19 @@ t('webgl');t('webgl2');document.getElementById('o').textContent=o;</script></bod
     private fun startPad(edit: Boolean = false) {
         if (pad != null) { pad?.setEdit(edit); return }
         topBar.visibility = View.GONE; urlBox.clearFocus()
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        if (android.os.Build.VERSION.SDK_INT >= 28) window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        frame.setBackgroundColor(Color.BLACK)
         val p = PadOverlay(this, prefs, { code, down -> sendKey(code, down) }, { stopPad() })
         pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit)
     }
     private fun stopPad() {
         pad?.let { frame.removeView(it) }; pad = null
         topBar.visibility = View.VISIBLE
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        frame.setBackgroundColor(BG)
     }
     private fun sendKey(code: Int, down: Boolean) {
         val t = android.os.SystemClock.uptimeMillis()
