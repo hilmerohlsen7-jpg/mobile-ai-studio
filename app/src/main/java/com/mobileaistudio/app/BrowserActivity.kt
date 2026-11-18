@@ -337,7 +337,7 @@ class BrowserActivity : Activity() {
     }
 
     override fun onKeyDown(k: Int, e: KeyEvent): Boolean {
-        if (k == KeyEvent.KEYCODE_BACK) { if (pad != null) { stopPad(); return true } val t = cur; if (t != null && t.back) { t.session.goBack(); return true } else if (tabs.size > 1 && t != null) { closeTab(t); return true } }
+        if (k == KeyEvent.KEYCODE_BACK) { if (pad != null) { stopPad(); return true }; val t = cur; if (t != null && t.back) { t.session.goBack(); return true } else if (tabs.size > 1 && t != null) { closeTab(t); return true } }
         return super.onKeyDown(k, e)
     }
 
