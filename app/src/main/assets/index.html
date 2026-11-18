@@ -56,6 +56,7 @@ footer textarea{flex:1;min-width:0;resize:none;max-height:140px;background:var(-
 #drawer .row.sel{border-color:var(--acc)}
 #drawer .row button{padding:2px 8px}
 #drawer .skill.on{border-color:var(--acc);color:var(--acc)}
+#drawer .pinrow{display:flex;gap:6px;align-items:stretch}#drawer .pinrow>button:first-child{flex:1;text-align:left}#drawer .pinbtn{font-size:.72rem;padding:6px 8px;white-space:nowrap;color:var(--acc);border-color:var(--acc)}
 #drawer textarea{width:100%;background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px}
 #settings{display:none;position:fixed;inset:0;background:var(--bg);z-index:9;flex-direction:column}
 #settings.open{display:flex}
@@ -708,7 +709,18 @@ function applyTheme() {
     else { st.removeProperty('--acc'); st.removeProperty('--onacc'); } } catch (e) {}
   const t = S.settings && S.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
+  setTimeout(pushNativeTheme, 50);
 }
+function pushNativeTheme() {
+  try {
+    if (typeof Android === 'undefined' || !Android.setTheme) return;
+    const cs = getComputedStyle(document.documentElement), g = k => cs.getPropertyValue(k).trim();
+    const bg = g('--bg'), n = parseInt((bg.match(/^#([0-9a-f]{6})$/i) || [0, 'ffffff'])[1], 16), lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+    Android.setTheme(JSON.stringify({bg, panel: g('--panel'), side: g('--side'), line: g('--line'), txt: g('--txt'), mute: g('--mute'), acc: g('--acc'), onacc: g('--onacc'), dark: lum < 0.5}));
+  } catch (e) {}
+}
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTimeout(pushNativeTheme, 100)); } catch (e) {}
+window.addEventListener('load', () => setTimeout(pushNativeTheme, 600));
 function loadState() {
   let raw = '';
   try { raw = hasBridge ? Android.loadState() : (localStorage.getItem('mas_state') || ''); } catch (e) {}
@@ -985,8 +997,9 @@ function renderDrawer() {
     cur.files.forEach((f, i) => d.append(h('div', {class: 'row'}, h('span', null, f.name), h('button', {onclick: () => delFile(i)}, '✕'))));
   }
   d.append(h('button', {class: 'setlink', style: 'margin-top:auto;text-align:left', onclick: () => { closeDrawer(); openDownloads(); }}, '\u2B07  Downloads'));
-  d.append(h('button', {onclick: () => { closeDrawer(); openFiles(); }}, '\u{1F4C1}  File Manager'));
-  if (hasBridge) d.append(h('button', {onclick: () => { closeDrawer(); try { Android.openBrowser(''); } catch (e) { toast('Browser needs the new app version.'); } }}, '\u{1F310}  Browser'));
+  const pinBtn = (kind) => h('button', {class: 'pinbtn', title: 'Add to desktop', onclick: () => { try { Android.pinShortcut(kind); } catch (e) { toast('Needs the new app version.'); } }}, 'Add to desktop');
+  d.append(h('div', {class: 'pinrow'}, h('button', {onclick: () => { closeDrawer(); openFiles(); }}, '\u{1F4C1}  File Manager'), hasBridge ? pinBtn('files') : ''));
+  if (hasBridge) d.append(h('div', {class: 'pinrow'}, h('button', {onclick: () => { closeDrawer(); try { Android.openBrowser(''); } catch (e) { toast('Browser needs the new app version.'); } }}, '\u{1F310}  Browser'), pinBtn('browser')));
   d.append(h('button', {class: 'setlink', style: 'margin-top:0;text-align:left', onclick: () => { closeDrawer(); $('setBtn').onclick(); }}, '\u2699  Settings'));
 }
 function renderSkillsPage() {
@@ -1289,6 +1302,8 @@ function openDownloads() { loadDlSettings(); pullDownloads(); renderDownloads();
 function closeDownloads() { $('downloads').classList.remove('open'); }
 if ($('openDl')) $('openDl').onclick = openDownloads;
 if ($('openFiles')) $('openFiles').onclick = () => openFiles();
+window.__open = k => { if (k === 'files') openFiles(); };
+setTimeout(() => { try { const o = Android.takeOpen(); if (o) window.__open(o); } catch (e) {} }, 700);
 
 
 /* ---------- find models online (Hugging Face) ---------- */

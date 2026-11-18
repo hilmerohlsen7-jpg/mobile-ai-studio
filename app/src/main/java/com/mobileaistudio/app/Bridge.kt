@@ -88,6 +88,53 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     // ---------- saved data ----------
 
+    /** The page sends its colours so the native browser can match the app theme. */
+    @JavascriptInterface
+    fun setTheme(json: String) { BTheme.save(activity, json) }
+
+    @Volatile private var pendingOpen = ""
+
+    /** Remembers a screen a home-screen shortcut asked for (see MainActivity). */
+    fun setOpen(i: android.content.Intent?) {
+        val o = i?.getStringExtra("open") ?: return
+        if (o.isNotEmpty()) { pendingOpen = o; i.removeExtra("open") }
+    }
+
+    @JavascriptInterface
+    fun takeOpen(): String { val o = pendingOpen; pendingOpen = ""; return o }
+
+    /** For when the app is already running: open the asked-for screen now. */
+    fun openNow() {
+        val o = takeOpen()
+        if (o.isNotEmpty()) ui.post { web.evaluateJavascript("window.__open && window.__open(" + JSONObject.quote(o) + ")", null) }
+    }
+
+    /** Asks the launcher to add a File Manager or Browser icon to the home screen. */
+    @JavascriptInterface
+    fun pinShortcut(kind: String) {
+        ui.post {
+            try {
+                val sm = activity.getSystemService(android.content.pm.ShortcutManager::class.java)
+                if (sm == null || !sm.isRequestPinShortcutSupported) { js("__onToast", "Your launcher can not add shortcuts."); return@post }
+                val files = kind == "files"
+                val intent = if (files) android.content.Intent(activity, MainActivity::class.java).setAction(android.content.Intent.ACTION_VIEW).putExtra("open", "files")
+                else android.content.Intent(activity, BrowserActivity::class.java).setAction(android.content.Intent.ACTION_VIEW)
+                val th = BTheme.load(activity)
+                val bmp = android.graphics.Bitmap.createBitmap(192, 192, android.graphics.Bitmap.Config.ARGB_8888)
+                val c = android.graphics.Canvas(bmp)
+                val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG); p.color = th.acc
+                c.drawRoundRect(android.graphics.RectF(0f, 0f, 192f, 192f), 48f, 48f, p)
+                val d = activity.getDrawable(if (files) R.drawable.bt_folder else R.drawable.bt_globe)!!.mutate()
+                d.setTint(th.onacc); d.setBounds(38, 38, 154, 154); d.draw(c)
+                val info = android.content.pm.ShortcutInfo.Builder(activity, "ms_" + kind)
+                    .setShortLabel(if (files) "File Manager" else "Browser").setLongLabel(if (files) "File Manager" else "Browser")
+                    .setIcon(android.graphics.drawable.Icon.createWithBitmap(bmp)).setIntent(intent).build()
+                sm.requestPinShortcut(info, null)
+                js("__onToast", "Confirm adding it on the screen that appears.")
+            } catch (e: Exception) { js("__onToast", "Could not add the shortcut: " + (e.message ?: "")) }
+        }
+    }
+
     @JavascriptInterface
     fun openBrowser(url: String) { ui.post { activity.startActivity(android.content.Intent(activity, BrowserActivity::class.java).apply { if (url.isNotBlank()) data = android.net.Uri.parse(url) }) } }
 

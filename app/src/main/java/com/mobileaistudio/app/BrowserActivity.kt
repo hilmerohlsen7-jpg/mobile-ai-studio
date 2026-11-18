@@ -2,26 +2,32 @@ package com.mobileaistudio.app
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.graphics.Color
-import android.graphics.Typeface
-import android.app.DownloadManager
+import android.app.DownloadManager as AndroidDownloadManager
 import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.Color
+import android.graphics.PorterDuff
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
-import android.os.Environment
 import android.os.Bundle
-import android.webkit.URLUtil
-import org.json.JSONArray
-import org.json.JSONObject
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.webkit.URLUtil
 import android.widget.*
+import org.json.JSONArray
+import org.json.JSONObject
 import org.mozilla.geckoview.*
 
-/** The built-in Firefox-engine browser (GeckoView) with tabs and add-ons. */
+/** The built-in Firefox-engine browser (GeckoView) with tabs, add-ons and the app's downloader. */
 object Gk {
     var runtime: GeckoRuntime? = null
     fun get(a: Activity): GeckoRuntime {
@@ -41,6 +47,17 @@ class Tab(val session: GeckoSession) {
     var fwd = false
 }
 
+/** Dialog builder that colours its buttons with the app's accent. */
+class TB(ctx: Context, style: Int, private val acc: Int) : AlertDialog.Builder(ctx, style) {
+    override fun create(): AlertDialog {
+        val d = super.create()
+        d.setOnShowListener {
+            listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL).forEach { d.getButton(it)?.setTextColor(acc) }
+        }
+        return d
+    }
+}
+
 class BrowserActivity : Activity() {
     private val tabs = ArrayList<Tab>()
     private var cur: Tab? = null
@@ -52,14 +69,15 @@ class BrowserActivity : Activity() {
     private lateinit var frame: FrameLayout
     private var pad: PadOverlay? = null
     private var dp = 1f
-
-    private val BG = Color.parseColor("#FAF9F5")
-    private val INK = Color.parseColor("#1F1E1D")
-    private val ACC = Color.parseColor("#D97757")
+    private lateinit var th: BTheme
+    private lateinit var dc: Context
+    private val main = Handler(Looper.getMainLooper())
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         dp = resources.displayMetrics.density
+        th = BTheme.load(this)
+        dc = ContextThemeWrapper(this, dlgStyle())
         rt = Gk.get(this)
         if (prefs.getBoolean("gfxfix", false)) rt.webExtensionController.ensureBuiltIn(GFX_URI, GFX_ID)
         rt.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
@@ -67,7 +85,7 @@ class BrowserActivity : Activity() {
                 val res = GeckoResult<WebExtension.PermissionPromptResponse>()
                 runOnUiThread {
                     val all = (perms.toList() + origins.toList()).joinToString("\n• ", prefix = "• ").ifBlank { "No special permissions" }
-                    AlertDialog.Builder(this@BrowserActivity).setTitle("Add " + (ext.metaData.name ?: "this add-on") + "?")
+                    bd().setTitle("Add " + (ext.metaData.name ?: "this add-on") + "?")
                         .setMessage("It will be allowed to:\n$all")
                         .setPositiveButton("Add") { _, _ -> res.complete(WebExtension.PermissionPromptResponse(true, false, true)) }
                         .setNegativeButton("Cancel") { _, _ -> res.complete(WebExtension.PermissionPromptResponse(false, false, false)) }
@@ -76,37 +94,58 @@ class BrowserActivity : Activity() {
                 return res
             }
         })
-        val root = LinearLayout(this); root.orientation = LinearLayout.VERTICAL; root.setBackgroundColor(BG)
+        window.statusBarColor = th.bg; window.navigationBarColor = th.bg
+        baseUi()
+        val root = LinearLayout(this); root.orientation = LinearLayout.VERTICAL; root.setBackgroundColor(th.bg)
         val top = LinearLayout(this); top.orientation = LinearLayout.HORIZONTAL; top.gravity = Gravity.CENTER_VERTICAL
         top.setPadding(dp(6), dp(30), dp(6), dp(4))
-        top.addView(btn("←") { cur?.let { if (it.back) it.session.goBack() else finish() } })
+        top.addView(ibtn(R.drawable.bt_back) { cur?.let { if (it.back) it.session.goBack() else finish() } })
         urlBox = EditText(this)
-        urlBox.setSingleLine(); urlBox.hint = "Search or type an address"; urlBox.setTextColor(INK); urlBox.textSize = 15f
+        urlBox.setSingleLine(); urlBox.hint = "Search or type an address"; urlBox.setTextColor(th.txt); urlBox.setHintTextColor(th.mute); urlBox.textSize = 15f
         urlBox.inputType = InputType.TYPE_TEXT_VARIATION_URI; urlBox.imeOptions = EditorInfo.IME_ACTION_GO
-        urlBox.setBackgroundColor(Color.parseColor("#EFEDE6")); urlBox.setPadding(dp(12), dp(8), dp(12), dp(8))
+        urlBox.background = GradientDrawable().also { it.setColor(th.side); it.cornerRadius = dp(10).toFloat() }
+        urlBox.setPadding(dp(12), dp(8), dp(12), dp(8))
         urlBox.setOnEditorActionListener { _, _, _ -> go(urlBox.text.toString()); true }
         urlBox.setOnFocusChangeListener { _, f -> if (f) urlBox.post { urlBox.selectAll() } }
         top.addView(urlBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(btn("\uD83C\uDFAE") { startPad() })
-        top.addView(btn("\u2630") { showMenu() })
+        top.addView(ibtn(R.drawable.bt_gamepad) { startPad() })
+        top.addView(ibtn(R.drawable.bt_menu) { showMenu() })
         topBar = top
         root.addView(top)
         prog = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); prog.max = 100; prog.visibility = View.GONE
-        prog.progressDrawable.setColorFilter(ACC, android.graphics.PorterDuff.Mode.SRC_IN)
+        prog.progressDrawable.setColorFilter(th.acc, PorterDuff.Mode.SRC_IN)
         root.addView(prog, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
         gv = GeckoView(this)
         root.addView(gv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        frame = FrameLayout(this); frame.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        frame = FrameLayout(this); frame.setBackgroundColor(th.bg)
+        frame.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(frame)
         val first = intent?.dataString
         newTab(if (first.isNullOrBlank()) "https://duckduckgo.com" else first)
     }
 
+    private fun dlgStyle() = if (th.dark) android.R.style.Theme_Material_Dialog_Alert else android.R.style.Theme_Material_Light_Dialog_Alert
+    private fun bd() = TB(this, dlgStyle(), th.acc)
+    private fun baseUi() {
+        window.decorView.systemUiVisibility = if (!th.dark) (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or (if (android.os.Build.VERSION.SDK_INT >= 26) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0)) else View.SYSTEM_UI_FLAG_VISIBLE
+    }
+
     private fun dp(v: Int) = (v * dp).toInt()
+
+    /** An icon button drawn from a vector, coloured with the app's text colour. */
+    private fun ibtn(res: Int, f: () -> Unit): ImageButton {
+        val b = ImageButton(this); b.setImageResource(res); b.setColorFilter(th.txt, PorterDuff.Mode.SRC_IN)
+        b.setBackgroundColor(Color.TRANSPARENT); b.scaleType = ImageView.ScaleType.CENTER_INSIDE
+        b.setPadding(dp(10), dp(10), dp(10), dp(10)); b.layoutParams = LinearLayout.LayoutParams(dp(46), dp(46))
+        b.setOnClickListener { f() }; return b
+    }
     private fun btn(t: String, f: () -> Unit): Button {
-        val b = Button(this); b.text = t; b.isAllCaps = false; b.setTextColor(INK); b.textSize = 15f
+        val b = Button(this); b.text = t; b.isAllCaps = false; b.setTextColor(th.acc); b.textSize = 14f
         b.setBackgroundColor(Color.TRANSPARENT); b.minWidth = 0; b.minimumWidth = dp(44); b.setPadding(dp(8), 0, dp(8), 0)
         b.setOnClickListener { f() }; return b
+    }
+    private fun label(c: Context, t: String, bold: Boolean = false, size: Float = 14f): TextView {
+        val v = TextView(c); v.text = t; v.setTextColor(th.txt); v.textSize = size; if (bold) v.setTypeface(null, Typeface.BOLD); return v
     }
 
     private fun mkSession(): Tab {
@@ -119,7 +158,7 @@ class BrowserActivity : Activity() {
             override fun onCanGoBack(session: GeckoSession, can: Boolean) { t.back = can }
             override fun onCanGoForward(session: GeckoSession, can: Boolean) { t.fwd = can }
             override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
-                val nt = mkSession(); tabs.add(nt); runOnUiThread { select(nt); updCount() }
+                val nt = mkSession(); tabs.add(nt); runOnUiThread { select(nt) }
                 return GeckoResult.fromValue(nt.session)
             }
         }
@@ -137,30 +176,104 @@ class BrowserActivity : Activity() {
     }
 
     private fun newTab(url: String) {
-        val t = mkSession(); tabs.add(t); select(t); updCount(); t.session.loadUri(url)
+        val t = mkSession(); tabs.add(t); select(t); t.session.loadUri(url)
     }
     private fun select(t: Tab) {
         cur = t; gv.setSession(t.session); urlBox.setText(t.url); urlBox.clearFocus()
     }
-    private fun updCount() {}
     private fun closeTab(t: Tab) {
         val i = tabs.indexOf(t); if (i < 0) return
         tabs.removeAt(i)
         if (tabs.isEmpty()) { finish(); return }
         if (t === cur) { gv.releaseSession(); select(tabs[minOf(i, tabs.size - 1)]) }
-        t.session.close(); updCount()
+        t.session.close()
     }
 
+    // ---------- downloads: the app's own downloader ----------
     private fun download(u: String) {
+        val low = u.lowercase()
+        if (!(low.startsWith("http://") || low.startsWith("https://") || low.startsWith("ftp://"))) {
+            runOnUiThread { Toast.makeText(this, "This kind of link can not be downloaded here.", Toast.LENGTH_LONG).show() }
+            return
+        }
         try {
-            val name = URLUtil.guessFileName(u, null, null)
-            val req = DownloadManager.Request(Uri.parse(u)).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
-            (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
-            runOnUiThread { Toast.makeText(this, "Downloading $name (saved in your Download folder)", Toast.LENGTH_LONG).show() }
+            DownloadCenter.init(this)
+            DownloadCenter.manager.add(u, "file", "", DownloadCenter.filesDir, null, DownloadCenter.manager.defaultThreads)
+            runOnUiThread { Toast.makeText(this, "Added to Downloads", Toast.LENGTH_SHORT).show(); showDownloads() }
         } catch (e: Throwable) { runOnUiThread { Toast.makeText(this, "Could not download: " + e.message, Toast.LENGTH_LONG).show() } }
     }
 
+    private fun mb(n: Long): String = if (n >= 1073741824L) String.format("%.2f GB", n / 1073741824.0) else if (n >= 1048576L) String.format("%.1f MB", n / 1048576.0) else String.format("%d KB", n / 1024)
+
+    private fun showDownloads() {
+        DownloadCenter.init(this)
+        val box = LinearLayout(dc); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
+        val dlg = bd().setTitle("Downloads").setView(ScrollView(dc).apply { addView(box) }).setNegativeButton("Close", null).create()
+        var live = true
+        fun fill() {
+            box.removeAllViews()
+            val et = EditText(dc); et.hint = "Paste a link to download"; et.setSingleLine(); et.setTextColor(th.txt); et.setHintTextColor(th.mute)
+            box.addView(et)
+            box.addView(btn("Download this link") { val u = et.text.toString().trim(); if (u.isNotEmpty()) { download(u); live = false; dlg.dismiss() } })
+            val items = DownloadCenter.manager.list()
+            if (items.isEmpty()) box.addView(label(dc, "Nothing downloading yet. Files you open in the browser that can be saved show up here.", size = 13f).also { it.setPadding(0, dp(10), 0, dp(10)) })
+            items.forEach { it ->
+                val st = it.state.name
+                val col = LinearLayout(dc); col.orientation = LinearLayout.VERTICAL; col.setPadding(0, dp(10), 0, dp(6))
+                col.addView(label(dc, it.displayName(), bold = true, size = 14f))
+                val done = it.done.get(); val tot = it.total
+                val pct = if (tot > 0) (done * 100 / tot).toInt() else 0
+                val info = when (st) {
+                    "DONE" -> "Finished" + (if (tot > 0) " - " + mb(tot) else "")
+                    "ERROR", "FAILED" -> "Failed: " + (it.message ?: "")
+                    "PAUSED" -> "Paused at " + pct + "%" + (if (tot > 0) " of " + mb(tot) else "")
+                    else -> st.lowercase().replaceFirstChar { c -> c.uppercase() } + " " + (if (tot > 0) "$pct% of " + mb(tot) else mb(done)) + (if (it.speed > 0) " - " + mb(it.speed) + "/s" else "")
+                }
+                col.addView(label(dc, info, size = 12f).also { v -> v.setTextColor(th.mute) })
+                if (st != "DONE") {
+                    val p = ProgressBar(dc, null, android.R.attr.progressBarStyleHorizontal); p.max = 100; p.progress = pct
+                    p.progressDrawable.setColorFilter(th.acc, PorterDuff.Mode.SRC_IN); col.addView(p, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)))
+                }
+                val row = LinearLayout(dc); row.orientation = LinearLayout.HORIZONTAL
+                if (st == "DONE") row.addView(btn("Save to Downloads folder") { saveToPublic(it) })
+                else if (st == "PAUSED" || st == "ERROR" || st == "FAILED") row.addView(btn("Resume") { DownloadCenter.manager.resume(it.id); fill() })
+                else row.addView(btn("Pause") { DownloadCenter.manager.pause(it.id); fill() })
+                row.addView(btn("Remove") { DownloadCenter.manager.remove(it.id, false); fill() })
+                col.addView(row)
+                box.addView(col)
+            }
+        }
+        fill()
+        dlg.setOnDismissListener { live = false }
+        // refresh the numbers while the list is open (rebuilding the text box would lose typing, so only when it is empty)
+        val tick = object : Runnable {
+            override fun run() {
+                if (!live) return
+                val et = (box.getChildAt(0) as? EditText)
+                if (et == null || et.text.isEmpty()) fill()
+                main.postDelayed(this, 1000)
+            }
+        }
+        dlg.show(); main.postDelayed(tick, 1000)
+    }
+
+    private fun saveToPublic(d: com.mobileaistudio.app.dl.DownloadItem) {
+        val src = d.file()
+        if (src == null || !src.exists()) { Toast.makeText(this, "That file is not ready.", Toast.LENGTH_SHORT).show(); return }
+        if (android.os.Build.VERSION.SDK_INT < 29) { Toast.makeText(this, "Saving to Downloads needs Android 10 or newer.", Toast.LENGTH_LONG).show(); return }
+        Thread {
+            try {
+                val v = android.content.ContentValues()
+                v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, src.name)
+                v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/MobileAIStudio")
+                val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v) ?: throw Exception("Could not create the file.")
+                contentResolver.openOutputStream(uri)?.use { out -> src.inputStream().use { i -> i.copyTo(out, 64 * 1024) } } ?: throw Exception("Could not write the file.")
+                runOnUiThread { Toast.makeText(this, "Saved to Downloads/MobileAIStudio/" + src.name, Toast.LENGTH_LONG).show() }
+            } catch (e: Exception) { runOnUiThread { Toast.makeText(this, "Could not save: " + e.message, Toast.LENGTH_LONG).show() } }
+        }.start()
+    }
+
+    // ---------- bookmarks and history ----------
     private val prefs by lazy { getSharedPreferences("browser", Context.MODE_PRIVATE) }
     private fun load(k: String): JSONArray = try { JSONArray(prefs.getString(k, "[]")) } catch (e: Throwable) { JSONArray() }
     private fun addHistory(url: String, title: String) {
@@ -179,21 +292,21 @@ class BrowserActivity : Activity() {
     }
 
     private fun showSaved() {
-        val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
-        val dlg = AlertDialog.Builder(this).setTitle("Saved").setView(ScrollView(this).apply { addView(box) }).setNegativeButton("Close", null).create()
+        val box = LinearLayout(dc); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
+        val dlg = bd().setTitle("Bookmarks and history").setView(ScrollView(dc).apply { addView(box) }).setNegativeButton("Close", null).create()
         val c = cur
         if (c != null && c.url.startsWith("http")) box.addView(btn(if (isMarked(c.url)) "Remove bookmark for this page" else "Bookmark this page") { toggleMark(c); dlg.dismiss() })
         fun list(head: String, key: String, empty: String, canRemove: Boolean) {
-            box.addView(TextView(this).apply { text = head; setTypeface(null, Typeface.BOLD); setPadding(0, dp(12), 0, dp(4)) })
+            box.addView(label(dc, head, bold = true).also { it.setPadding(0, dp(12), 0, dp(4)) })
             val a = load(key)
-            if (a.length() == 0) box.addView(TextView(this).apply { text = empty })
+            if (a.length() == 0) box.addView(label(dc, empty))
             for (i in 0 until a.length()) {
                 val o = a.getJSONObject(i); val u = o.getString("u")
-                val row = LinearLayout(this); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
-                val tv = TextView(this); tv.text = o.optString("t").ifBlank { u } + "\n" + u; tv.maxLines = 2; tv.textSize = 13f; tv.setPadding(0, dp(8), 0, dp(8))
+                val row = LinearLayout(dc); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
+                val tv = label(dc, o.optString("t").ifBlank { u } + "\n" + u, size = 13f); tv.maxLines = 2; tv.setPadding(0, dp(8), 0, dp(8))
                 tv.setOnClickListener { dlg.dismiss(); go(u) }
                 row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                if (canRemove) row.addView(btn("\u2715") {
+                if (canRemove) row.addView(btn("Remove") {
                     val n = JSONArray(); for (j in 0 until a.length()) if (j != i) n.put(a.getJSONObject(j))
                     prefs.edit().putString(key, n.toString()).apply(); dlg.dismiss(); showSaved()
                 })
@@ -206,23 +319,140 @@ class BrowserActivity : Activity() {
         dlg.show()
     }
 
+    private fun go(q: String) {
+        val s = q.trim(); if (s.isEmpty()) return
+        val u = when {
+            s.startsWith("http://") || s.startsWith("https://") || s.startsWith("about:") -> s
+            !s.contains(" ") && s.contains(".") -> "https://$s"
+            else -> "https://duckduckgo.com/?q=" + java.net.URLEncoder.encode(s, "UTF-8")
+        }
+        cur?.session?.loadUri(u); urlBox.clearFocus(); gv.requestFocus()
+    }
+
+    // ---------- menu ----------
     private fun showMenu() {
-        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off"), "Graphics test", "Graphics limit workaround: " + (if (prefs.getBoolean("gfxfix", false)) "ON" else "off"), "Close browser")
-        AlertDialog.Builder(this).setItems(items) { _, i ->
-            when (i) {
-                0 -> cur?.session?.goForward()
-                1 -> cur?.session?.reload()
-                2 -> go("https://duckduckgo.com")
-                3 -> showTabs()
-                4 -> showSaved()
-                5 -> showAddons()
-                6 -> showPadMenu()
-                7 -> toggleDesktop()
-                8 -> gfxTest()
-                9 -> toggleGfx()
-                10 -> finish()
+        val acts = ArrayList<Pair<String, () -> Unit>>()
+        acts.add("Forward" to { cur?.session?.goForward() })
+        acts.add("Reload" to { cur?.session?.reload() })
+        acts.add("Home" to { go("https://duckduckgo.com") })
+        acts.add("Tabs (" + tabs.size + ")" to { showTabs() })
+        acts.add("Downloads" to { showDownloads() })
+        acts.add("Bookmarks and history" to { showSaved() })
+        acts.add("Add-ons" to { showAddons() })
+        acts.add("Controller layout" to { showPadMenu() })
+        acts.add("Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off") to { toggleDesktop() })
+        acts.add("Graphics test" to { gfxTest() })
+        acts.add("Graphics limit workaround: " + (if (prefs.getBoolean("gfxfix", false)) "ON" else "off") to { toggleGfx() })
+        acts.add("Close browser" to { finish() })
+        bd().setItems(acts.map { it.first }.toTypedArray()) { _, i -> acts[i].second() }.show()
+    }
+
+    private fun showPadMenu() {
+        val acts = ArrayList<Pair<String, () -> Unit>>()
+        acts.add("Move and arrange buttons" to { startPad(true) })
+        acts.add("Button size" to { bd().setTitle("Button size").setItems(arrayOf("Small", "Medium", "Large")) { _, k -> prefs.edit().putFloat("padSize", floatArrayOf(0.8f, 1f, 1.25f)[k]).apply(); pad?.rebuild() }.show() })
+        acts.add("Button transparency" to { bd().setTitle("Button transparency").setItems(arrayOf("Very see-through", "See-through", "Solid")) { _, k -> prefs.edit().putFloat("padAlpha", floatArrayOf(0.3f, 0.55f, 0.9f)[k]).apply(); pad?.rebuild() }.show() })
+        acts.add("Key for each button" to { bd().setTitle("Keys sent by the controller").setMessage(PadOverlay.DEFS.joinToString("\n") { it.label + "  =  " + it.keyName }).setPositiveButton("OK", null).show() })
+        acts.add("Reset layout" to { prefs.edit().remove("padPos").apply(); pad?.rebuild(); Toast.makeText(this, "Layout reset", Toast.LENGTH_SHORT).show() })
+        bd().setTitle("Controller layout").setItems(acts.map { it.first }.toTypedArray()) { _, i -> acts[i].second() }.show()
+    }
+
+    /** Fullscreen mode: top bar hidden, on-screen controller shown. */
+    private fun startPad(edit: Boolean = false) {
+        if (pad != null) { pad?.setEdit(edit); return }
+        topBar.visibility = View.GONE; urlBox.clearFocus()
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        if (android.os.Build.VERSION.SDK_INT >= 28) window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        frame.setBackgroundColor(Color.BLACK)
+        val p = PadOverlay(this, prefs, th, { code, down -> sendKey(code, down) }, { stopPad() })
+        pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit)
+    }
+    private fun stopPad() {
+        pad?.let { frame.removeView(it) }; pad = null
+        topBar.visibility = View.VISIBLE
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        baseUi()
+        frame.setBackgroundColor(th.bg)
+    }
+    private fun sendKey(code: Int, down: Boolean) {
+        val t = android.os.SystemClock.uptimeMillis()
+        gv.dispatchKeyEvent(KeyEvent(t, t, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code, 0))
+    }
+
+    private fun showTabs() {
+        val box = LinearLayout(dc); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
+        val dlg = bd().setTitle("Tabs").setView(ScrollView(dc).apply { addView(box) }).setNegativeButton("Close", null).create()
+        tabs.toList().forEach { t ->
+            val row = LinearLayout(dc); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
+            val tv = label(dc, t.title.ifBlank { t.url.ifBlank { "New tab" } }, bold = t === cur); tv.maxLines = 2; tv.setPadding(0, dp(10), 0, dp(10))
+            if (t === cur) tv.setTextColor(th.acc)
+            tv.setOnClickListener { select(t); dlg.dismiss() }
+            row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(btn("Close") { closeTab(t); dlg.dismiss(); if (tabs.isNotEmpty()) showTabs() })
+            box.addView(row)
+        }
+        box.addView(btn("New tab") { dlg.dismiss(); newTab("https://duckduckgo.com") })
+        dlg.show()
+    }
+
+    private val RECOMMENDED = listOf(
+        Triple("uBlock Origin", "Blocks ads and trackers", "ublock-origin"),
+        Triple("Bitwarden", "Password manager", "bitwarden-password-manager"),
+        Triple("Dark Reader", "Dark mode for any site", "darkreader"),
+        Triple("SponsorBlock", "Skips sponsor segments on YouTube", "sponsorblock")
+    )
+
+    private fun showAddons() {
+        val box = LinearLayout(dc); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
+        val dlg = bd().setTitle("Add-ons").setView(ScrollView(dc).apply { addView(box) }).setNegativeButton("Close", null).create()
+        fun head(t: String) { box.addView(label(dc, t, bold = true).also { it.setPadding(0, dp(12), 0, dp(4)) }) }
+        head("Installed")
+        val inst = LinearLayout(dc); inst.orientation = LinearLayout.VERTICAL; box.addView(inst)
+        inst.addView(label(dc, "Loading..."))
+        rt.webExtensionController.list().accept({ list ->
+            runOnUiThread {
+                inst.removeAllViews()
+                val mine = (list ?: emptyList()).filter { !it.isBuiltIn }
+                if (mine.isEmpty()) inst.addView(label(dc, "None yet. Add one below."))
+                mine.forEach { e ->
+                    val on = e.metaData.enabled
+                    val row = LinearLayout(dc); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
+                    val tv = label(dc, (e.metaData.name ?: e.id) + "  " + (e.metaData.version ?: "") + (if (on) "" else "  (off)"))
+                    row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    row.addView(btn(if (on) "Turn off" else "Turn on") {
+                        val r = if (on) rt.webExtensionController.disable(e, WebExtensionController.EnableSource.USER) else rt.webExtensionController.enable(e, WebExtensionController.EnableSource.USER)
+                        r.accept({ runOnUiThread { dlg.dismiss(); showAddons() } }, { _ -> })
+                    })
+                    row.addView(btn("Remove") {
+                        bd().setTitle("Remove " + (e.metaData.name ?: e.id) + "?").setPositiveButton("Remove") { _, _ ->
+                            rt.webExtensionController.uninstall(e).accept({ runOnUiThread { dlg.dismiss(); showAddons() } }, { _ -> })
+                        }.setNegativeButton("Cancel", null).show()
+                    })
+                    inst.addView(row)
+                }
             }
-        }.show()
+        }, { _ -> })
+        head("Add from the Firefox add-on store")
+        RECOMMENDED.forEach { (name, sub, slug) ->
+            val row = LinearLayout(dc); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
+            val tv = label(dc, name + "\n" + sub, size = 14f)
+            row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(btn("Add") { install("https://addons.mozilla.org/firefox/downloads/latest/$slug/latest.xpi", dlg) })
+            box.addView(row)
+        }
+        head("Or paste an add-on link (.xpi)")
+        val et = EditText(dc); et.hint = "https://.../addon.xpi"; et.setSingleLine(); et.setTextColor(th.txt); et.setHintTextColor(th.mute); box.addView(et)
+        box.addView(btn("Add from link") { val u = et.text.toString().trim(); if (u.isNotEmpty()) install(u, dlg) })
+        box.addView(label(dc, "Only add-ons you trust. They can read the pages you visit.", size = 12f).also { it.setTextColor(th.mute); it.setPadding(0, dp(8), 0, 0) })
+        dlg.show()
+    }
+
+    private fun install(url: String, dlg: AlertDialog) {
+        Toast.makeText(this, "Getting the add-on...", Toast.LENGTH_SHORT).show()
+        rt.webExtensionController.install(url).accept({ e ->
+            runOnUiThread { Toast.makeText(this, "Added " + (e?.metaData?.name ?: "add-on"), Toast.LENGTH_SHORT).show(); dlg.dismiss(); showAddons() }
+        }, { err -> runOnUiThread { Toast.makeText(this, "Could not add it: " + (err?.message ?: "unknown error"), Toast.LENGTH_LONG).show() } })
     }
 
     private val GFX_HTML = """<html><body style='font:14px sans-serif;padding:12px'><b id=h>Graphics test</b><pre id=o></pre><script>
@@ -248,8 +478,8 @@ t('webgl');t('webgl2');document.getElementById('o').textContent=o;</script></bod
     private fun gfxTest() {
         val wv = android.webkit.WebView(this); wv.settings.javaScriptEnabled = true
         wv.loadDataWithBaseURL("https://example.com/", GFX_HTML, "text/html", "utf-8", null)
-        AlertDialog.Builder(this).setTitle("Graphics test: Chrome engine").setView(wv).setNegativeButton("Close", null)
-            .setPositiveButton("Test Firefox engine") { _, _ -> cur?.session?.loadUri("https://example.com/#gfxtest"); Toast.makeText(this, "A box at the top shows what pages are told. No box means the workaround add-on is not running.", Toast.LENGTH_LONG).show() }.show()
+        bd().setTitle("Graphics test: Chrome engine").setView(wv).setNegativeButton("Close", null)
+            .setPositiveButton("Test Firefox engine") { _, _ -> cur?.session?.loadUri("data:text/html;charset=utf-8," + Uri.encode(GFX_HTML)) }.show()
     }
 
     private fun applyDesktop(t: Tab) {
@@ -265,127 +495,6 @@ t('webgl');t('webgl2');document.getElementById('o').textContent=o;</script></bod
         Toast.makeText(this, if (on) "Desktop site on" else "Desktop site off", Toast.LENGTH_SHORT).show()
     }
 
-    private fun showPadMenu() {
-        val items = arrayOf("Move and arrange buttons", "Button size", "Button transparency", "Key for each button", "Reset layout")
-        AlertDialog.Builder(this).setTitle("Controller layout").setItems(items) { _, i ->
-            when (i) {
-                0 -> startPad(true)
-                1 -> AlertDialog.Builder(this).setTitle("Button size").setItems(arrayOf("Small", "Medium", "Large")) { _, k -> prefs.edit().putFloat("padSize", floatArrayOf(0.8f, 1f, 1.25f)[k]).apply(); pad?.rebuild() }.show()
-                2 -> AlertDialog.Builder(this).setTitle("Button transparency").setItems(arrayOf("Very see-through", "See-through", "Solid")) { _, k -> prefs.edit().putFloat("padAlpha", floatArrayOf(0.3f, 0.55f, 0.9f)[k]).apply(); pad?.rebuild() }.show()
-                3 -> AlertDialog.Builder(this).setTitle("Keys sent by the controller").setMessage(PadOverlay.DEFS.joinToString("\n") { it.label + "  =  " + it.keyName }).setPositiveButton("OK", null).show()
-                4 -> { prefs.edit().remove("padPos").apply(); pad?.rebuild(); Toast.makeText(this, "Layout reset", Toast.LENGTH_SHORT).show() }
-            }
-        }.show()
-    }
-
-    /** Fullscreen mode: top bar hidden, on-screen controller shown. */
-    private fun startPad(edit: Boolean = false) {
-        if (pad != null) { pad?.setEdit(edit); return }
-        topBar.visibility = View.GONE; urlBox.clearFocus()
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
-        if (android.os.Build.VERSION.SDK_INT >= 28) window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-        frame.setBackgroundColor(Color.BLACK)
-        val p = PadOverlay(this, prefs, { code, down -> sendKey(code, down) }, { stopPad() })
-        pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit)
-    }
-    private fun stopPad() {
-        pad?.let { frame.removeView(it) }; pad = null
-        topBar.visibility = View.VISIBLE
-        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-        frame.setBackgroundColor(BG)
-    }
-    private fun sendKey(code: Int, down: Boolean) {
-        val t = android.os.SystemClock.uptimeMillis()
-        gv.dispatchKeyEvent(KeyEvent(t, t, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code, 0))
-    }
-
-    private fun go(q: String) {
-        val s = q.trim(); if (s.isEmpty()) return
-        val u = when {
-            s.startsWith("http://") || s.startsWith("https://") || s.startsWith("about:") -> s
-            !s.contains(" ") && s.contains(".") -> "https://$s"
-            else -> "https://duckduckgo.com/?q=" + java.net.URLEncoder.encode(s, "UTF-8")
-        }
-        cur?.session?.loadUri(u); urlBox.clearFocus(); gv.requestFocus()
-    }
-
-    private fun showTabs() {
-        val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
-        val dlg = AlertDialog.Builder(this).setTitle("Tabs").setView(ScrollView(this).apply { addView(box) }).setNegativeButton("Close", null).create()
-        tabs.toList().forEach { t ->
-            val row = LinearLayout(this); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
-            val tv = TextView(this); tv.text = (if (t === cur) "● " else "") + (t.title.ifBlank { t.url.ifBlank { "New tab" } }); tv.maxLines = 2; tv.setPadding(0, dp(10), 0, dp(10))
-            if (t === cur) tv.setTypeface(null, Typeface.BOLD)
-            tv.setOnClickListener { select(t); dlg.dismiss() }
-            row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(btn("✕") { closeTab(t); dlg.dismiss(); if (tabs.isNotEmpty()) showTabs() })
-            box.addView(row)
-        }
-        box.addView(btn("+ New tab") { dlg.dismiss(); newTab("https://duckduckgo.com") })
-        dlg.show()
-    }
-
-    private val RECOMMENDED = listOf(
-        Triple("uBlock Origin", "Blocks ads and trackers", "ublock-origin"),
-        Triple("Bitwarden", "Password manager", "bitwarden-password-manager"),
-        Triple("Dark Reader", "Dark mode for any site", "darkreader"),
-        Triple("SponsorBlock", "Skips sponsor segments on YouTube", "sponsorblock")
-    )
-
-    private fun showAddons() {
-        val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
-        val dlg = AlertDialog.Builder(this).setTitle("Add-ons").setView(ScrollView(this).apply { addView(box) }).setNegativeButton("Close", null).create()
-        fun head(t: String) { box.addView(TextView(this).apply { text = t; setTypeface(null, Typeface.BOLD); setPadding(0, dp(12), 0, dp(4)) }) }
-        head("Installed")
-        val inst = LinearLayout(this); inst.orientation = LinearLayout.VERTICAL; box.addView(inst)
-        inst.addView(TextView(this).apply { text = "Loading..." })
-        rt.webExtensionController.list().accept({ list ->
-            runOnUiThread {
-                inst.removeAllViews()
-                val mine = (list ?: emptyList()).filter { !it.isBuiltIn }
-                if (mine.isEmpty()) inst.addView(TextView(this).apply { text = "None yet. Add one below." })
-                mine.forEach { e ->
-                    val on = e.metaData.enabled
-                    val row = LinearLayout(this); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
-                    val tv = TextView(this); tv.text = (e.metaData.name ?: e.id) + "  " + (e.metaData.version ?: "") + (if (on) "" else "  (off)")
-                    row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    row.addView(btn(if (on) "Turn off" else "Turn on") {
-                        val r = if (on) rt.webExtensionController.disable(e, WebExtensionController.EnableSource.USER) else rt.webExtensionController.enable(e, WebExtensionController.EnableSource.USER)
-                        r.accept({ runOnUiThread { dlg.dismiss(); showAddons() } }, { _ -> })
-                    })
-                    row.addView(btn("Remove") {
-                        AlertDialog.Builder(this).setTitle("Remove " + (e.metaData.name ?: e.id) + "?").setPositiveButton("Remove") { _, _ ->
-                            rt.webExtensionController.uninstall(e).accept({ runOnUiThread { dlg.dismiss(); showAddons() } }, { _ -> })
-                        }.setNegativeButton("Cancel", null).show()
-                    })
-                    inst.addView(row)
-                }
-            }
-        }, { _ -> })
-        head("Add from the Firefox add-on store")
-        RECOMMENDED.forEach { (name, sub, slug) ->
-            val row = LinearLayout(this); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
-            val tv = TextView(this); tv.text = name + "\n" + sub; tv.textSize = 14f
-            row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(btn("Add") { install("https://addons.mozilla.org/firefox/downloads/latest/$slug/latest.xpi", dlg) })
-            box.addView(row)
-        }
-        head("Or paste an add-on link (.xpi)")
-        val et = EditText(this); et.hint = "https://.../addon.xpi"; et.setSingleLine(); box.addView(et)
-        box.addView(btn("Add from link") { val u = et.text.toString().trim(); if (u.isNotEmpty()) install(u, dlg) })
-        box.addView(TextView(this).apply { text = "Only add-ons you trust. They can read the pages you visit."; textSize = 12f; setPadding(0, dp(8), 0, 0) })
-        dlg.show()
-    }
-
-    private fun install(url: String, dlg: AlertDialog) {
-        Toast.makeText(this, "Getting the add-on...", Toast.LENGTH_SHORT).show()
-        rt.webExtensionController.install(url).accept({ e ->
-            runOnUiThread { Toast.makeText(this, "Added " + (e?.metaData?.name ?: "add-on"), Toast.LENGTH_SHORT).show(); dlg.dismiss(); showAddons() }
-        }, { err -> runOnUiThread { Toast.makeText(this, "Could not add it: " + (err?.message ?: "unknown error"), Toast.LENGTH_LONG).show() } })
-    }
-
     override fun onKeyDown(k: Int, e: KeyEvent): Boolean {
         if (k == KeyEvent.KEYCODE_BACK) { if (pad != null) { stopPad(); return true }; val t = cur; if (t != null && t.back) { t.session.goBack(); return true } else if (tabs.size > 1 && t != null) { closeTab(t); return true } }
         return super.onKeyDown(k, e)
@@ -394,18 +503,17 @@ t('webgl');t('webgl2');document.getElementById('o').textContent=o;</script></bod
     override fun onDestroy() { tabs.forEach { try { it.session.close() } catch (_: Throwable) {} }; super.onDestroy() }
 }
 
-
-/** One on-screen button of the controller. */
-class PadDef(val id: String, val label: String, val key: Int, val keyName: String, val x: Float, val y: Float)
+/** One on-screen button of the controller. rot is set for the four arrow buttons (drawn as vector triangles). */
+class PadDef(val id: String, val label: String, val key: Int, val keyName: String, val x: Float, val y: Float, val rot: Float? = null)
 
 /** The overlay controller: buttons sit on top of the page and send key presses. */
-class PadOverlay(private val act: Activity, private val prefs: android.content.SharedPreferences, private val onKey: (Int, Boolean) -> Unit, private val onClose: () -> Unit) : FrameLayout(act) {
+class PadOverlay(private val act: Activity, private val prefs: android.content.SharedPreferences, private val th: BTheme, private val onKey: (Int, Boolean) -> Unit, private val onClose: () -> Unit) : FrameLayout(act) {
     companion object {
         val DEFS = listOf(
-            PadDef("up", "\u25B2", KeyEvent.KEYCODE_W, "W", 0.13f, 0.52f),
-            PadDef("left", "\u25C0", KeyEvent.KEYCODE_A, "A", 0.06f, 0.68f),
-            PadDef("right", "\u25B6", KeyEvent.KEYCODE_D, "D", 0.20f, 0.68f),
-            PadDef("down", "\u25BC", KeyEvent.KEYCODE_S, "S", 0.13f, 0.84f),
+            PadDef("up", "Up", KeyEvent.KEYCODE_W, "W", 0.13f, 0.52f, 0f),
+            PadDef("left", "Left", KeyEvent.KEYCODE_A, "A", 0.06f, 0.68f, 270f),
+            PadDef("right", "Right", KeyEvent.KEYCODE_D, "D", 0.20f, 0.68f, 90f),
+            PadDef("down", "Down", KeyEvent.KEYCODE_S, "S", 0.13f, 0.84f, 180f),
             PadDef("Y", "Y", KeyEvent.KEYCODE_Q, "Q", 0.87f, 0.52f),
             PadDef("X", "X", KeyEvent.KEYCODE_E, "E", 0.80f, 0.68f),
             PadDef("B", "B", KeyEvent.KEYCODE_SHIFT_LEFT, "Shift", 0.94f, 0.68f),
@@ -420,13 +528,11 @@ class PadOverlay(private val act: Activity, private val prefs: android.content.S
     }
     private var edit = false
     private val dp = act.resources.displayMetrics.density
-    private val views = ArrayList<Pair<PadDef, TextView>>()
-    private var closeBtn: TextView? = null
-    private var doneBtn: TextView? = null
+    private val views = ArrayList<Pair<PadDef, View>>()
 
     init { rebuild() }
 
-    private fun pos(): org.json.JSONObject = try { org.json.JSONObject(prefs.getString("padPos", "{}")) } catch (e: Throwable) { org.json.JSONObject() }
+    private fun pos(): JSONObject = try { JSONObject(prefs.getString("padPos", "{}")) } catch (e: Throwable) { JSONObject() }
 
     fun setEdit(on: Boolean) { edit = on; rebuild() }
 
@@ -435,68 +541,75 @@ class PadOverlay(private val act: Activity, private val prefs: android.content.S
         val size = (56 * dp * prefs.getFloat("padSize", 1f)).toInt()
         val alpha = prefs.getFloat("padAlpha", 0.55f)
         val saved = pos()
+        val fill = if (th.dark) th.side else th.panel
         for (d in DEFS) {
-            val tv = TextView(act); tv.text = d.label; tv.gravity = Gravity.CENTER; tv.setTextColor(Color.WHITE); tv.textSize = if (d.label.length > 2) 11f else 17f
-            tv.setTypeface(null, Typeface.BOLD)
-            val bg = android.graphics.drawable.GradientDrawable(); bg.shape = android.graphics.drawable.GradientDrawable.OVAL; bg.setColor(Color.parseColor("#33322F")); bg.setStroke((2 * dp).toInt(), Color.parseColor("#D97757"))
-            tv.background = bg; tv.alpha = alpha
-            val w = if (d.id == "SEL" || d.id == "STA") (size * 1.5f).toInt() else size
-            val h = if (d.id == "SEL" || d.id == "STA") (size * 0.6f).toInt() else size
-            if (w != h) bg.shape = android.graphics.drawable.GradientDrawable.RECTANGLE.also { bg.cornerRadius = h / 2f }
-            addView(tv, LayoutParams(w, h))
-            views.add(d to tv)
+            val wide = d.id == "SEL" || d.id == "STA"
+            val w = if (wide) (size * 1.5f).toInt() else size
+            val h = if (wide) (size * 0.6f).toInt() else size
+            val bg = GradientDrawable()
+            if (wide) { bg.shape = GradientDrawable.RECTANGLE; bg.cornerRadius = h / 2f } else bg.shape = GradientDrawable.OVAL
+            bg.setColor(fill); bg.setStroke((2 * dp).toInt(), th.acc)
+            val v: View
+            if (d.rot != null) {
+                val iv = ImageView(act); iv.setImageResource(R.drawable.bt_triangle); iv.setColorFilter(th.txt, PorterDuff.Mode.SRC_IN)
+                iv.rotation = d.rot; iv.scaleType = ImageView.ScaleType.CENTER_INSIDE; iv.setPadding((14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt()); v = iv
+            } else {
+                val tv = TextView(act); tv.text = d.label; tv.gravity = Gravity.CENTER; tv.setTextColor(th.txt); tv.textSize = if (d.label.length > 2) 11f else 17f
+                tv.setTypeface(null, Typeface.BOLD); v = tv
+            }
+            v.background = bg; v.alpha = alpha
+            addView(v, LayoutParams(w, h))
+            views.add(d to v)
             val fx = if (saved.has(d.id)) saved.getJSONArray(d.id).getDouble(0).toFloat() else d.x
             val fy = if (saved.has(d.id)) saved.getJSONArray(d.id).getDouble(1).toFloat() else d.y
-            tv.tag = floatArrayOf(fx, fy)
-            tv.setOnTouchListener { v, e -> touch(d, v as TextView, e) }
+            v.tag = floatArrayOf(fx, fy)
+            v.setOnTouchListener { vv, e -> touch(d, vv, e) }
         }
-        val c = TextView(act); c.text = "\u2715  Close controller"; c.setTextColor(Color.WHITE); c.textSize = 13f; c.gravity = Gravity.CENTER
-        c.setPadding((14 * dp).toInt(), (8 * dp).toInt(), (14 * dp).toInt(), (8 * dp).toInt()); c.setBackgroundColor(Color.parseColor("#CC1F1E1D")); c.setOnClickListener { onClose() }
-        addView(c, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.topMargin = (24 * dp).toInt() })
-        closeBtn = c
-        if (edit) {
-            c.visibility = GONE
-            val dn = TextView(act); dn.text = "Done - drag buttons to move them"; dn.setTextColor(Color.WHITE); dn.textSize = 13f; dn.gravity = Gravity.CENTER
-            dn.setPadding((14 * dp).toInt(), (8 * dp).toInt(), (14 * dp).toInt(), (8 * dp).toInt()); dn.setBackgroundColor(Color.parseColor("#D97757")); dn.setOnClickListener { edit = false; rebuild() }
-            addView(dn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.topMargin = (24 * dp).toInt() })
-            doneBtn = dn
-            setBackgroundColor(Color.parseColor("#44000000"))
-        } else setBackgroundColor(Color.TRANSPARENT)
+        val bar = LinearLayout(act); bar.orientation = LinearLayout.HORIZONTAL; bar.gravity = Gravity.CENTER_VERTICAL
+        bar.setPadding((12 * dp).toInt(), (8 * dp).toInt(), (14 * dp).toInt(), (8 * dp).toInt())
+        val g = GradientDrawable(); g.cornerRadius = 10 * dp; g.setColor(if (edit) th.acc else Color.argb(220, Color.red(th.bg), Color.green(th.bg), Color.blue(th.bg))); bar.background = g
+        val ic = ImageView(act); ic.setImageResource(R.drawable.bt_close); ic.setColorFilter(if (edit) th.onacc else th.txt, PorterDuff.Mode.SRC_IN)
+        bar.addView(ic, LinearLayout.LayoutParams((20 * dp).toInt(), (20 * dp).toInt()))
+        val tx = TextView(act); tx.text = if (edit) "  Done - drag buttons to move them" else "  Close controller"; tx.textSize = 13f; tx.setTextColor(if (edit) th.onacc else th.txt)
+        bar.addView(tx)
+        bar.setOnClickListener { if (edit) { edit = false; rebuild() } else onClose() }
+        addView(bar, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.topMargin = (24 * dp).toInt() })
+        setBackgroundColor(if (edit) Color.parseColor("#44000000") else Color.TRANSPARENT)
         requestLayout()
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         super.onLayout(changed, l, t, r, b)
         val W = r - l; val H = b - t
-        for ((_, tv) in views) {
-            val f = tv.tag as FloatArray
-            val x = (f[0] * W - tv.measuredWidth / 2f).toInt(); val y = (f[1] * H - tv.measuredHeight / 2f).toInt()
-            tv.layout(x, y, x + tv.measuredWidth, y + tv.measuredHeight)
+        for ((_, v) in views) {
+            val f = v.tag as FloatArray
+            val x = (f[0] * W - v.measuredWidth / 2f).toInt(); val y = (f[1] * H - v.measuredHeight / 2f).toInt()
+            v.layout(x, y, x + v.measuredWidth, y + v.measuredHeight)
         }
     }
 
     // buttons only grab touches they sit on; the rest of the screen still reaches the page
-    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean = false
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = false
 
-    private fun touch(d: PadDef, v: TextView, e: android.view.MotionEvent): Boolean {
+    private fun touch(d: PadDef, v: View, e: MotionEvent): Boolean {
         if (edit) {
             when (e.actionMasked) {
-                android.view.MotionEvent.ACTION_MOVE -> {
+                MotionEvent.ACTION_MOVE -> {
                     val W = width.toFloat(); val H = height.toFloat()
                     val cx = (v.left + e.x).coerceIn(0f, W); val cy = (v.top + e.y).coerceIn(0f, H)
                     v.tag = floatArrayOf(cx / W, cy / H); requestLayout()
                 }
-                android.view.MotionEvent.ACTION_UP -> {
+                MotionEvent.ACTION_UP -> {
                     val o = pos(); val f = v.tag as FloatArray
-                    o.put(d.id, org.json.JSONArray().put(f[0].toDouble()).put(f[1].toDouble()))
+                    o.put(d.id, JSONArray().put(f[0].toDouble()).put(f[1].toDouble()))
                     prefs.edit().putString("padPos", o.toString()).apply()
                 }
             }
             return true
         }
         when (e.actionMasked) {
-            android.view.MotionEvent.ACTION_DOWN -> { v.alpha = 1f; v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); onKey(d.key, true) }
-            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> { v.alpha = prefs.getFloat("padAlpha", 0.55f); onKey(d.key, false) }
+            MotionEvent.ACTION_DOWN -> { v.alpha = 1f; v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); onKey(d.key, true) }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.alpha = prefs.getFloat("padAlpha", 0.55f); onKey(d.key, false) }
         }
         return true
     }

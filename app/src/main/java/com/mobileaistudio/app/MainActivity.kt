@@ -63,6 +63,7 @@ class MainActivity : Activity() {
         }
         web.loadUrl("file:///android_asset/index.html")
         bridge.onShare(intent)
+        bridge.setOpen(intent)
         bridge.wakeResume()
     }
 
@@ -168,7 +169,8 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra("wake", false)) showOverLock(true)
         setIntent(intent)
-        if (::bridge.isInitialized) bridge.onShare(intent)
+
+        if (::bridge.isInitialized) { bridge.onShare(intent); bridge.setOpen(intent); bridge.openNow() }
     }
 
     override fun onPause() {
