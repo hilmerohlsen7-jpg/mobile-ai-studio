@@ -91,6 +91,7 @@ dependencies {
 configurations.all {
     resolutionStrategy.eachDependency {
         // the newest AndroidX needs a newer Android Gradle plugin; older ones work with the same browser engine
+        if (requested.group == "org.jetbrains.kotlin" && requested.name.startsWith("kotlin-stdlib")) useVersion("2.0.21")
         if (requested.group == "androidx.media3") useVersion("1.5.1")
         if (requested.group == "androidx.core" && requested.name == "core") useVersion("1.15.0")
     }
