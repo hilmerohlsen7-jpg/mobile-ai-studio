@@ -3,6 +3,7 @@
 Newest first. Every entry is one build pushed to `main`.
 
 ## 2026-11-18
+- Browser: downloads (saved to your Download folder), bookmarks and history (star button at the bottom)
 - New Browser (Firefox engine) with tabs and an Add-ons page: uBlock Origin, Bitwarden, Dark Reader, SponsorBlock, or any add-on link. Opens from the left panel.
 
 ## 2026-11-17

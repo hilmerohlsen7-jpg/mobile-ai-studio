@@ -16,6 +16,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 
 **Browser**
 - Built-in Firefox-engine browser, set to use little memory, with tabs
+- Downloads, bookmarks and history
 - Add-ons page: install uBlock Origin, Bitwarden, Dark Reader, SponsorBlock or any Firefox add-on link
 
 **File Manager**
@@ -36,7 +37,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 
 ## Not done yet
 
-- Browser: add-on toolbar buttons and popups, downloads, bookmarks and history
+- Browser: add-on toolbar buttons and popups
 - Still to add: SMB2 toggle, key shortcuts, Configure buttons, Tweaks, Link storage, Add shortcut
 - Folder counts and image/APK previews in Vault, DLNA and server folder lists (they have type icons now)
 - Tick boxes / batch select on app rows
