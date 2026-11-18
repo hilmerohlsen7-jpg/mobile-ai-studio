@@ -335,6 +335,7 @@ class BrowserActivity : Activity() {
         acts.add("Forward" to { cur?.session?.goForward() })
         acts.add("Reload" to { cur?.session?.reload() })
         acts.add("Home" to { go("https://duckduckgo.com") })
+        acts.add("Duck.ai (DuckDuckGo AI chat)" to { go("https://duck.ai") })
         acts.add("Tabs (" + tabs.size + ")" to { showTabs() })
         acts.add("Downloads" to { showDownloads() })
         acts.add("Bookmarks and history" to { showSaved() })

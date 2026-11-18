@@ -3,6 +3,7 @@
 Newest first. Every entry is one build pushed to `main`.
 
 ## 2026-11-18
+- ChatGPT (OpenAI key) added next to Gemini, Claude and Grok in Settings, Connectors; Duck.ai shortcut in the left panel and the browser menu
 - Browser: uses the app's own downloader (Downloads in the browser menu, with pause, resume and save to the Downloads folder), follows the app theme and accent colour, and all emoji are replaced with vector icons
 - Left panel: "Add to desktop" buttons next to File Manager and Browser
 - Browser: graphics workaround wraps the game's background workers again, now with file requests resolved against the real page address

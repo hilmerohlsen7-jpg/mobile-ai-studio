@@ -8,7 +8,8 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 - Runs a local model on the phone with llama.cpp, no internet needed after the model download
 - Model list: download a starter model or import your own .gguf
 - Projects: rename, clear chat, add text/code files, switch skills on or off per project
-- Online models (Gemini, Claude, Grok) when you add an API key; they show as "(online)" in the model list
+- Online models (Gemini, Claude, ChatGPT, Grok) when you add an API key; they show as "(online)" in the model list
+- Duck.ai (DuckDuckGo AI chat) opens in the built-in browser
 - Left panel shortcuts: Downloads, File Manager, Settings
 - Camera and file attachments, web search, weather
 - Voice and the wake word "Hey Ajax"

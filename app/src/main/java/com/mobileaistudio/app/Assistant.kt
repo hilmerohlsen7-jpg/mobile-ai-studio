@@ -387,10 +387,10 @@ object CloudText {
                 for (i in roles.indices) arr.put(JSONObject().put("role", roles[i]).put("content", texts[i]))
                 body.put("messages", arr)
             }
-            "grok" -> {
-                url = "https://api.x.ai/v1/chat/completions"
+            "grok", "openai" -> {
+                url = if (provider == "openai") "https://api.openai.com/v1/chat/completions" else "https://api.x.ai/v1/chat/completions"
                 headers["Authorization"] = "Bearer $key"
-                body.put("model", model).put("max_tokens", maxTok)
+                if (provider == "openai") body.put("model", model).put("max_completion_tokens", maxTok) else body.put("model", model).put("max_tokens", maxTok)
                 val arr = JSONArray().put(JSONObject().put("role", "system").put("content", system))
                 for (i in roles.indices) arr.put(JSONObject().put("role", roles[i]).put("content", texts[i]))
                 body.put("messages", arr)

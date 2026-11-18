@@ -1707,10 +1707,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                         }
                         body.put("messages", arr)
                     }
-                    "grok" -> {
-                        url = "https://api.x.ai/v1/chat/completions"
+                    "grok", "openai" -> {
+                        url = if (provider == "openai") "https://api.openai.com/v1/chat/completions" else "https://api.x.ai/v1/chat/completions"
                         headers["Authorization"] = "Bearer $key"
-                        body.put("model", model).put("max_tokens", maxTok).put("temperature", temp)
+                        if (provider == "openai") body.put("model", model).put("max_completion_tokens", maxTok)
+                        else body.put("model", model).put("max_tokens", maxTok).put("temperature", temp)
                         val arr = org.json.JSONArray()
                         if (system.isNotEmpty()) arr.put(JSONObject().put("role", "system").put("content", system))
                         for (i in roles.indices) {
@@ -1750,7 +1751,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                         msg = if (e is JSONObject) e.optString("message") else (e?.toString() ?: j.optString("message"))
                     } catch (e: Exception) {
                     }
-                    val who = when (provider) { "gemini" -> "Google"; "claude" -> "Anthropic"; else -> "xAI" }
+                    val who = when (provider) { "gemini" -> "Google"; "claude" -> "Anthropic"; "openai" -> "OpenAI"; else -> "xAI" }
                     chatError(when (code) {
                         400 -> "$who did not accept the request: " + msg.take(200)
                         401, 403 -> "$who refused the key. Check it in Settings, Online AI. " + msg.take(120)
