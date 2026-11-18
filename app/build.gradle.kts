@@ -54,6 +54,7 @@ android {
     }
 
     packaging {
+        resources { pickFirsts += listOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/MANIFEST.MF", "META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/DEPENDENCIES", "META-INF/INDEX.LIST") }
         // the CPU variants are loaded by file path, so they must be unpacked on install
         jniLibs {
             useLegacyPackaging = true
