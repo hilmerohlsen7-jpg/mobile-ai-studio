@@ -131,6 +131,7 @@ class BrowserActivity : Activity() {
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
         }
         s.open(rt)
+        applyDesktop(t)
         return t
     }
 
@@ -205,7 +206,7 @@ class BrowserActivity : Activity() {
     }
 
     private fun showMenu() {
-        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Close browser")
+        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off"), "Close browser")
         AlertDialog.Builder(this).setItems(items) { _, i ->
             when (i) {
                 0 -> cur?.session?.goForward()
@@ -215,9 +216,23 @@ class BrowserActivity : Activity() {
                 4 -> showSaved()
                 5 -> showAddons()
                 6 -> showPadMenu()
-                7 -> finish()
+                7 -> toggleDesktop()
+                8 -> finish()
             }
         }.show()
+    }
+
+    private fun applyDesktop(t: Tab) {
+        val d = prefs.getBoolean("desktop", false)
+        t.session.settings.userAgentMode = if (d) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP else GeckoSessionSettings.USER_AGENT_MODE_MOBILE
+        t.session.settings.viewportMode = if (d) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP else GeckoSessionSettings.VIEWPORT_MODE_MOBILE
+    }
+    private fun toggleDesktop() {
+        val on = !prefs.getBoolean("desktop", false)
+        prefs.edit().putBoolean("desktop", on).apply()
+        tabs.forEach { applyDesktop(it) }
+        cur?.session?.reload()
+        Toast.makeText(this, if (on) "Desktop site on" else "Desktop site off", Toast.LENGTH_SHORT).show()
     }
 
     private fun showPadMenu() {
