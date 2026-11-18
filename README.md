@@ -17,6 +17,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 **Browser**
 - Built-in Firefox-engine browser, set to use little memory, with tabs
 - Downloads, bookmarks and history
+- Fullscreen controller overlay (sends keyboard keys) with movable buttons, size and transparency
 - Add-ons page: install uBlock Origin, Bitwarden, Dark Reader, SponsorBlock or any Firefox add-on link
 
 **File Manager**

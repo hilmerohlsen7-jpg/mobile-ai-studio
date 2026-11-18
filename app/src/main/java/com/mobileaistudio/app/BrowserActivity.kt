@@ -48,7 +48,9 @@ class BrowserActivity : Activity() {
     private lateinit var urlBox: EditText
     private lateinit var prog: ProgressBar
     private lateinit var rt: GeckoRuntime
-    private lateinit var tabBtn: Button
+    private lateinit var topBar: LinearLayout
+    private lateinit var frame: FrameLayout
+    private var pad: PadOverlay? = null
     private var dp = 1f
 
     private val BG = Color.parseColor("#FAF9F5")
@@ -84,24 +86,17 @@ class BrowserActivity : Activity() {
         urlBox.setOnEditorActionListener { _, _, _ -> go(urlBox.text.toString()); true }
         urlBox.setOnFocusChangeListener { _, f -> if (f) urlBox.post { urlBox.selectAll() } }
         top.addView(urlBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(btn("↻") { cur?.session?.reload() })
-        top.addView(btn("✕") { finish() })
+        top.addView(btn("\uD83C\uDFAE") { startPad() })
+        top.addView(btn("\u2630") { showMenu() })
+        topBar = top
         root.addView(top)
         prog = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); prog.max = 100; prog.visibility = View.GONE
         prog.progressDrawable.setColorFilter(ACC, android.graphics.PorterDuff.Mode.SRC_IN)
         root.addView(prog, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
         gv = GeckoView(this)
         root.addView(gv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        val bar = LinearLayout(this); bar.orientation = LinearLayout.HORIZONTAL; bar.gravity = Gravity.CENTER
-        bar.setPadding(0, dp(4), 0, dp(4))
-        bar.addView(btn("→") { cur?.session?.goForward() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(btn("⌂") { go("https://duckduckgo.com") }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        tabBtn = btn("1") { showTabs() }
-        bar.addView(tabBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(btn("\u2605") { showSaved() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(btn("\u2699") { showAddons() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(bar)
-        setContentView(root)
+        frame = FrameLayout(this); frame.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        setContentView(frame)
         val first = intent?.dataString
         newTab(if (first.isNullOrBlank()) "https://duckduckgo.com" else first)
     }
@@ -145,7 +140,7 @@ class BrowserActivity : Activity() {
     private fun select(t: Tab) {
         cur = t; gv.setSession(t.session); urlBox.setText(t.url); urlBox.clearFocus()
     }
-    private fun updCount() { tabBtn.text = "⧉ " + tabs.size }
+    private fun updCount() {}
     private fun closeTab(t: Tab) {
         val i = tabs.indexOf(t); if (i < 0) return
         tabs.removeAt(i)
@@ -207,6 +202,53 @@ class BrowserActivity : Activity() {
         list("History", "hist", "Nothing yet.", false)
         if (load("hist").length() > 0) box.addView(btn("Clear history") { prefs.edit().remove("hist").apply(); dlg.dismiss() })
         dlg.show()
+    }
+
+    private fun showMenu() {
+        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Close browser")
+        AlertDialog.Builder(this).setItems(items) { _, i ->
+            when (i) {
+                0 -> cur?.session?.goForward()
+                1 -> cur?.session?.reload()
+                2 -> go("https://duckduckgo.com")
+                3 -> showTabs()
+                4 -> showSaved()
+                5 -> showAddons()
+                6 -> showPadMenu()
+                7 -> finish()
+            }
+        }.show()
+    }
+
+    private fun showPadMenu() {
+        val items = arrayOf("Move and arrange buttons", "Button size", "Button transparency", "Key for each button", "Reset layout")
+        AlertDialog.Builder(this).setTitle("Controller layout").setItems(items) { _, i ->
+            when (i) {
+                0 -> startPad(true)
+                1 -> AlertDialog.Builder(this).setTitle("Button size").setItems(arrayOf("Small", "Medium", "Large")) { _, k -> prefs.edit().putFloat("padSize", floatArrayOf(0.8f, 1f, 1.25f)[k]).apply(); pad?.rebuild() }.show()
+                2 -> AlertDialog.Builder(this).setTitle("Button transparency").setItems(arrayOf("Very see-through", "See-through", "Solid")) { _, k -> prefs.edit().putFloat("padAlpha", floatArrayOf(0.3f, 0.55f, 0.9f)[k]).apply(); pad?.rebuild() }.show()
+                3 -> AlertDialog.Builder(this).setTitle("Keys sent by the controller").setMessage(PadOverlay.DEFS.joinToString("\n") { it.label + "  =  " + it.keyName }).setPositiveButton("OK", null).show()
+                4 -> { prefs.edit().remove("padPos").apply(); pad?.rebuild(); Toast.makeText(this, "Layout reset", Toast.LENGTH_SHORT).show() }
+            }
+        }.show()
+    }
+
+    /** Fullscreen mode: top bar hidden, on-screen controller shown. */
+    private fun startPad(edit: Boolean = false) {
+        if (pad != null) { pad?.setEdit(edit); return }
+        topBar.visibility = View.GONE; urlBox.clearFocus()
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        val p = PadOverlay(this, prefs, { code, down -> sendKey(code, down) }, { stopPad() })
+        pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit)
+    }
+    private fun stopPad() {
+        pad?.let { frame.removeView(it) }; pad = null
+        topBar.visibility = View.VISIBLE
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+    }
+    private fun sendKey(code: Int, down: Boolean) {
+        val t = android.os.SystemClock.uptimeMillis()
+        gv.dispatchKeyEvent(KeyEvent(t, t, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code, 0))
     }
 
     private fun go(q: String) {
@@ -295,9 +337,117 @@ class BrowserActivity : Activity() {
     }
 
     override fun onKeyDown(k: Int, e: KeyEvent): Boolean {
-        if (k == KeyEvent.KEYCODE_BACK) { val t = cur; if (t != null && t.back) { t.session.goBack(); return true } else if (tabs.size > 1 && t != null) { closeTab(t); return true } }
+        if (k == KeyEvent.KEYCODE_BACK) { if (pad != null) { stopPad(); return true } val t = cur; if (t != null && t.back) { t.session.goBack(); return true } else if (tabs.size > 1 && t != null) { closeTab(t); return true } }
         return super.onKeyDown(k, e)
     }
 
     override fun onDestroy() { tabs.forEach { try { it.session.close() } catch (_: Throwable) {} }; super.onDestroy() }
+}
+
+
+/** One on-screen button of the controller. */
+class PadDef(val id: String, val label: String, val key: Int, val keyName: String, val x: Float, val y: Float)
+
+/** The overlay controller: buttons sit on top of the page and send key presses. */
+class PadOverlay(private val act: Activity, private val prefs: android.content.SharedPreferences, private val onKey: (Int, Boolean) -> Unit, private val onClose: () -> Unit) : FrameLayout(act) {
+    companion object {
+        val DEFS = listOf(
+            PadDef("up", "\u25B2", KeyEvent.KEYCODE_W, "W", 0.13f, 0.52f),
+            PadDef("left", "\u25C0", KeyEvent.KEYCODE_A, "A", 0.06f, 0.68f),
+            PadDef("right", "\u25B6", KeyEvent.KEYCODE_D, "D", 0.20f, 0.68f),
+            PadDef("down", "\u25BC", KeyEvent.KEYCODE_S, "S", 0.13f, 0.84f),
+            PadDef("Y", "Y", KeyEvent.KEYCODE_Q, "Q", 0.87f, 0.52f),
+            PadDef("X", "X", KeyEvent.KEYCODE_E, "E", 0.80f, 0.68f),
+            PadDef("B", "B", KeyEvent.KEYCODE_SHIFT_LEFT, "Shift", 0.94f, 0.68f),
+            PadDef("A", "A", KeyEvent.KEYCODE_SPACE, "Space", 0.87f, 0.84f),
+            PadDef("LT", "LT", KeyEvent.KEYCODE_CTRL_LEFT, "Ctrl", 0.07f, 0.22f),
+            PadDef("LB", "LB", KeyEvent.KEYCODE_Z, "Z", 0.07f, 0.36f),
+            PadDef("RT", "RT", KeyEvent.KEYCODE_F, "F", 0.93f, 0.22f),
+            PadDef("RB", "RB", KeyEvent.KEYCODE_C, "C", 0.93f, 0.36f),
+            PadDef("SEL", "Select", KeyEvent.KEYCODE_TAB, "Tab", 0.40f, 0.92f),
+            PadDef("STA", "Start", KeyEvent.KEYCODE_ESCAPE, "Esc", 0.60f, 0.92f)
+        )
+    }
+    private var edit = false
+    private val dp = act.resources.displayMetrics.density
+    private val views = ArrayList<Pair<PadDef, TextView>>()
+    private var closeBtn: TextView? = null
+    private var doneBtn: TextView? = null
+
+    init { rebuild() }
+
+    private fun pos(): org.json.JSONObject = try { org.json.JSONObject(prefs.getString("padPos", "{}")) } catch (e: Throwable) { org.json.JSONObject() }
+
+    fun setEdit(on: Boolean) { edit = on; rebuild() }
+
+    fun rebuild() {
+        removeAllViews(); views.clear()
+        val size = (56 * dp * prefs.getFloat("padSize", 1f)).toInt()
+        val alpha = prefs.getFloat("padAlpha", 0.55f)
+        val saved = pos()
+        for (d in DEFS) {
+            val tv = TextView(act); tv.text = d.label; tv.gravity = Gravity.CENTER; tv.setTextColor(Color.WHITE); tv.textSize = if (d.label.length > 2) 11f else 17f
+            tv.setTypeface(null, Typeface.BOLD)
+            val bg = android.graphics.drawable.GradientDrawable(); bg.shape = android.graphics.drawable.GradientDrawable.OVAL; bg.setColor(Color.parseColor("#33322F")); bg.setStroke((2 * dp).toInt(), Color.parseColor("#D97757"))
+            tv.background = bg; tv.alpha = alpha
+            val w = if (d.id == "SEL" || d.id == "STA") (size * 1.5f).toInt() else size
+            val h = if (d.id == "SEL" || d.id == "STA") (size * 0.6f).toInt() else size
+            if (w != h) bg.shape = android.graphics.drawable.GradientDrawable.RECTANGLE.also { bg.cornerRadius = h / 2f }
+            addView(tv, LayoutParams(w, h))
+            views.add(d to tv)
+            val fx = if (saved.has(d.id)) saved.getJSONArray(d.id).getDouble(0).toFloat() else d.x
+            val fy = if (saved.has(d.id)) saved.getJSONArray(d.id).getDouble(1).toFloat() else d.y
+            tv.tag = floatArrayOf(fx, fy)
+            tv.setOnTouchListener { v, e -> touch(d, v as TextView, e) }
+        }
+        val c = TextView(act); c.text = "\u2715  Close controller"; c.setTextColor(Color.WHITE); c.textSize = 13f; c.gravity = Gravity.CENTER
+        c.setPadding((14 * dp).toInt(), (8 * dp).toInt(), (14 * dp).toInt(), (8 * dp).toInt()); c.setBackgroundColor(Color.parseColor("#CC1F1E1D")); c.setOnClickListener { onClose() }
+        addView(c, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.topMargin = (24 * dp).toInt() })
+        closeBtn = c
+        if (edit) {
+            c.visibility = GONE
+            val dn = TextView(act); dn.text = "Done - drag buttons to move them"; dn.setTextColor(Color.WHITE); dn.textSize = 13f; dn.gravity = Gravity.CENTER
+            dn.setPadding((14 * dp).toInt(), (8 * dp).toInt(), (14 * dp).toInt(), (8 * dp).toInt()); dn.setBackgroundColor(Color.parseColor("#D97757")); dn.setOnClickListener { edit = false; rebuild() }
+            addView(dn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.topMargin = (24 * dp).toInt() })
+            doneBtn = dn
+            setBackgroundColor(Color.parseColor("#44000000"))
+        } else setBackgroundColor(Color.TRANSPARENT)
+        requestLayout()
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        super.onLayout(changed, l, t, r, b)
+        val W = r - l; val H = b - t
+        for ((_, tv) in views) {
+            val f = tv.tag as FloatArray
+            val x = (f[0] * W - tv.measuredWidth / 2f).toInt(); val y = (f[1] * H - tv.measuredHeight / 2f).toInt()
+            tv.layout(x, y, x + tv.measuredWidth, y + tv.measuredHeight)
+        }
+    }
+
+    // buttons only grab touches they sit on; the rest of the screen still reaches the page
+    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean = false
+
+    private fun touch(d: PadDef, v: TextView, e: android.view.MotionEvent): Boolean {
+        if (edit) {
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val W = width.toFloat(); val H = height.toFloat()
+                    val cx = (v.left + e.x).coerceIn(0f, W); val cy = (v.top + e.y).coerceIn(0f, H)
+                    v.tag = floatArrayOf(cx / W, cy / H); requestLayout()
+                }
+                android.view.MotionEvent.ACTION_UP -> {
+                    val o = pos(); val f = v.tag as FloatArray
+                    o.put(d.id, org.json.JSONArray().put(f[0].toDouble()).put(f[1].toDouble()))
+                    prefs.edit().putString("padPos", o.toString()).apply()
+                }
+            }
+            return true
+        }
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { v.alpha = 1f; v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); onKey(d.key, true) }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> { v.alpha = prefs.getFloat("padAlpha", 0.55f); onKey(d.key, false) }
+        }
+        return true
+    }
 }
