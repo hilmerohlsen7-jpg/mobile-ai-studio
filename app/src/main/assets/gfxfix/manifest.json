@@ -1,8 +1,10 @@
 {
   "manifest_version": 2,
   "name": "Graphics limit workaround",
-  "version": "1.0",
-  "description": "Reports 264 shader uniform vectors to pages that check for it.",
+  "version": "1.1",
+  "description": "Reports 264 shader uniform vectors to pages and workers that check for it.",
   "browser_specific_settings": { "gecko": { "id": "gfxfix@mobileaistudio" } },
+  "permissions": ["webRequest", "webRequestBlocking", "<all_urls>"],
+  "background": { "scripts": ["bg.js"] },
   "content_scripts": [ { "matches": ["<all_urls>"], "js": ["gfx.js"], "run_at": "document_start", "all_frames": true, "match_about_blank": true } ]
 }
