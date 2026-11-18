@@ -206,7 +206,7 @@ class BrowserActivity : Activity() {
     }
 
     private fun showMenu() {
-        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off"), "Close browser")
+        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off"), "Graphics test", "Close browser")
         AlertDialog.Builder(this).setItems(items) { _, i ->
             when (i) {
                 0 -> cur?.session?.goForward()
@@ -217,9 +217,23 @@ class BrowserActivity : Activity() {
                 5 -> showAddons()
                 6 -> showPadMenu()
                 7 -> toggleDesktop()
-                8 -> finish()
+                8 -> gfxTest()
+                9 -> finish()
             }
         }.show()
+    }
+
+    private val GFX_HTML = """<html><body style='font:14px sans-serif;padding:12px'><b id=h>Graphics test</b><pre id=o></pre><script>
+var o='';function t(v){var c=document.createElement('canvas'),g=c.getContext(v);if(!g){o+=v+': NOT AVAILABLE\n';return}
+o+=v+':\n MAX_VERTEX_UNIFORM_VECTORS='+g.getParameter(g.MAX_VERTEX_UNIFORM_VECTORS)+'\n MAX_FRAGMENT_UNIFORM_VECTORS='+g.getParameter(g.MAX_FRAGMENT_UNIFORM_VECTORS)+'\n MAX_TEXTURE_SIZE='+g.getParameter(g.MAX_TEXTURE_SIZE)+'\n';
+var e=g.getExtension('WEBGL_debug_renderer_info');if(e)o+=' GPU='+g.getParameter(e.UNMASKED_RENDERER_WEBGL)+'\n';}
+t('webgl');t('webgl2');document.getElementById('o').textContent=o;</script></body></html>"""
+
+    private fun gfxTest() {
+        val wv = android.webkit.WebView(this); wv.settings.javaScriptEnabled = true
+        wv.loadDataWithBaseURL("https://example.com/", GFX_HTML, "text/html", "utf-8", null)
+        AlertDialog.Builder(this).setTitle("Graphics test: Chrome engine").setView(wv).setNegativeButton("Close", null)
+            .setPositiveButton("Test Firefox engine") { _, _ -> cur?.session?.loadUri("data:text/html;charset=utf-8," + Uri.encode(GFX_HTML)) }.show()
     }
 
     private fun applyDesktop(t: Tab) {
