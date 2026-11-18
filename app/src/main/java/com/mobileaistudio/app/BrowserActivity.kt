@@ -4,7 +4,14 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
 import android.os.Bundle
+import android.webkit.URLUtil
+import org.json.JSONArray
+import org.json.JSONObject
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
@@ -91,7 +98,8 @@ class BrowserActivity : Activity() {
         bar.addView(btn("⌂") { go("https://duckduckgo.com") }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         tabBtn = btn("1") { showTabs() }
         bar.addView(tabBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(btn("⚙ Add-ons") { showAddons() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f))
+        bar.addView(btn("\u2605") { showSaved() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(btn("\u2699") { showAddons() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         root.addView(bar)
         setContentView(root)
         val first = intent?.dataString
@@ -123,7 +131,8 @@ class BrowserActivity : Activity() {
             override fun onProgressChange(session: GeckoSession, p: Int) { if (t === cur) runOnUiThread { prog.progress = p; prog.visibility = if (p in 1..99) View.VISIBLE else View.GONE } }
         }
         s.contentDelegate = object : GeckoSession.ContentDelegate {
-            override fun onTitleChange(session: GeckoSession, title: String?) { t.title = title ?: "" }
+            override fun onTitleChange(session: GeckoSession, title: String?) { t.title = title ?: ""; if (t.url.startsWith("http")) addHistory(t.url, t.title) }
+            override fun onExternalResponse(session: GeckoSession, resp: WebResponse) { download(resp.uri) }
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
         }
         s.open(rt)
@@ -143,6 +152,61 @@ class BrowserActivity : Activity() {
         if (tabs.isEmpty()) { finish(); return }
         if (t === cur) { gv.releaseSession(); select(tabs[minOf(i, tabs.size - 1)]) }
         t.session.close(); updCount()
+    }
+
+    private fun download(u: String) {
+        try {
+            val name = URLUtil.guessFileName(u, null, null)
+            val req = DownloadManager.Request(Uri.parse(u)).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+            runOnUiThread { Toast.makeText(this, "Downloading $name (saved in your Download folder)", Toast.LENGTH_LONG).show() }
+        } catch (e: Throwable) { runOnUiThread { Toast.makeText(this, "Could not download: " + e.message, Toast.LENGTH_LONG).show() } }
+    }
+
+    private val prefs by lazy { getSharedPreferences("browser", Context.MODE_PRIVATE) }
+    private fun load(k: String): JSONArray = try { JSONArray(prefs.getString(k, "[]")) } catch (e: Throwable) { JSONArray() }
+    private fun addHistory(url: String, title: String) {
+        val a = load("hist"); val out = JSONArray()
+        out.put(JSONObject().put("u", url).put("t", title).put("d", System.currentTimeMillis()))
+        for (i in 0 until a.length()) { if (out.length() >= 300) break; val o = a.getJSONObject(i); if (o.getString("u") != url) out.put(o) }
+        prefs.edit().putString("hist", out.toString()).apply()
+    }
+    private fun isMarked(url: String): Boolean { val a = load("bm"); for (i in 0 until a.length()) if (a.getJSONObject(i).getString("u") == url) return true; return false }
+    private fun toggleMark(t: Tab) {
+        val a = load("bm"); val out = JSONArray(); var had = false
+        for (i in 0 until a.length()) { val o = a.getJSONObject(i); if (o.getString("u") == t.url) had = true else out.put(o) }
+        if (!had) out.put(JSONObject().put("u", t.url).put("t", t.title.ifBlank { t.url }))
+        prefs.edit().putString("bm", out.toString()).apply()
+        Toast.makeText(this, if (had) "Bookmark removed" else "Bookmarked", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showSaved() {
+        val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(16), dp(8), dp(16), dp(8))
+        val dlg = AlertDialog.Builder(this).setTitle("Saved").setView(ScrollView(this).apply { addView(box) }).setNegativeButton("Close", null).create()
+        val c = cur
+        if (c != null && c.url.startsWith("http")) box.addView(btn(if (isMarked(c.url)) "Remove bookmark for this page" else "Bookmark this page") { toggleMark(c); dlg.dismiss() })
+        fun list(head: String, key: String, empty: String, canRemove: Boolean) {
+            box.addView(TextView(this).apply { text = head; setTypeface(null, Typeface.BOLD); setPadding(0, dp(12), 0, dp(4)) })
+            val a = load(key)
+            if (a.length() == 0) box.addView(TextView(this).apply { text = empty })
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i); val u = o.getString("u")
+                val row = LinearLayout(this); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL
+                val tv = TextView(this); tv.text = o.optString("t").ifBlank { u } + "\n" + u; tv.maxLines = 2; tv.textSize = 13f; tv.setPadding(0, dp(8), 0, dp(8))
+                tv.setOnClickListener { dlg.dismiss(); go(u) }
+                row.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                if (canRemove) row.addView(btn("\u2715") {
+                    val n = JSONArray(); for (j in 0 until a.length()) if (j != i) n.put(a.getJSONObject(j))
+                    prefs.edit().putString(key, n.toString()).apply(); dlg.dismiss(); showSaved()
+                })
+                box.addView(row)
+            }
+        }
+        list("Bookmarks", "bm", "No bookmarks yet.", true)
+        list("History", "hist", "Nothing yet.", false)
+        if (load("hist").length() > 0) box.addView(btn("Clear history") { prefs.edit().remove("hist").apply(); dlg.dismiss() })
+        dlg.show()
     }
 
     private fun go(q: String) {
