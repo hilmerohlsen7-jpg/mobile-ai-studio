@@ -3,6 +3,7 @@
 Newest first. Every entry is one build pushed to `main`.
 
 ## 2026-11-18
+- Browser: Graphics test, and a "Graphics limit workaround" switch for games that refuse to start on phones whose graphics report 256 uniform vectors
 - Browser: Desktop site switch in the burger menu
 - Browser: burger menu at the top right, bottom bar removed. Controller button starts Fullscreen Mode with an on-screen controller; its layout, size and transparency are changed from the burger menu
 - Browser: downloads (saved to your Download folder), bookmarks and history (star button at the bottom)

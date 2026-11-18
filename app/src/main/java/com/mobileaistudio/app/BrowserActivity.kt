@@ -61,6 +61,7 @@ class BrowserActivity : Activity() {
         super.onCreate(b)
         dp = resources.displayMetrics.density
         rt = Gk.get(this)
+        if (prefs.getBoolean("gfxfix", false)) rt.webExtensionController.ensureBuiltIn(GFX_URI, GFX_ID)
         rt.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
             override fun onInstallPromptRequest(ext: WebExtension, perms: Array<String>, origins: Array<String>, data: Array<String>): GeckoResult<WebExtension.PermissionPromptResponse>? {
                 val res = GeckoResult<WebExtension.PermissionPromptResponse>()
@@ -206,7 +207,7 @@ class BrowserActivity : Activity() {
     }
 
     private fun showMenu() {
-        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off"), "Graphics test", "Close browser")
+        val items = arrayOf("Forward", "Reload", "Home", "Tabs (" + tabs.size + ")", "Bookmarks and history", "Add-ons", "Controller layout", "Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off"), "Graphics test", "Graphics limit workaround: " + (if (prefs.getBoolean("gfxfix", false)) "ON" else "off"), "Close browser")
         AlertDialog.Builder(this).setItems(items) { _, i ->
             when (i) {
                 0 -> cur?.session?.goForward()
@@ -218,7 +219,8 @@ class BrowserActivity : Activity() {
                 6 -> showPadMenu()
                 7 -> toggleDesktop()
                 8 -> gfxTest()
-                9 -> finish()
+                9 -> toggleGfx()
+                10 -> finish()
             }
         }.show()
     }
@@ -228,6 +230,20 @@ var o='';function t(v){var c=document.createElement('canvas'),g=c.getContext(v);
 o+=v+':\n MAX_VERTEX_UNIFORM_VECTORS='+g.getParameter(g.MAX_VERTEX_UNIFORM_VECTORS)+'\n MAX_FRAGMENT_UNIFORM_VECTORS='+g.getParameter(g.MAX_FRAGMENT_UNIFORM_VECTORS)+'\n MAX_TEXTURE_SIZE='+g.getParameter(g.MAX_TEXTURE_SIZE)+'\n';
 var e=g.getExtension('WEBGL_debug_renderer_info');if(e)o+=' GPU='+g.getParameter(e.UNMASKED_RENDERER_WEBGL)+'\n';}
 t('webgl');t('webgl2');document.getElementById('o').textContent=o;</script></body></html>"""
+
+    private val GFX_URI = "resource://android/assets/gfxfix/"
+    private val GFX_ID = "gfxfix@mobileaistudio"
+    private fun toggleGfx() {
+        val on = !prefs.getBoolean("gfxfix", false)
+        prefs.edit().putBoolean("gfxfix", on).apply()
+        val c = rt.webExtensionController
+        if (on) {
+            c.installBuiltIn(GFX_URI).accept({ _ -> runOnUiThread { Toast.makeText(this, "Workaround on. Reloading the page.", Toast.LENGTH_SHORT).show(); cur?.session?.reload() } },
+                { e -> runOnUiThread { Toast.makeText(this, "Could not turn it on: " + (e?.message ?: "error"), Toast.LENGTH_LONG).show() } })
+        } else {
+            c.list().accept({ l -> (l ?: emptyList()).filter { it.id == GFX_ID }.forEach { c.uninstall(it) }; runOnUiThread { Toast.makeText(this, "Workaround off", Toast.LENGTH_SHORT).show(); cur?.session?.reload() } }, { _ -> })
+        }
+    }
 
     private fun gfxTest() {
         val wv = android.webkit.WebView(this); wv.settings.javaScriptEnabled = true
