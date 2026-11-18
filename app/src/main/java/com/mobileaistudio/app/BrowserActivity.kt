@@ -249,7 +249,7 @@ t('webgl');t('webgl2');document.getElementById('o').textContent=o;</script></bod
         val wv = android.webkit.WebView(this); wv.settings.javaScriptEnabled = true
         wv.loadDataWithBaseURL("https://example.com/", GFX_HTML, "text/html", "utf-8", null)
         AlertDialog.Builder(this).setTitle("Graphics test: Chrome engine").setView(wv).setNegativeButton("Close", null)
-            .setPositiveButton("Test Firefox engine") { _, _ -> cur?.session?.loadUri("data:text/html;charset=utf-8," + Uri.encode(GFX_HTML)) }.show()
+            .setPositiveButton("Test Firefox engine") { _, _ -> cur?.session?.loadUri("https://example.com/#gfxtest"); Toast.makeText(this, "A box at the top shows what pages are told. No box means the workaround add-on is not running.", Toast.LENGTH_LONG).show() }.show()
     }
 
     private fun applyDesktop(t: Tab) {
