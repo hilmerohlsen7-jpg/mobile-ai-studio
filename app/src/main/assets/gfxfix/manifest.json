@@ -4,5 +4,5 @@
   "version": "1.0",
   "description": "Reports 264 shader uniform vectors to pages that check for it.",
   "browser_specific_settings": { "gecko": { "id": "gfxfix@mobileaistudio" } },
-  "content_scripts": [ { "matches": ["<all_urls>"], "js": ["gfx.js"], "run_at": "document_start", "all_frames": true } ]
+  "content_scripts": [ { "matches": ["<all_urls>"], "js": ["gfx.js"], "run_at": "document_start", "all_frames": true, "match_about_blank": true } ]
 }

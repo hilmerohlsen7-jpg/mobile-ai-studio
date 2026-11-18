@@ -1,26 +1,41 @@
 (function () {
+  var W = window.wrappedJSObject, asked = 0, badge = null;
+  function show() {
+    try {
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:2147483647;background:#D97757;color:#fff;font:11px sans-serif;padding:3px 7px;border-radius:8px;pointer-events:none';
+        (document.documentElement || document.body).appendChild(badge);
+        setTimeout(function () { if (badge) badge.remove(); badge = null; }, 12000);
+      }
+      badge.textContent = 'gfx fix: page asked ' + asked + 'x (' + (window === window.top ? 'main page' : 'frame') + ')';
+    } catch (e) {}
+  }
   function patch(C) {
     if (!C) return;
     var proto = C.prototype, orig = proto.getParameter;
     proto.getParameter = exportFunction(function (p) {
       var v = orig.call(this, p);
-      if ((p === 0x8DFB || p === 0x8DFD) && typeof v === 'number' && v < 264) return 264;
+      if ((p === 0x8DFB || p === 0x8DFD) && typeof v === 'number') { asked++; show(); if (v < 264) return 264; }
       return v;
     }, window);
   }
-  patch(window.wrappedJSObject.WebGLRenderingContext);
-  patch(window.wrappedJSObject.WebGL2RenderingContext);
-})();
+  patch(W.WebGLRenderingContext);
+  patch(W.WebGL2RenderingContext);
 
-// self-test: open any page with #gfxtest on the end to see what that page is told
-if (location.hash === '#gfxtest') {
-  document.addEventListener('DOMContentLoaded', function () {
-    var d = window.wrappedJSObject.document, out = 'Workaround add-on is RUNNING\n';
-    ['webgl', 'webgl2'].forEach(function (v) {
-      var g = d.createElement('canvas').getContext(v);
-      out += v + ': ' + (g ? 'MAX_VERTEX=' + g.getParameter(g.MAX_VERTEX_UNIFORM_VECTORS) + ' MAX_FRAGMENT=' + g.getParameter(g.MAX_FRAGMENT_UNIFORM_VECTORS) : 'not available') + '\n';
-    });
-    var p = document.createElement('pre'); p.textContent = out; p.style.cssText = 'font-size:18px;padding:16px;background:#fff;color:#000;position:fixed;top:0;left:0;right:0;z-index:99999999';
-    document.body.appendChild(p);
-  });
-}
+  // background workers: start them with the same fix applied first
+  try {
+    var prelude = "(function(){['WebGLRenderingContext','WebGL2RenderingContext'].forEach(function(n){var C=self[n];if(!C)return;var o=C.prototype.getParameter;C.prototype.getParameter=function(p){var v=o.call(this,p);if((p===0x8DFB||p===0x8DFD)&&typeof v==='number'&&v<264)return 264;return v;};});})();\n";
+    var OrigWorker = W.Worker;
+    W.Worker = exportFunction(function (url, opts) {
+      try {
+        var abs = new URL(String(url), location.href).href;
+        var mod = opts && opts.type === 'module';
+        var src = prelude + (mod ? "import " + JSON.stringify(abs) + ";" : "importScripts(" + JSON.stringify(abs) + ");");
+        var blobUrl = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+        return new OrigWorker(blobUrl, opts);
+      } catch (e) { return new OrigWorker(url, opts); }
+    }, window);
+    W.Worker.prototype = OrigWorker.prototype;
+  } catch (e) {}
+})();
