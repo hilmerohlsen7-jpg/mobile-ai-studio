@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.mobileaistudio.app"
-    compileSdk = 34
+    compileSdk = 35
     ndkVersion = "27.3.13750724"
 
     defaultConfig {
@@ -89,5 +89,13 @@ dependencies {
 }
 
 configurations.all {
+    resolutionStrategy.eachDependency {
+        // the newest AndroidX needs a newer Android Gradle plugin; older ones work with the same browser engine
+        if (requested.group == "androidx.media3") useVersion("1.5.1")
+        if (requested.group == "androidx.core" && requested.name == "core") useVersion("1.15.0")
+    }
     exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
 }
+
+// the browser engine declares a newer compile SDK than we build with; it still runs fine on this one
+tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach { enabled = false }

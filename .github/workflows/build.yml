@@ -28,7 +28,7 @@ jobs:
         run: |
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" --install "platforms;android-34" "build-tools;34.0.0" "ndk;27.3.13750724" "cmake;3.22.1"
+          "$SDKM" --install "platforms;android-34" "platforms;android-35" "build-tools;34.0.0" "ndk;27.3.13750724" "cmake;3.22.1"
 
       - name: Get the AI engine (llama.cpp)
         shell: bash
