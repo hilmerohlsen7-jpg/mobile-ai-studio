@@ -1707,8 +1707,8 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                         }
                         body.put("messages", arr)
                     }
-                    "grok", "openai" -> {
-                        url = if (provider == "openai") "https://api.openai.com/v1/chat/completions" else "https://api.x.ai/v1/chat/completions"
+                    "grok", "openai", "groq", "mistral", "openrouter" -> {
+                        url = when (provider) { "openai" -> "https://api.openai.com/v1/chat/completions"; "groq" -> "https://api.groq.com/openai/v1/chat/completions"; "mistral" -> "https://api.mistral.ai/v1/chat/completions"; "openrouter" -> "https://openrouter.ai/api/v1/chat/completions"; else -> "https://api.x.ai/v1/chat/completions" }
                         headers["Authorization"] = "Bearer $key"
                         if (provider == "openai") body.put("model", model).put("max_completion_tokens", maxTok)
                         else body.put("model", model).put("max_tokens", maxTok).put("temperature", temp)
@@ -1751,7 +1751,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                         msg = if (e is JSONObject) e.optString("message") else (e?.toString() ?: j.optString("message"))
                     } catch (e: Exception) {
                     }
-                    val who = when (provider) { "gemini" -> "Google"; "claude" -> "Anthropic"; "openai" -> "OpenAI"; else -> "xAI" }
+                    val who = when (provider) { "gemini" -> "Google"; "claude" -> "Anthropic"; "openai" -> "OpenAI"; "groq" -> "Groq"; "mistral" -> "Mistral"; "openrouter" -> "OpenRouter"; else -> "xAI" }
                     chatError(when (code) {
                         400 -> "$who did not accept the request: " + msg.take(200)
                         401, 403 -> "$who refused the key. Check it in Settings, Online AI. " + msg.take(120)

@@ -362,7 +362,7 @@ header #model{display:none}
 <button class="srow" data-go="profile"><span class="si">&#128100;</span><span class="st"><b>Profile</b><small>Your name, wake word, city</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="cap"><span class="si">&#9889;</span><span class="st"><b>Capabilities</b><small>What the AI is allowed to do</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="skills"><span class="si">&#10024;</span><span class="st"><b>Skills</b><small>Add, remove and create skills</small></span><span class="sc">&#8250;</span></button>
-<button class="srow" data-go="conn"><span class="si">&#128268;</span><span class="st"><b>Connectors</b><small>Gemini, Claude, ChatGPT, Grok keys</small></span><span class="sc">&#8250;</span></button>
+<button class="srow" data-go="conn"><span class="si">&#128268;</span><span class="st"><b>Connectors</b><small>Gemini, Claude, ChatGPT, Grok, Groq, OpenRouter, Mistral keys</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="theme"><span class="si">&#127912;</span><span class="st"><b>Theme</b><small>Color mode, accent color, app icon, font</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" id="openPerms"><span class="si">&#128274;</span><span class="st"><b>Permissions</b><small>Mic, files, notifications</small></span><span class="sc">&#8250;</span></button>
 <button class="srow" data-go="voice"><span class="si">&#127908;</span><span class="st"><b>Voice and dictation</b><small>Speech, wake word, voice match</small></span><span class="sc">&#8250;</span></button>
@@ -409,10 +409,16 @@ header #model{display:none}
   <label>Claude key (console.anthropic.com, paid)<input type="password" id="k_claude" autocomplete="off" autocapitalize="none"></label>
   <label>Grok key (console.x.ai, paid)<input type="password" id="k_grok" autocomplete="off" autocapitalize="none"></label>
   <label>ChatGPT key (platform.openai.com, paid)<input type="password" id="k_openai" autocomplete="off" autocapitalize="none"></label>
+  <label>Groq key (free at console.groq.com)<input type="password" id="k_groq" autocomplete="off" autocapitalize="none"></label>
+  <label>OpenRouter key (free models at openrouter.ai)<input type="password" id="k_openrouter" autocomplete="off" autocapitalize="none"></label>
+  <label>Mistral key (free tier at console.mistral.ai)<input type="password" id="k_mistral" autocomplete="off" autocapitalize="none"></label>
   <label>Gemini model name<input type="text" id="m_gemini" autocomplete="off" autocapitalize="none"></label>
   <label>Claude model name<input type="text" id="m_claude" autocomplete="off" autocapitalize="none"></label>
   <label>Grok model name<input type="text" id="m_grok" autocomplete="off" autocapitalize="none"></label>
   <label>ChatGPT model name<input type="text" id="m_openai" autocomplete="off" autocapitalize="none"></label>
+  <label>Groq model name<input type="text" id="m_groq" autocomplete="off" autocapitalize="none"></label>
+  <label>OpenRouter model name<input type="text" id="m_openrouter" autocomplete="off" autocapitalize="none"></label>
+  <label>Mistral model name<input type="text" id="m_mistral" autocomplete="off" autocapitalize="none"></label>
 </div>
 <div class="pg" id="pg_voice" data-title="Voice and dictation" hidden>
 <div class="sct" style="margin:10px 4px 8px">Voice mode</div>
@@ -1014,7 +1020,7 @@ function openDrawer() { renderDrawer(); $('drawer').classList.add('open'); $('sc
 function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); }
 
 /* ---------- models ---------- */
-const CLOUD = {gemini: {name: 'Gemini', co: 'Google', model: 'gemini-2.5-flash'}, claude: {name: 'Claude', co: 'Anthropic', model: 'claude-sonnet-5-5'}, grok: {name: 'Grok', co: 'xAI', model: 'grok-4'}, openai: {name: 'ChatGPT', co: 'OpenAI', model: 'gpt-5-mini'}};
+const CLOUD = {gemini: {name: 'Gemini', co: 'Google', model: 'gemini-2.5-flash'}, claude: {name: 'Claude', co: 'Anthropic', model: 'claude-sonnet-5-5'}, grok: {name: 'Grok', co: 'xAI', model: 'grok-4'}, openai: {name: 'ChatGPT', co: 'OpenAI', model: 'gpt-5-mini'}, groq: {name: 'Groq', co: 'Groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct'}, openrouter: {name: 'OpenRouter', co: 'OpenRouter and the model provider', model: 'google/gemma-3-27b-it:free'}, mistral: {name: 'Mistral', co: 'Mistral AI', model: 'mistral-small-latest'}};
 const cloudKey = p => String(((S.settings.keys || {})[p]) || '').trim();
 const cloudList = () => Object.keys(CLOUD).filter(p => cloudKey(p)).map(p => ({id: 'cloud:' + p, name: CLOUD[p].name + ' (online)', vision: true, cloud: p, state: 'ready'}));
 const isCloudSel = () => String(S.settings.model || '').startsWith('cloud:');
@@ -3484,7 +3490,7 @@ function openAddSheet(view) {
       tile('\u{1F4C4}', 'Files', () => $('docBtn').onclick())));
     box.append(row('\u{1F4C1}', 'Add to project', cur ? cur.name : 'None', () => openAddSheet('projects')));
     box.append(row('\u2728', 'Skills', cur ? cur.skills.length + ' on' : '', () => openAddSheet('skills')));
-    box.append(row('\u{1F50C}', 'Connectors', 'Gemini, Claude, ChatGPT, Grok', () => { done(); $('setBtn').onclick(); setGo('conn'); }));
+    box.append(row('\u{1F50C}', 'Connectors', 'Gemini, Claude, ChatGPT, Grok, Groq, OpenRouter, Mistral', () => { done(); $('setBtn').onclick(); setGo('conn'); }));
   }
   o.append(box); o.classList.add('open');
 }
