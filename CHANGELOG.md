@@ -5,6 +5,7 @@ Newest first. Every entry is one build pushed to `main`.
 ## 2026-11-19
 - Make this site an app: you choose "Included" or "Excluded (full screen)" for the top bar in the dialog; an excluded bar is gone completely, with no button left on screen
 - Browser and web apps: a button (and menu entry) hides the top bar; a small arrow at the top right brings it back, and it is remembered per web app
+- File Manager and Browser are now their own entries in the phone's app list, with full-fill icons like the main app icon (no ring); the "Add to desktop" buttons point you there. Web apps stay as pinned shortcuts
 - Home-screen icons (Browser, File Manager, web apps) now fill the launcher's whole icon shape with no gap or ring, with the glyph at the same size as before
 - Browser: "Make this site an app on the home screen" in the menu. Pick a name, use the site's own icon (found automatically) or choose your own picture, and the home-screen icon opens that website like an app, in its own window with just a back button, the site name and the menu
 - Browser: removed the empty gap above the address bar
