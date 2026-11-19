@@ -481,19 +481,22 @@ class BrowserActivity : Activity() {
         }.also { it.gravity = Gravity.START or Gravity.CENTER_VERTICAL })
         col.addView(btn("Use the site icon") { waCustom = null; refreshWaPreview(note) }.also { it.gravity = Gravity.START or Gravity.CENTER_VERTICAL })
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val hb = Switch(dc); hb.text = "Hide the top bar (full screen)"; hb.setTextColor(th.txt); hb.isChecked = false; hb.setPadding(0, dp(10), 0, dp(6)); waHide = hb
-        box.addView(nm); box.addView(adr); box.addView(row); box.addView(hb)
+        val hl = label(dc, "Top bar (back button, site name, menu)", bold = true, size = 13f); hl.setPadding(0, dp(10), 0, 0)
+        val rg = RadioGroup(dc); rg.orientation = RadioGroup.VERTICAL
+        val rIn = RadioButton(dc); rIn.text = "Included"; rIn.setTextColor(th.txt); rIn.id = 9101
+        val rEx = RadioButton(dc); rEx.text = "Excluded (full screen)"; rEx.setTextColor(th.txt); rEx.id = 9102
+        rg.addView(rIn); rg.addView(rEx); rg.check(9101)
+        box.addView(nm); box.addView(adr); box.addView(row); box.addView(hl); box.addView(rg)
         waNote = note
         refreshWaPreview(note)
         Thread { val b = fetchSiteIcon(adr.text.toString().trim().ifBlank { page }); runOnUiThread { waIcon = b; waNote?.let { refreshWaPreview(it, true) } } }.start()
         bd().setTitle("Make this site an app").setView(box)
             .setPositiveButton("Add to home screen") { _, _ ->
                 val u = adr.text.toString().trim().let { if (it.startsWith("http")) it else "https://$it" }
-                pinWebApp(u, nm.text.toString().trim().ifBlank { "Web app" }, hb.isChecked)
+                pinWebApp(u, nm.text.toString().trim().ifBlank { "Web app" }, rg.checkedRadioButtonId == 9102)
             }.setNegativeButton("Cancel", null).show()
     }
     private var waNote: TextView? = null
-    private var waHide: Switch? = null
     private fun refreshWaPreview(note: TextView, loaded: Boolean = false) {
         val bmp = composeIcon(waIcon, waCustom, waName?.text?.toString() ?: "")
         waPreview?.setImageBitmap(previewOf(bmp))
