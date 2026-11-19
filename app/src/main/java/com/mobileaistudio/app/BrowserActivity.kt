@@ -148,19 +148,21 @@ class BrowserActivity : Activity() {
                 @Suppress("DEPRECATION") setTaskDescription(android.app.ActivityManager.TaskDescription(nm.ifBlank { "Web app" }, bmp))
             } catch (_: Throwable) {}
         }
+        noBar = appMode && intent?.getBooleanExtra("hidebar", false) == true
         barHidden = if (intent?.hasExtra("hidebar") == true) intent.getBooleanExtra("hidebar", false) else prefs.getBoolean(barKey(), false); applyBar()
         newTab(if (first.isNullOrBlank()) "https://duckduckgo.com" else first)
     }
 
     private var appMode = false
     private var barHidden = false
+    private var noBar = false   // chosen when the web app was made: no top bar and no button to bring it back
     private var inTop = 0
     private lateinit var handle: ImageButton
     private fun barKey() = "hb_" + (if (appMode) (intent?.data?.host ?: "app") else "browser")
     private fun setBarHidden(h: Boolean) { barHidden = h; prefs.edit().putBoolean(barKey(), h).apply(); applyBar() }
     private fun applyBar() {
         topBar.visibility = if (!barHidden && pad == null) View.VISIBLE else View.GONE
-        handle.visibility = if (barHidden && pad == null) View.VISIBLE else View.GONE
+        handle.visibility = if (barHidden && pad == null && !noBar) View.VISIBLE else View.GONE
         frame.requestApplyInsets()
     }
     override fun onBackPressed() {
