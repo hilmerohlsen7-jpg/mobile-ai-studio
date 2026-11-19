@@ -113,6 +113,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
     @JavascriptInterface
     fun pinShortcut(kind: String) {
         ui.post {
+            if (kind == "files" || kind == "browser") { js("__onToast", (if (kind == "files") "File Manager" else "Browser") + " is now in your app list. Press and hold it there and drag it to the home screen."); return@post }
             try {
                 val sm = activity.getSystemService(android.content.pm.ShortcutManager::class.java)
                 if (sm == null || !sm.isRequestPinShortcutSupported) { js("__onToast", "Your launcher can not add shortcuts."); return@post }

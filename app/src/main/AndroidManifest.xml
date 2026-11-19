@@ -67,6 +67,15 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".FilesLauncher" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- Own entries in the app list, so their icons fill the whole shape like the main app icon -->
+        <activity-alias android:name=".E_files" android:targetActivity=".FilesLauncher" android:enabled="true" android:exported="true" android:icon="@mipmap/ic_app_files" android:roundIcon="@mipmap/ic_app_files" android:label="File Manager">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".E_browser" android:targetActivity=".BrowserActivity" android:enabled="true" android:exported="true" android:icon="@mipmap/ic_app_browser" android:roundIcon="@mipmap/ic_app_browser" android:label="Browser">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+
         <activity android:name=".BrowserActivity" android:exported="false" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode" android:windowSoftInputMode="adjustResize" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="Browser" />
 
         <provider
