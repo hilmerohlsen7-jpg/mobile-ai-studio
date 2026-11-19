@@ -3,6 +3,8 @@
 Newest first. Every entry is one build pushed to `main`.
 
 ## 2026-11-19
+- Browser: "Make this site an app on the home screen" in the menu. Pick a name, use the site's own icon (found automatically) or choose your own picture, and the home-screen icon opens that website like an app, in its own window with just a back button, the site name and the menu
+- Browser: removed the empty gap above the address bar
 - Groq (free), OpenRouter (free models) and Mistral (free tier) added in Settings, Connectors, next to Gemini, Claude, ChatGPT and Grok
 
 ## 2026-11-18

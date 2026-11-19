@@ -98,7 +98,7 @@ class BrowserActivity : Activity() {
         baseUi()
         val root = LinearLayout(this); root.orientation = LinearLayout.VERTICAL; root.setBackgroundColor(th.bg)
         val top = LinearLayout(this); top.orientation = LinearLayout.HORIZONTAL; top.gravity = Gravity.CENTER_VERTICAL
-        top.setPadding(dp(6), dp(30), dp(6), dp(4))
+        top.setPadding(dp(6), dp(4), dp(6), dp(4))
         top.addView(ibtn(R.drawable.bt_back) { cur?.let { if (it.back) it.session.goBack() else finish() } })
         urlBox = EditText(this)
         urlBox.setSingleLine(); urlBox.hint = "Search or type an address"; urlBox.setTextColor(th.txt); urlBox.setHintTextColor(th.mute); urlBox.textSize = 15f
@@ -118,10 +118,39 @@ class BrowserActivity : Activity() {
         gv = GeckoView(this)
         root.addView(gv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         frame = FrameLayout(this); frame.setBackgroundColor(th.bg)
+        // leave room for the status bar only when the system really draws under it
+        frame.setOnApplyWindowInsetsListener { _, ins ->
+            @Suppress("DEPRECATION") val t = ins.systemWindowInsetTop
+            @Suppress("DEPRECATION") val bt = ins.systemWindowInsetBottom
+            topBar.setPadding(dp(6), t + dp(4), dp(6), dp(4))
+            root.setPadding(0, 0, 0, if (pad == null) bt else 0)
+            ins
+        }
         frame.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(frame)
         val first = intent?.dataString
+        appMode = intent?.getBooleanExtra("app", false) == true
+        if (appMode) {
+            val nm = intent?.getStringExtra("name") ?: ""
+            urlBox.visibility = View.GONE
+            val tv = label(this, nm, bold = true, size = 16f); tv.setSingleLine(); tv.setPadding(dp(8), 0, dp(8), 0)
+            top.addView(tv, 1, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            try {
+                val bmp = intent?.getStringExtra("icon")?.let { java.io.File(it) }?.takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.path) }
+                @Suppress("DEPRECATION") setTaskDescription(android.app.ActivityManager.TaskDescription(nm.ifBlank { "Web app" }, bmp))
+            } catch (_: Throwable) {}
+        }
         newTab(if (first.isNullOrBlank()) "https://duckduckgo.com" else first)
+    }
+
+    private var appMode = false
+    override fun onBackPressed() {
+        val t = cur
+        when {
+            t != null && t.back -> t.session.goBack()
+            tabs.size > 1 && t != null -> closeTab(t)
+            else -> super.onBackPressed()
+        }
     }
 
     private fun dlgStyle() = if (th.dark) android.R.style.Theme_Material_Dialog_Alert else android.R.style.Theme_Material_Light_Dialog_Alert
@@ -329,6 +358,144 @@ class BrowserActivity : Activity() {
         cur?.session?.loadUri(u); urlBox.clearFocus(); gv.requestFocus()
     }
 
+    // ---------- website as an app ----------
+    private var waIcon: android.graphics.Bitmap? = null      // icon found on the site
+    private var waCustom: android.graphics.Bitmap? = null    // picture the user chose
+    private var waPreview: ImageView? = null
+    private var waName: EditText? = null
+
+    private fun httpGet(u: String, max: Int = 2_000_000): ByteArray? = try {
+        val c = java.net.URL(u).openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 8000; c.readTimeout = 8000; c.instanceFollowRedirects = true
+        c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+        if (c.responseCode !in 200..299) null else c.inputStream.use { ins ->
+            val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(8192); var n: Int
+            while (ins.read(buf).also { n = it } > 0) { out.write(buf, 0, n); if (out.size() > max) break }
+            out.toByteArray()
+        }
+    } catch (e: Throwable) { null }
+
+    /** Looks for the site's own icon: touch icon and link tags first, then favicon.ico, then a public icon service. */
+    private fun fetchSiteIcon(page: String): android.graphics.Bitmap? {
+        val base = try { java.net.URL(page) } catch (e: Throwable) { return null }
+        val origin = base.protocol + "://" + base.host
+        val cands = ArrayList<String>()
+        httpGet(page, 300_000)?.let { b ->
+            val html = String(b, Charsets.UTF_8)
+            val found = ArrayList<Pair<Boolean, String>>()
+            Regex("<link[^>]+>", RegexOption.IGNORE_CASE).findAll(html).forEach { m ->
+                val tag = m.value
+                val rel = Regex("rel\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(tag)?.groupValues?.get(1)?.lowercase() ?: return@forEach
+                if (!rel.contains("icon")) return@forEach
+                val href = Regex("href\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(tag)?.groupValues?.get(1) ?: return@forEach
+                try { found.add(rel.contains("apple") to java.net.URL(base, href.replace("&amp;", "&")).toString()) } catch (_: Throwable) {}
+            }
+            found.sortedByDescending { it.first }.forEach { cands.add(it.second) }
+        }
+        cands.add("$origin/apple-touch-icon.png"); cands.add("$origin/favicon.ico")
+        cands.add("https://www.google.com/s2/favicons?sz=256&domain=" + base.host)
+        var best: android.graphics.Bitmap? = null
+        for (u in cands.distinct()) {
+            val b = httpGet(u) ?: continue
+            val bmp = try { android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size) } catch (_: Throwable) { null } ?: continue
+            if (bmp.width >= 96) return bmp
+            if (best == null || bmp.width > best.width) best = bmp
+        }
+        return best
+    }
+
+    /** Draws the 192 px shortcut icon: a picture of your own fills it; a site icon sits on white; with neither, the first letter. */
+    private fun composeIcon(site: android.graphics.Bitmap?, custom: android.graphics.Bitmap?, name: String): android.graphics.Bitmap {
+        val sz = 192
+        val out = android.graphics.Bitmap.createBitmap(sz, sz, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(out)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+        val rect = android.graphics.RectF(0f, 0f, sz.toFloat(), sz.toFloat())
+        val path = android.graphics.Path().also { it.addRoundRect(rect, 48f, 48f, android.graphics.Path.Direction.CW) }
+        c.save(); c.clipPath(path)
+        if (custom != null) {
+            val m = minOf(custom.width, custom.height)
+            c.drawBitmap(custom, android.graphics.Rect((custom.width - m) / 2, (custom.height - m) / 2, (custom.width + m) / 2, (custom.height + m) / 2), rect, p)
+        } else if (site != null) {
+            p.color = Color.WHITE; c.drawRect(rect, p)
+            val pad = 28f; val m = maxOf(site.width, site.height).toFloat(); val k = (sz - 2 * pad) / m
+            val w = site.width * k; val h = site.height * k
+            c.drawBitmap(site, null, android.graphics.RectF((sz - w) / 2, (sz - h) / 2, (sz + w) / 2, (sz + h) / 2), p)
+        } else {
+            p.color = th.acc; c.drawRect(rect, p)
+            p.color = th.onacc; p.textSize = 110f; p.textAlign = android.graphics.Paint.Align.CENTER; p.typeface = Typeface.DEFAULT_BOLD
+            c.drawText((name.trim().firstOrNull() ?: 'W').uppercaseChar().toString(), sz / 2f, sz / 2f + 38f, p)
+        }
+        c.restore()
+        return out
+    }
+
+    private fun showWebApp() {
+        val t = cur ?: return
+        val page = t.url
+        if (!page.startsWith("http")) { Toast.makeText(this, "Open a website first.", Toast.LENGTH_LONG).show(); return }
+        waIcon = null; waCustom = null
+        val box = LinearLayout(dc); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(20), dp(8), dp(20), dp(8))
+        val nm = EditText(dc); nm.setSingleLine(); nm.hint = "App name"; nm.setText(t.title.ifBlank { java.net.URL(page).host }.take(30))
+        nm.setTextColor(th.txt); nm.setHintTextColor(th.mute); waName = nm
+        val adr = EditText(dc); adr.setSingleLine(); adr.setText(page); adr.setTextColor(th.txt); adr.hint = "Website address"; adr.setHintTextColor(th.mute)
+        val row = LinearLayout(dc); row.orientation = LinearLayout.HORIZONTAL; row.gravity = Gravity.CENTER_VERTICAL; row.setPadding(0, dp(12), 0, dp(4))
+        val iv = ImageView(dc); iv.scaleType = ImageView.ScaleType.FIT_CENTER; waPreview = iv
+        row.addView(iv, LinearLayout.LayoutParams(dp(64), dp(64)))
+        val col = LinearLayout(dc); col.orientation = LinearLayout.VERTICAL; col.setPadding(dp(12), 0, 0, 0)
+        val note = label(dc, "Looking for the site icon...", size = 13f); note.setTextColor(th.mute)
+        col.addView(note)
+        col.addView(btn("Choose my own picture") {
+            try { startActivityForResult(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).setType("image/*"), "Pick an icon"), 7301) }
+            catch (e: Throwable) { Toast.makeText(this, "No picture picker found.", Toast.LENGTH_LONG).show() }
+        }.also { it.gravity = Gravity.START or Gravity.CENTER_VERTICAL })
+        col.addView(btn("Use the site icon") { waCustom = null; refreshWaPreview(note) }.also { it.gravity = Gravity.START or Gravity.CENTER_VERTICAL })
+        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        box.addView(nm); box.addView(adr); box.addView(row)
+        waNote = note
+        refreshWaPreview(note)
+        Thread { val b = fetchSiteIcon(adr.text.toString().trim().ifBlank { page }); runOnUiThread { waIcon = b; waNote?.let { refreshWaPreview(it, true) } } }.start()
+        bd().setTitle("Make this site an app").setView(box)
+            .setPositiveButton("Add to home screen") { _, _ ->
+                val u = adr.text.toString().trim().let { if (it.startsWith("http")) it else "https://$it" }
+                pinWebApp(u, nm.text.toString().trim().ifBlank { "Web app" })
+            }.setNegativeButton("Cancel", null).show()
+    }
+    private var waNote: TextView? = null
+    private fun refreshWaPreview(note: TextView, loaded: Boolean = false) {
+        val bmp = composeIcon(waIcon, waCustom, waName?.text?.toString() ?: "")
+        waPreview?.setImageBitmap(bmp)
+        note.text = when { waCustom != null -> "Using your picture"; waIcon != null -> "Using the site icon"; loaded -> "No site icon found, using a letter. You can choose your own picture." ; else -> "Looking for the site icon..." }
+    }
+    override fun onActivityResult(req: Int, res: Int, data: android.content.Intent?) {
+        super.onActivityResult(req, res, data)
+        if (req == 7301 && res == RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                val bmp = contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().also { o -> o.inSampleSize = 2 }) }
+                if (bmp != null) { waCustom = bmp; waNote?.let { refreshWaPreview(it) } } else Toast.makeText(this, "Could not read that picture.", Toast.LENGTH_LONG).show()
+            } catch (e: Throwable) { Toast.makeText(this, "Could not read that picture.", Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    private fun pinWebApp(url: String, name: String) {
+        try {
+            val sm = getSystemService(android.content.pm.ShortcutManager::class.java)
+            if (sm == null || !sm.isRequestPinShortcutSupported) { Toast.makeText(this, "Your launcher can not add shortcuts.", Toast.LENGTH_LONG).show(); return }
+            val id = "web_" + Integer.toHexString(url.hashCode())
+            val icon = composeIcon(waIcon, waCustom, name)
+            val f = java.io.File(filesDir, "webapp_$id.png")
+            f.outputStream().use { icon.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            val intent = android.content.Intent(this, BrowserActivity::class.java).setAction(android.content.Intent.ACTION_VIEW).setData(Uri.parse(url))
+                .putExtra("app", true).putExtra("name", name).putExtra("icon", f.path)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+            val info = android.content.pm.ShortcutInfo.Builder(this, id).setShortLabel(name.take(24)).setLongLabel(name)
+                .setIcon(android.graphics.drawable.Icon.createWithBitmap(icon)).setIntent(intent).build()
+            sm.requestPinShortcut(info, null)
+            Toast.makeText(this, "Confirm adding it on the screen that appears.", Toast.LENGTH_LONG).show()
+        } catch (e: Throwable) { Toast.makeText(this, "Could not add it: " + (e.message ?: ""), Toast.LENGTH_LONG).show() }
+    }
+
     // ---------- menu ----------
     private fun showMenu() {
         val acts = ArrayList<Pair<String, () -> Unit>>()
@@ -336,6 +503,7 @@ class BrowserActivity : Activity() {
         acts.add("Reload" to { cur?.session?.reload() })
         acts.add("Home" to { go("https://duckduckgo.com") })
         acts.add("Duck.ai (DuckDuckGo AI chat)" to { go("https://duck.ai") })
+        acts.add("Make this site an app on the home screen" to { showWebApp() })
         acts.add("Tabs (" + tabs.size + ")" to { showTabs() })
         acts.add("Downloads" to { showDownloads() })
         acts.add("Bookmarks and history" to { showSaved() })
@@ -367,14 +535,14 @@ class BrowserActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         frame.setBackgroundColor(Color.BLACK)
         val p = PadOverlay(this, prefs, th, { code, down -> sendKey(code, down) }, { stopPad() })
-        pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit)
+        pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit); frame.requestApplyInsets()
     }
     private fun stopPad() {
         pad?.let { frame.removeView(it) }; pad = null
         topBar.visibility = View.VISIBLE
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
         baseUi()
-        frame.setBackgroundColor(th.bg)
+        frame.setBackgroundColor(th.bg); frame.requestApplyInsets()
     }
     private fun sendKey(code: Int, down: Boolean) {
         val t = android.os.SystemClock.uptimeMillis()

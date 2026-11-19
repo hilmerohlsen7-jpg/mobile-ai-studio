@@ -21,6 +21,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 - Bookmarks and history
 - Follows the app theme and accent colour
 - Add File Manager and Browser to the home screen from the left panel
+- Turn any website into an app on the home screen, with the site icon or your own picture
 - Fullscreen controller overlay (sends keyboard keys) with movable buttons, size and transparency
 - Add-ons page: install uBlock Origin, Bitwarden, Dark Reader, SponsorBlock or any Firefox add-on link
 
