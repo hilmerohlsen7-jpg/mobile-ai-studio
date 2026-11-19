@@ -3,6 +3,7 @@
 Newest first. Every entry is one build pushed to `main`.
 
 ## 2026-11-19
+- Make this site an app: a switch "Hide the top bar (full screen)" in the dialog; the web app then opens without the top bar (tap the small arrow at the top right to bring it back)
 - Browser and web apps: a button (and menu entry) hides the top bar; a small arrow at the top right brings it back, and it is remembered per web app
 - Home-screen icons (Browser, File Manager, web apps) now fill the whole icon shape instead of sitting inside a gap
 - Browser: "Make this site an app on the home screen" in the menu. Pick a name, use the site's own icon (found automatically) or choose your own picture, and the home-screen icon opens that website like an app, in its own window with just a back button, the site name and the menu

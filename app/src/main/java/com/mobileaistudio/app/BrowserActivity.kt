@@ -148,7 +148,7 @@ class BrowserActivity : Activity() {
                 @Suppress("DEPRECATION") setTaskDescription(android.app.ActivityManager.TaskDescription(nm.ifBlank { "Web app" }, bmp))
             } catch (_: Throwable) {}
         }
-        barHidden = prefs.getBoolean(barKey(), false); applyBar()
+        barHidden = if (intent?.hasExtra("hidebar") == true) intent.getBooleanExtra("hidebar", false) else prefs.getBoolean(barKey(), false); applyBar()
         newTab(if (first.isNullOrBlank()) "https://duckduckgo.com" else first)
     }
 
@@ -481,17 +481,19 @@ class BrowserActivity : Activity() {
         }.also { it.gravity = Gravity.START or Gravity.CENTER_VERTICAL })
         col.addView(btn("Use the site icon") { waCustom = null; refreshWaPreview(note) }.also { it.gravity = Gravity.START or Gravity.CENTER_VERTICAL })
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        box.addView(nm); box.addView(adr); box.addView(row)
+        val hb = Switch(dc); hb.text = "Hide the top bar (full screen)"; hb.setTextColor(th.txt); hb.isChecked = false; hb.setPadding(0, dp(10), 0, dp(6)); waHide = hb
+        box.addView(nm); box.addView(adr); box.addView(row); box.addView(hb)
         waNote = note
         refreshWaPreview(note)
         Thread { val b = fetchSiteIcon(adr.text.toString().trim().ifBlank { page }); runOnUiThread { waIcon = b; waNote?.let { refreshWaPreview(it, true) } } }.start()
         bd().setTitle("Make this site an app").setView(box)
             .setPositiveButton("Add to home screen") { _, _ ->
                 val u = adr.text.toString().trim().let { if (it.startsWith("http")) it else "https://$it" }
-                pinWebApp(u, nm.text.toString().trim().ifBlank { "Web app" })
+                pinWebApp(u, nm.text.toString().trim().ifBlank { "Web app" }, hb.isChecked)
             }.setNegativeButton("Cancel", null).show()
     }
     private var waNote: TextView? = null
+    private var waHide: Switch? = null
     private fun refreshWaPreview(note: TextView, loaded: Boolean = false) {
         val bmp = composeIcon(waIcon, waCustom, waName?.text?.toString() ?: "")
         waPreview?.setImageBitmap(previewOf(bmp))
@@ -508,7 +510,7 @@ class BrowserActivity : Activity() {
         }
     }
 
-    private fun pinWebApp(url: String, name: String) {
+    private fun pinWebApp(url: String, name: String, hideBar: Boolean) {
         try {
             val sm = getSystemService(android.content.pm.ShortcutManager::class.java)
             if (sm == null || !sm.isRequestPinShortcutSupported) { Toast.makeText(this, "Your launcher can not add shortcuts.", Toast.LENGTH_LONG).show(); return }
@@ -517,7 +519,7 @@ class BrowserActivity : Activity() {
             val f = java.io.File(filesDir, "webapp_$id.png")
             f.outputStream().use { icon.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             val intent = android.content.Intent(this, BrowserActivity::class.java).setAction(android.content.Intent.ACTION_VIEW).setData(Uri.parse(url))
-                .putExtra("app", true).putExtra("name", name).putExtra("icon", f.path)
+                .putExtra("app", true).putExtra("hidebar", hideBar).putExtra("name", name).putExtra("icon", f.path)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
             val info = android.content.pm.ShortcutInfo.Builder(this, id).setShortLabel(name.take(24)).setLongLabel(name)
                 .setIcon(android.graphics.drawable.Icon.createWithAdaptiveBitmap(icon)).setIntent(intent).build()
