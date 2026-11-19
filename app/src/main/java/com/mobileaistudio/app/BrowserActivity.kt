@@ -108,6 +108,7 @@ class BrowserActivity : Activity() {
         urlBox.setOnEditorActionListener { _, _, _ -> go(urlBox.text.toString()); true }
         urlBox.setOnFocusChangeListener { _, f -> if (f) urlBox.post { urlBox.selectAll() } }
         top.addView(urlBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(ibtn(R.drawable.bt_up) { setBarHidden(true) })
         top.addView(ibtn(R.drawable.bt_gamepad) { startPad() })
         top.addView(ibtn(R.drawable.bt_menu) { showMenu() })
         topBar = top
@@ -122,11 +123,18 @@ class BrowserActivity : Activity() {
         frame.setOnApplyWindowInsetsListener { _, ins ->
             @Suppress("DEPRECATION") val t = ins.systemWindowInsetTop
             @Suppress("DEPRECATION") val bt = ins.systemWindowInsetBottom
+            inTop = t
             topBar.setPadding(dp(6), t + dp(4), dp(6), dp(4))
-            root.setPadding(0, 0, 0, if (pad == null) bt else 0)
+            root.setPadding(0, if (topBar.visibility != View.VISIBLE && pad == null) t else 0, 0, if (pad == null) bt else 0)
+            (handle.layoutParams as FrameLayout.LayoutParams).topMargin = t + dp(6); handle.requestLayout()
             ins
         }
         frame.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        handle = ImageButton(this); handle.setImageResource(R.drawable.bt_down); handle.setColorFilter(th.txt, PorterDuff.Mode.SRC_IN)
+        handle.background = GradientDrawable().also { it.setColor(th.side); it.alpha = 190; it.cornerRadius = dp(18).toFloat() }
+        handle.setPadding(dp(6), dp(6), dp(6), dp(6)); handle.visibility = View.GONE
+        handle.setOnClickListener { setBarHidden(false) }
+        frame.addView(handle, FrameLayout.LayoutParams(dp(40), dp(32), Gravity.TOP or Gravity.END).also { it.rightMargin = dp(8); it.topMargin = dp(6) })
         setContentView(frame)
         val first = intent?.dataString
         appMode = intent?.getBooleanExtra("app", false) == true
@@ -140,10 +148,21 @@ class BrowserActivity : Activity() {
                 @Suppress("DEPRECATION") setTaskDescription(android.app.ActivityManager.TaskDescription(nm.ifBlank { "Web app" }, bmp))
             } catch (_: Throwable) {}
         }
+        barHidden = prefs.getBoolean(barKey(), false); applyBar()
         newTab(if (first.isNullOrBlank()) "https://duckduckgo.com" else first)
     }
 
     private var appMode = false
+    private var barHidden = false
+    private var inTop = 0
+    private lateinit var handle: ImageButton
+    private fun barKey() = "hb_" + (if (appMode) (intent?.data?.host ?: "app") else "browser")
+    private fun setBarHidden(h: Boolean) { barHidden = h; prefs.edit().putBoolean(barKey(), h).apply(); applyBar() }
+    private fun applyBar() {
+        topBar.visibility = if (!barHidden && pad == null) View.VISIBLE else View.GONE
+        handle.visibility = if (barHidden && pad == null) View.VISIBLE else View.GONE
+        frame.requestApplyInsets()
+    }
     override fun onBackPressed() {
         val t = cur
         when {
@@ -404,29 +423,40 @@ class BrowserActivity : Activity() {
         return best
     }
 
-    /** Draws the 192 px shortcut icon: a picture of your own fills it; a site icon sits on white; with neither, the first letter. */
+    /** Draws a full-bleed 432 px adaptive icon (the launcher cuts its own shape from the middle 288 px), so nothing is left as a gap. */
     private fun composeIcon(site: android.graphics.Bitmap?, custom: android.graphics.Bitmap?, name: String): android.graphics.Bitmap {
-        val sz = 192
+        val sz = 432; val vis = 288; val o = (sz - vis) / 2f
         val out = android.graphics.Bitmap.createBitmap(sz, sz, android.graphics.Bitmap.Config.ARGB_8888)
         val c = android.graphics.Canvas(out)
         val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
-        val rect = android.graphics.RectF(0f, 0f, sz.toFloat(), sz.toFloat())
-        val path = android.graphics.Path().also { it.addRoundRect(rect, 48f, 48f, android.graphics.Path.Direction.CW) }
-        c.save(); c.clipPath(path)
+        val all = android.graphics.RectF(0f, 0f, sz.toFloat(), sz.toFloat())
+        fun square(b: android.graphics.Bitmap): android.graphics.Rect { val m = minOf(b.width, b.height); return android.graphics.Rect((b.width - m) / 2, (b.height - m) / 2, (b.width + m) / 2, (b.height + m) / 2) }
         if (custom != null) {
-            val m = minOf(custom.width, custom.height)
-            c.drawBitmap(custom, android.graphics.Rect((custom.width - m) / 2, (custom.height - m) / 2, (custom.width + m) / 2, (custom.height + m) / 2), rect, p)
+            c.drawBitmap(custom, square(custom), all, p)                                   // outer edge, hidden by the mask
+            c.drawBitmap(custom, square(custom), android.graphics.RectF(o, o, o + vis, o + vis), p)  // whole picture in the visible part
         } else if (site != null) {
-            p.color = Color.WHITE; c.drawRect(rect, p)
-            val pad = 28f; val m = maxOf(site.width, site.height).toFloat(); val k = (sz - 2 * pad) / m
+            val px = site.getPixel(1, 1)
+            p.color = if (android.graphics.Color.alpha(px) == 255) px else Color.WHITE
+            c.drawRect(all, p)
+            val k = vis / maxOf(site.width, site.height).toFloat()
             val w = site.width * k; val h = site.height * k
             c.drawBitmap(site, null, android.graphics.RectF((sz - w) / 2, (sz - h) / 2, (sz + w) / 2, (sz + h) / 2), p)
         } else {
-            p.color = th.acc; c.drawRect(rect, p)
-            p.color = th.onacc; p.textSize = 110f; p.textAlign = android.graphics.Paint.Align.CENTER; p.typeface = Typeface.DEFAULT_BOLD
-            c.drawText((name.trim().firstOrNull() ?: 'W').uppercaseChar().toString(), sz / 2f, sz / 2f + 38f, p)
+            p.color = th.acc; c.drawRect(all, p)
+            p.color = th.onacc; p.textSize = 170f; p.textAlign = android.graphics.Paint.Align.CENTER; p.typeface = Typeface.DEFAULT_BOLD
+            c.drawText((name.trim().firstOrNull() ?: 'W').uppercaseChar().toString(), sz / 2f, sz / 2f + 60f, p)
         }
-        c.restore()
+        return out
+    }
+
+    /** What the launcher will show: the middle part of the icon in a rounded shape. */
+    private fun previewOf(b: android.graphics.Bitmap): android.graphics.Bitmap {
+        val vis = 288; val o = (b.width - vis) / 2
+        val out = android.graphics.Bitmap.createBitmap(vis, vis, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(out)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+        c.clipPath(android.graphics.Path().also { it.addRoundRect(android.graphics.RectF(0f, 0f, vis.toFloat(), vis.toFloat()), 80f, 80f, android.graphics.Path.Direction.CW) })
+        c.drawBitmap(b, -o.toFloat(), -o.toFloat(), p)
         return out
     }
 
@@ -464,7 +494,7 @@ class BrowserActivity : Activity() {
     private var waNote: TextView? = null
     private fun refreshWaPreview(note: TextView, loaded: Boolean = false) {
         val bmp = composeIcon(waIcon, waCustom, waName?.text?.toString() ?: "")
-        waPreview?.setImageBitmap(bmp)
+        waPreview?.setImageBitmap(previewOf(bmp))
         note.text = when { waCustom != null -> "Using your picture"; waIcon != null -> "Using the site icon"; loaded -> "No site icon found, using a letter. You can choose your own picture." ; else -> "Looking for the site icon..." }
     }
     override fun onActivityResult(req: Int, res: Int, data: android.content.Intent?) {
@@ -490,7 +520,7 @@ class BrowserActivity : Activity() {
                 .putExtra("app", true).putExtra("name", name).putExtra("icon", f.path)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
             val info = android.content.pm.ShortcutInfo.Builder(this, id).setShortLabel(name.take(24)).setLongLabel(name)
-                .setIcon(android.graphics.drawable.Icon.createWithBitmap(icon)).setIntent(intent).build()
+                .setIcon(android.graphics.drawable.Icon.createWithAdaptiveBitmap(icon)).setIntent(intent).build()
             sm.requestPinShortcut(info, null)
             Toast.makeText(this, "Confirm adding it on the screen that appears.", Toast.LENGTH_LONG).show()
         } catch (e: Throwable) { Toast.makeText(this, "Could not add it: " + (e.message ?: ""), Toast.LENGTH_LONG).show() }
@@ -503,6 +533,7 @@ class BrowserActivity : Activity() {
         acts.add("Reload" to { cur?.session?.reload() })
         acts.add("Home" to { go("https://duckduckgo.com") })
         acts.add("Duck.ai (DuckDuckGo AI chat)" to { go("https://duck.ai") })
+        acts.add("Hide top bar" to { setBarHidden(true) })
         acts.add("Make this site an app on the home screen" to { showWebApp() })
         acts.add("Tabs (" + tabs.size + ")" to { showTabs() })
         acts.add("Downloads" to { showDownloads() })
@@ -529,20 +560,19 @@ class BrowserActivity : Activity() {
     /** Fullscreen mode: top bar hidden, on-screen controller shown. */
     private fun startPad(edit: Boolean = false) {
         if (pad != null) { pad?.setEdit(edit); return }
-        topBar.visibility = View.GONE; urlBox.clearFocus()
+        urlBox.clearFocus()
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
         if (android.os.Build.VERSION.SDK_INT >= 28) window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         frame.setBackgroundColor(Color.BLACK)
         val p = PadOverlay(this, prefs, th, { code, down -> sendKey(code, down) }, { stopPad() })
-        pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit); frame.requestApplyInsets()
+        pad = p; frame.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)); p.setEdit(edit); applyBar()
     }
     private fun stopPad() {
         pad?.let { frame.removeView(it) }; pad = null
-        topBar.visibility = View.VISIBLE
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
         baseUi()
-        frame.setBackgroundColor(th.bg); frame.requestApplyInsets()
+        frame.setBackgroundColor(th.bg); applyBar()
     }
     private fun sendKey(code: Int, down: Boolean) {
         val t = android.os.SystemClock.uptimeMillis()
