@@ -3,6 +3,7 @@
 Newest first. Every entry is one build pushed to `main`.
 
 ## 2026-11-19
+- Make this site an app: a "Shortcut style" choice. "Old style" uses the launcher's older shortcut method, which may drop the ring around the icon on some phones
 - Make this site an app: you choose "Included" or "Excluded (full screen)" for the top bar in the dialog; an excluded bar is gone completely, with no button left on screen
 - Browser and web apps: a button (and menu entry) hides the top bar; a small arrow at the top right brings it back, and it is remembered per web app
 - File Manager and Browser are now their own entries in the phone's app list, with full-fill icons like the main app icon (no ring); the "Add to desktop" buttons point you there. Web apps stay as pinned shortcuts

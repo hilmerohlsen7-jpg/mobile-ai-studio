@@ -488,14 +488,19 @@ class BrowserActivity : Activity() {
         val rIn = RadioButton(dc); rIn.text = "Included"; rIn.setTextColor(th.txt); rIn.id = 9101
         val rEx = RadioButton(dc); rEx.text = "Excluded (full screen)"; rEx.setTextColor(th.txt); rEx.id = 9102
         rg.addView(rIn); rg.addView(rEx); rg.check(9101)
-        box.addView(nm); box.addView(adr); box.addView(row); box.addView(hl); box.addView(rg)
+        val sl = label(dc, "Shortcut style", bold = true, size = 13f); sl.setPadding(0, dp(10), 0, 0)
+        val sg = RadioGroup(dc); sg.orientation = RadioGroup.VERTICAL
+        val sNew = RadioButton(dc); sNew.text = "Standard"; sNew.setTextColor(th.txt); sNew.id = 9111
+        val sOld = RadioButton(dc); sOld.text = "Old style (may remove the ring around the icon)"; sOld.setTextColor(th.txt); sOld.id = 9112
+        sg.addView(sNew); sg.addView(sOld); sg.check(9111)
+        box.addView(nm); box.addView(adr); box.addView(row); box.addView(hl); box.addView(rg); box.addView(sl); box.addView(sg)
         waNote = note
         refreshWaPreview(note)
         Thread { val b = fetchSiteIcon(adr.text.toString().trim().ifBlank { page }); runOnUiThread { waIcon = b; waNote?.let { refreshWaPreview(it, true) } } }.start()
         bd().setTitle("Make this site an app").setView(box)
             .setPositiveButton("Add to home screen") { _, _ ->
                 val u = adr.text.toString().trim().let { if (it.startsWith("http")) it else "https://$it" }
-                pinWebApp(u, nm.text.toString().trim().ifBlank { "Web app" }, rg.checkedRadioButtonId == 9102)
+                pinWebApp(u, nm.text.toString().trim().ifBlank { "Web app" }, rg.checkedRadioButtonId == 9102, sg.checkedRadioButtonId == 9112)
             }.setNegativeButton("Cancel", null).show()
     }
     private var waNote: TextView? = null
@@ -515,8 +520,25 @@ class BrowserActivity : Activity() {
         }
     }
 
-    private fun pinWebApp(url: String, name: String, hideBar: Boolean) {
+    private fun pinWebApp(url: String, name: String, hideBar: Boolean, oldStyle: Boolean = false) {
         try {
+            if (oldStyle) {
+                val icon = composeIcon(waIcon, waCustom, name)
+                val id = "web_" + Integer.toHexString(url.hashCode())
+                val f = java.io.File(filesDir, "webapp_$id.png")
+                f.outputStream().use { icon.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                val launch = android.content.Intent(this, BrowserActivity::class.java).setAction(android.content.Intent.ACTION_VIEW).setData(Uri.parse(url))
+                    .putExtra("app", true).putExtra("hidebar", hideBar).putExtra("name", name).putExtra("icon", f.path)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+                val small = android.graphics.Bitmap.createScaledBitmap(previewOf(icon), 192, 192, true)
+                sendBroadcast(android.content.Intent("com.android.launcher.action.INSTALL_SHORTCUT")
+                    .putExtra(android.content.Intent.EXTRA_SHORTCUT_INTENT, launch)
+                    .putExtra(android.content.Intent.EXTRA_SHORTCUT_NAME, name)
+                    .putExtra(android.content.Intent.EXTRA_SHORTCUT_ICON, small)
+                    .putExtra("duplicate", false))
+                Toast.makeText(this, "Sent to your launcher. If nothing appears on the home screen, your launcher does not support the old style: use Standard.", Toast.LENGTH_LONG).show()
+                return
+            }
             val sm = getSystemService(android.content.pm.ShortcutManager::class.java)
             if (sm == null || !sm.isRequestPinShortcutSupported) { Toast.makeText(this, "Your launcher can not add shortcuts.", Toast.LENGTH_LONG).show(); return }
             val id = "web_" + Integer.toHexString(url.hashCode())
