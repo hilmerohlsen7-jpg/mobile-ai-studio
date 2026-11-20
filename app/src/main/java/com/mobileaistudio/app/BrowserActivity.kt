@@ -45,6 +45,7 @@ class Tab(val session: GeckoSession) {
     var title = ""
     var back = false
     var fwd = false
+    var home = false
 }
 
 /** Dialog builder that colours its buttons with the app's accent. */
@@ -108,24 +109,34 @@ class BrowserActivity : Activity() {
         urlBox.setOnEditorActionListener { _, _, _ -> go(urlBox.text.toString()); true }
         urlBox.setOnFocusChangeListener { _, f -> if (f) urlBox.post { urlBox.selectAll() } }
         top.addView(urlBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(ibtn(R.drawable.bt_up) { setBarHidden(true) })
-        top.addView(ibtn(R.drawable.bt_gamepad) { startPad() })
+        tabBtn = TextView(this); tabBtn.gravity = Gravity.CENTER; tabBtn.setTextColor(th.txt); tabBtn.textSize = 12f; tabBtn.setTypeface(null, Typeface.BOLD)
+        tabBtn.background = GradientDrawable().also { it.setColor(Color.TRANSPARENT); it.setStroke(dp(2), th.txt); it.cornerRadius = dp(6).toFloat() }
+        tabBtn.setOnClickListener { showTabs() }
+        top.addView(tabBtn, LinearLayout.LayoutParams(dp(28), dp(28)).also { it.leftMargin = dp(8); it.rightMargin = dp(8) })
         top.addView(ibtn(R.drawable.bt_menu) { showMenu() })
         topBar = top
-        root.addView(top)
         prog = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); prog.max = 100; prog.visibility = View.GONE
         prog.progressDrawable.setColorFilter(th.acc, PorterDuff.Mode.SRC_IN)
-        root.addView(prog, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
         gv = GeckoView(this)
-        root.addView(gv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        holder = FrameLayout(this)
+        holder.addView(gv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        homeBox = FrameLayout(this); homeBox.setBackgroundColor(th.bg); homeBox.visibility = View.GONE
+        holder.addView(homeBox, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        rootView = root
+        placeBar()
         frame = FrameLayout(this); frame.setBackgroundColor(th.bg)
         // leave room for the status bar only when the system really draws under it
         frame.setOnApplyWindowInsetsListener { _, ins ->
             @Suppress("DEPRECATION") val t = ins.systemWindowInsetTop
             @Suppress("DEPRECATION") val bt = ins.systemWindowInsetBottom
             inTop = t
-            topBar.setPadding(dp(6), t + dp(4), dp(6), dp(4))
-            root.setPadding(0, if (topBar.visibility != View.VISIBLE && pad == null) t else 0, 0, if (pad == null) bt else 0)
+            if (barBottom()) {
+                topBar.setPadding(dp(6), dp(4), dp(6), dp(4))
+                root.setPadding(0, if (pad == null) t else 0, 0, if (pad == null) bt else 0)
+            } else {
+                topBar.setPadding(dp(6), t + dp(4), dp(6), dp(4))
+                root.setPadding(0, if (topBar.visibility != View.VISIBLE && pad == null) t else 0, 0, if (pad == null) bt else 0)
+            }
             (handle.layoutParams as FrameLayout.LayoutParams).topMargin = t + dp(6); handle.requestLayout()
             ins
         }
@@ -148,9 +159,128 @@ class BrowserActivity : Activity() {
                 @Suppress("DEPRECATION") setTaskDescription(android.app.ActivityManager.TaskDescription(nm.ifBlank { "Web app" }, bmp))
             } catch (_: Throwable) {}
         }
+        placeBar()
         noBar = appMode && intent?.getBooleanExtra("hidebar", false) == true
         barHidden = if (intent?.hasExtra("hidebar") == true) intent.getBooleanExtra("hidebar", false) else prefs.getBoolean(barKey(), false); applyBar()
-        newTab(if (first.isNullOrBlank()) "https://duckduckgo.com" else first)
+        newTab(if (first.isNullOrBlank()) "about:home" else first)
+    }
+
+    private lateinit var tabBtn: TextView
+    private lateinit var holder: FrameLayout
+    private lateinit var homeBox: FrameLayout
+    private lateinit var rootView: LinearLayout
+    private fun barBottom() = !appMode && prefs.getBoolean("barBottom", false)
+    /** Puts the address bar above or below the page. */
+    private fun placeBar() {
+        rootView.removeAllViews()
+        val mp = ViewGroup.LayoutParams.MATCH_PARENT
+        if (barBottom()) {
+            rootView.addView(holder, LinearLayout.LayoutParams(mp, 0, 1f))
+            rootView.addView(prog, LinearLayout.LayoutParams(mp, dp(3)))
+            rootView.addView(topBar)
+        } else {
+            rootView.addView(topBar)
+            rootView.addView(prog, LinearLayout.LayoutParams(mp, dp(3)))
+            rootView.addView(holder, LinearLayout.LayoutParams(mp, 0, 1f))
+        }
+        if (::frame.isInitialized) frame.requestApplyInsets()
+    }
+    private fun updCount() { if (::tabBtn.isInitialized) tabBtn.text = tabs.size.toString() }
+
+    // ---------- home page ----------
+    private val ENGINES = listOf(
+        Triple("DuckDuckGo", "https://duckduckgo.com/?q=", "D"),
+        Triple("Google", "https://www.google.com/search?q=", "G"),
+        Triple("Bing", "https://www.bing.com/search?q=", "B"),
+        Triple("Brave", "https://search.brave.com/search?q=", "B"),
+        Triple("Ecosia", "https://www.ecosia.org/search?q=", "E"),
+        Triple("Wikipedia", "https://en.wikipedia.org/w/index.php?search=", "W")
+    )
+    private fun engine() = ENGINES[prefs.getInt("engine", 0).coerceIn(0, ENGINES.size - 1)]
+    private fun tiles(): JSONArray {
+        val raw = prefs.getString("tiles", null)
+        if (raw != null) try { return JSONArray(raw) } catch (_: Throwable) {}
+        val a = JSONArray()
+        listOf("Wikipedia" to "https://www.wikipedia.org", "YouTube" to "https://m.youtube.com", "Reddit" to "https://www.reddit.com", "GitHub" to "https://github.com").forEach { a.put(JSONObject().put("n", it.first).put("u", it.second)) }
+        return a
+    }
+    private fun roundBg(c: Int, r: Int) = GradientDrawable().also { it.setColor(c); it.cornerRadius = dp(r).toFloat() }
+
+    private fun applyHome() {
+        val show = cur?.home == true && pad == null
+        homeBox.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) buildHome()
+    }
+
+    private fun buildHome() {
+        homeBox.removeAllViews()
+        val col = LinearLayout(this); col.orientation = LinearLayout.VERTICAL; col.gravity = Gravity.CENTER_HORIZONTAL; col.setPadding(dp(20), dp(28), dp(20), dp(28))
+        val title = label(this, "Browser", bold = true, size = 26f); title.setTextColor(th.acc); title.gravity = Gravity.CENTER
+        col.addView(title)
+        val pill = label(this, "\u2713  You're protected", size = 13f); pill.gravity = Gravity.CENTER; pill.setPadding(dp(14), dp(6), dp(14), dp(6))
+        pill.background = roundBg(th.side, 16)
+        col.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = dp(10); it.bottomMargin = dp(20) })
+        // search
+        val sr = LinearLayout(this); sr.orientation = LinearLayout.HORIZONTAL; sr.gravity = Gravity.CENTER_VERTICAL; sr.background = roundBg(th.side, 24)
+        val eb = label(this, engine().third, bold = true, size = 16f); eb.gravity = Gravity.CENTER; eb.setTextColor(th.bg); eb.background = GradientDrawable().also { it.setColor(th.acc); it.shape = GradientDrawable.OVAL }
+        eb.setOnClickListener {
+            bd().setTitle("Search engine").setItems(ENGINES.map { it.first }.toTypedArray()) { _, i -> prefs.edit().putInt("engine", i).apply(); buildHome() }.show()
+        }
+        sr.addView(eb, LinearLayout.LayoutParams(dp(32), dp(32)).also { it.leftMargin = dp(10) })
+        val se = EditText(this); se.setSingleLine(); se.hint = "Search with " + engine().first; se.setTextColor(th.txt); se.setHintTextColor(th.mute); se.textSize = 15f
+        se.background = null; se.setPadding(dp(12), dp(12), dp(12), dp(12)); se.imeOptions = EditorInfo.IME_ACTION_GO; se.inputType = InputType.TYPE_TEXT_VARIATION_URI
+        se.setOnEditorActionListener { _, _, _ -> val q = se.text.toString(); if (q.isNotBlank()) go(q); true }
+        sr.addView(se, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        col.addView(sr, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // shortcut tiles
+        if (prefs.getBoolean("hp_tiles", true)) {
+            val grid = GridLayout(this); grid.columnCount = 4
+            val arr = tiles()
+            val w = (resources.displayMetrics.widthPixels - dp(40)) / 4
+            fun cell(letter: String, name: String, fill: Int, click: () -> Unit, long: (() -> Unit)?) {
+                val c = LinearLayout(this); c.orientation = LinearLayout.VERTICAL; c.gravity = Gravity.CENTER_HORIZONTAL; c.setPadding(0, dp(14), 0, 0)
+                val ic = label(this, letter, bold = true, size = 22f); ic.gravity = Gravity.CENTER; ic.setTextColor(th.txt); ic.background = roundBg(fill, 16)
+                c.addView(ic, LinearLayout.LayoutParams(dp(56), dp(56)))
+                val nm = label(this, name, size = 12f); nm.maxLines = 1; nm.gravity = Gravity.CENTER; nm.setPadding(dp(2), dp(6), dp(2), 0); nm.ellipsize = android.text.TextUtils.TruncateAt.END
+                c.addView(nm, LinearLayout.LayoutParams(w, ViewGroup.LayoutParams.WRAP_CONTENT))
+                c.setOnClickListener { click() }
+                if (long != null) c.setOnLongClickListener { long(); true }
+                grid.addView(c, GridLayout.LayoutParams().also { it.width = w })
+            }
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                cell(o.getString("n").take(1).uppercase(), o.getString("n"), th.side, { go(o.getString("u")) }, {
+                    bd().setTitle(o.getString("n")).setItems(arrayOf("Open in new tab", "Remove")) { _, k ->
+                        if (k == 0) newTab(o.getString("u")) else { val n = JSONArray(); for (j in 0 until arr.length()) if (j != i) n.put(arr.get(j)); prefs.edit().putString("tiles", n.toString()).apply(); buildHome() }
+                    }.show()
+                })
+            }
+            cell("+", "Add shortcut", th.side, { addTile() }, null)
+            col.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = dp(10) })
+        }
+        // continue where you left off
+        val last = tabs.lastOrNull { it !== cur && !it.home && it.url.startsWith("http") }
+        if (prefs.getBoolean("hp_continue", true) && last != null) {
+            val card = LinearLayout(this); card.orientation = LinearLayout.VERTICAL; card.setPadding(dp(16), dp(12), dp(16), dp(12)); card.background = roundBg(th.side, 14)
+            card.addView(label(this, "Continue", bold = true, size = 13f).also { it.setTextColor(th.mute) })
+            card.addView(label(this, last.title.ifBlank { last.url }, bold = true, size = 15f).also { it.maxLines = 2; it.setPadding(0, dp(4), 0, 0) })
+            card.addView(label(this, Uri.parse(last.url).host ?: last.url, size = 12f).also { it.setTextColor(th.mute) })
+            card.setOnClickListener { select(last) }
+            col.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = dp(24) })
+        }
+        homeBox.addView(ScrollView(this).also { it.addView(col) }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun addTile() {
+        val box = LinearLayout(dc); box.orientation = LinearLayout.VERTICAL; box.setPadding(dp(20), dp(8), dp(20), 0)
+        val n = EditText(dc); n.hint = "Name"; n.setSingleLine(); val u = EditText(dc); u.hint = "Address, e.g. example.com"; u.setSingleLine(); u.inputType = InputType.TYPE_TEXT_VARIATION_URI
+        box.addView(n); box.addView(u)
+        bd().setTitle("Add shortcut").setView(box).setPositiveButton("Add") { _, _ ->
+            var url = u.text.toString().trim(); if (url.isEmpty()) return@setPositiveButton
+            if (!url.startsWith("http")) url = "https://$url"
+            val a = tiles(); a.put(JSONObject().put("n", n.text.toString().trim().ifBlank { Uri.parse(url).host ?: url }).put("u", url))
+            prefs.edit().putString("tiles", a.toString()).apply(); buildHome()
+        }.setNegativeButton("Cancel", null).show()
     }
 
     private var appMode = false
@@ -203,7 +333,8 @@ class BrowserActivity : Activity() {
         val t = Tab(s)
         s.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLocationChange(session: GeckoSession, url: String?, perms: MutableList<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
-                t.url = url ?: ""; if (t === cur) runOnUiThread { if (!urlBox.hasFocus()) urlBox.setText(t.url) }
+                t.url = url ?: ""; if (t.url.startsWith("http")) t.home = false
+                if (t === cur) runOnUiThread { if (!urlBox.hasFocus()) urlBox.setText(if (t.home) "" else t.url); applyHome() }
             }
             override fun onCanGoBack(session: GeckoSession, can: Boolean) { t.back = can }
             override fun onCanGoForward(session: GeckoSession, can: Boolean) { t.fwd = can }
@@ -226,14 +357,16 @@ class BrowserActivity : Activity() {
     }
 
     private fun newTab(url: String) {
-        val t = mkSession(); tabs.add(t); select(t); t.session.loadUri(url)
+        val t = mkSession(); tabs.add(t)
+        if (url == "about:home") t.home = true
+        select(t); if (!t.home) t.session.loadUri(url)
     }
     private fun select(t: Tab) {
-        cur = t; gv.setSession(t.session); urlBox.setText(t.url); urlBox.clearFocus()
+        cur = t; gv.setSession(t.session); urlBox.setText(if (t.home) "" else t.url); urlBox.clearFocus(); updCount(); applyHome()
     }
     private fun closeTab(t: Tab) {
         val i = tabs.indexOf(t); if (i < 0) return
-        tabs.removeAt(i)
+        tabs.removeAt(i); updCount()
         if (tabs.isEmpty()) { finish(); return }
         if (t === cur) { gv.releaseSession(); select(tabs[minOf(i, tabs.size - 1)]) }
         t.session.close()
@@ -374,8 +507,9 @@ class BrowserActivity : Activity() {
         val u = when {
             s.startsWith("http://") || s.startsWith("https://") || s.startsWith("about:") -> s
             !s.contains(" ") && s.contains(".") -> "https://$s"
-            else -> "https://duckduckgo.com/?q=" + java.net.URLEncoder.encode(s, "UTF-8")
+            else -> engine().second + java.net.URLEncoder.encode(s, "UTF-8")
         }
+        cur?.home = false; applyHome()
         cur?.session?.loadUri(u); urlBox.clearFocus(); gv.requestFocus()
     }
 
@@ -557,23 +691,47 @@ class BrowserActivity : Activity() {
 
     // ---------- menu ----------
     private fun showMenu() {
-        val acts = ArrayList<Pair<String, () -> Unit>>()
-        acts.add("Forward" to { cur?.session?.goForward() })
-        acts.add("Reload" to { cur?.session?.reload() })
-        acts.add("Home" to { go("https://duckduckgo.com") })
-        acts.add("Duck.ai (DuckDuckGo AI chat)" to { go("https://duck.ai") })
-        acts.add("Hide top bar" to { setBarHidden(true) })
-        acts.add("Make this site an app on the home screen" to { showWebApp() })
-        acts.add("Tabs (" + tabs.size + ")" to { showTabs() })
-        acts.add("Downloads" to { showDownloads() })
-        acts.add("Bookmarks and history" to { showSaved() })
-        acts.add("Add-ons" to { showAddons() })
-        acts.add("Controller layout" to { showPadMenu() })
-        acts.add("Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off") to { toggleDesktop() })
-        acts.add("Graphics test" to { gfxTest() })
-        acts.add("Graphics limit workaround: " + (if (prefs.getBoolean("gfxfix", false)) "ON" else "off") to { toggleGfx() })
-        acts.add("Close browser" to { finish() })
-        bd().setItems(acts.map { it.first }.toTypedArray()) { _, i -> acts[i].second() }.show()
+        val d = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar)
+        val sheet = LinearLayout(this); sheet.orientation = LinearLayout.VERTICAL; sheet.setPadding(dp(8), dp(12), dp(8), dp(8))
+        sheet.background = GradientDrawable().also { it.setColor(th.panel); it.cornerRadii = floatArrayOf(dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), 0f, 0f, 0f, 0f) }
+        fun quick(sym: String, name: String, f: () -> Unit): View {
+            val c = LinearLayout(this); c.orientation = LinearLayout.VERTICAL; c.gravity = Gravity.CENTER; c.setPadding(0, dp(8), 0, dp(8))
+            c.addView(label(this, sym, bold = true, size = 20f).also { it.gravity = Gravity.CENTER })
+            c.addView(label(this, name, size = 11f).also { it.gravity = Gravity.CENTER; it.setTextColor(th.mute) })
+            c.setOnClickListener { d.dismiss(); f() }; return c
+        }
+        val q = LinearLayout(this); q.orientation = LinearLayout.HORIZONTAL
+        val t = cur
+        val marked = t != null && isMarked(t.url)
+        q.addView(quick("\u2192", "Forward") { cur?.session?.goForward() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        q.addView(quick("\u21BB", "Reload") { cur?.session?.reload() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        q.addView(quick(if (marked) "\u2605" else "\u2606", "Bookmark") { cur?.let { if (it.url.startsWith("http")) toggleMark(it) } }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        q.addView(quick("\u2302", "Home") { cur?.home = true; applyHome() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        sheet.addView(q)
+        val list = LinearLayout(this); list.orientation = LinearLayout.VERTICAL
+        fun row(text: String, f: () -> Unit) {
+            val v = label(this, text, size = 16f); v.setPadding(dp(16), dp(14), dp(16), dp(14)); v.setOnClickListener { d.dismiss(); f() }; list.addView(v)
+        }
+        row("Add-ons") { showAddons() }
+        row("Bookmarks and history") { showSaved() }
+        row("Downloads") { showDownloads() }
+        row("Make this site an app on the home screen") { showWebApp() }
+        row("Duck.ai (DuckDuckGo AI chat)") { go("https://duck.ai") }
+        row("Desktop site: " + (if (prefs.getBoolean("desktop", false)) "ON" else "off")) { toggleDesktop() }
+        if (!appMode) row("Address bar at the " + (if (barBottom()) "top" else "bottom")) { prefs.edit().putBoolean("barBottom", !barBottom()).apply(); placeBar() }
+        row("Hide top bar") { setBarHidden(true) }
+        row("Controller layout") { showPadMenu() }
+        row("Graphics test") { gfxTest() }
+        row("Graphics limit workaround: " + (if (prefs.getBoolean("gfxfix", false)) "ON" else "off")) { toggleGfx() }
+        row("Close browser") { finish() }
+        sheet.addView(ScrollView(this).also { it.addView(list) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf(dp(420), (resources.displayMetrics.heightPixels * 0.6).toInt())))
+        d.setContentView(sheet)
+        d.window?.let { w ->
+            w.setGravity(Gravity.BOTTOM); w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)); w.setDimAmount(0.4f); w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        d.setCanceledOnTouchOutside(true)
+        d.show()
     }
 
     private fun showPadMenu() {
@@ -620,7 +778,7 @@ class BrowserActivity : Activity() {
             row.addView(btn("Close") { closeTab(t); dlg.dismiss(); if (tabs.isNotEmpty()) showTabs() })
             box.addView(row)
         }
-        box.addView(btn("New tab") { dlg.dismiss(); newTab("https://duckduckgo.com") })
+        box.addView(btn("New tab") { dlg.dismiss(); newTab("about:home") })
         dlg.show()
     }
 
