@@ -1,0 +1,105 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.10.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preReleaseBuild UP-TO-DATE
+
+> Task :app:configureCMakeRelease[arm64-v8a]
+C/C++: CMAKE_BUILD_TYPE=Release
+
+> Task :app:buildCMakeRelease[arm64-v8a]
+> Task :app:mergeReleaseJniLibFolders
+> Task :app:buildKotlinToolingMetadata
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:checkReleaseAarMetadata SKIPPED
+> Task :app:checkReleaseDuplicateClasses
+> Task :app:generateReleaseResValues
+> Task :app:mapReleaseSourceSetPaths
+> Task :app:generateReleaseResources
+> Task :app:mergeReleaseNativeLibs
+> Task :app:packageReleaseResources
+> Task :app:mergeReleaseResources
+> Task :app:createReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksRelease
+> Task :app:parseReleaseLocalResources
+
+> Task :app:stripReleaseDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libjnidispatch.so.
+
+> Task :app:processReleaseMainManifest
+> Task :app:processReleaseManifest
+> Task :app:desugarReleaseFileDependencies
+> Task :app:javaPreCompileRelease
+> Task :app:processReleaseManifestForPackage
+> Task :app:extractReleaseNativeSymbolTables
+> Task :app:mergeReleaseStartupProfile
+> Task :app:processReleaseResources
+> Task :app:mergeReleaseArtProfile
+> Task :app:mergeReleaseShaders
+> Task :app:compileReleaseShaders NO-SOURCE
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:mergeReleaseAssets
+> Task :app:mergeReleaseNativeDebugMetadata
+> Task :app:extractReleaseVersionControlInfo
+> Task :app:optimizeReleaseResources
+> Task :app:compressReleaseAssets
+> Task :app:collectReleaseDependencies
+> Task :app:sdkReleaseDependencyData
+> Task :app:validateSigningRelease
+> Task :app:writeReleaseAppMetadata
+> Task :app:writeReleaseSigningConfigVersions
+
+> Task :app:compileReleaseKotlin
+e: The daemon has terminated unexpectedly on startup attempt #1 with error code: 0. The daemon process output:
+    1. Kotlin compile daemon is ready
+
+> Task :app:mergeExtDexRelease
+
+> Task :app:compileReleaseKotlin
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:98:16 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:98:47 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:119:31 'fun setColorFilter(p0: Int, p1: PorterDuff.Mode): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:298:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:303:27 'fun onBackPressed(): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:310:26 'var systemUiVisibility: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:310:67 'static field SYSTEM_UI_FLAG_LIGHT_STATUS_BAR: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:310:152 'static field SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:310:207 'static field SYSTEM_UI_FLAG_VISIBLE: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:418:40 'fun setColorFilter(p0: Int, p1: PorterDuff.Mode): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:669:54 'static field EXTRA_SHORTCUT_INTENT: String' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:670:54 'static field EXTRA_SHORTCUT_NAME: String' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:671:54 'static field EXTRA_SHORTCUT_ICON: String' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:751:65 'static field FLAG_FULLSCREEN: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:753:26 'var systemUiVisibility: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:753:52 'static field SYSTEM_UI_FLAG_FULLSCREEN: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:753:86 'static field SYSTEM_UI_FLAG_HIDE_NAVIGATION: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:753:125 'static field SYSTEM_UI_FLAG_IMMERSIVE_STICKY: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:753:165 'static field SYSTEM_UI_FLAG_LAYOUT_STABLE: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:753:202 'static field SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:753:243 'static field SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:760:67 'static field FLAG_FULLSCREEN: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/BrowserActivity.kt:921:54 Java type mismatch: inferred type is 'kotlin.String?', but 'kotlin.String' was expected.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/DownloadService.kt:68:104 'constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/DownloadService.kt:76:44 'constructor(p0: Int, p1: CharSequence!, p2: PendingIntent?): Notification.Action.Builder' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/MainActivity.kt:161:65 'static field FLAG_SHOW_WHEN_LOCKED: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/MainActivity.kt:161:130 'static field FLAG_TURN_SCREEN_ON: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/WakeService.kt:232:105 'constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/WakeService.kt:245:104 'constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/WakeService.kt:247:84 'constructor(p0: Int, p1: CharSequence!, p2: PendingIntent?): Notification.Action.Builder' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/WifiService.kt:25:79 'fun stopForeground(p0: Boolean): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/WifiService.kt:32:104 'constructor(p0: Context!): Notification.Builder' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/mobile-ai-studio/mobile-ai-studio/app/src/main/java/com/mobileaistudio/app/WifiService.kt:35:44 'constructor(p0: Int, p1: CharSequence!, p2: PendingIntent?): Notification.Action.Builder' is deprecated. Deprecated in Java.
+
+> Task :app:compileReleaseJavaWithJavac
+> Task :app:dexBuilderRelease
+> Task :app:mergeReleaseGlobalSynthetics
+> Task :app:processReleaseJavaRes
+> Task :app:mergeReleaseJavaResource
+> Task :app:mergeDexRelease
+> Task :app:compileReleaseArtProfile
+> Task :app:packageRelease
+> Task :app:createReleaseApkListingFileRedirect
+> Task :app:assembleRelease
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_3-1795174942525.json
+
+BUILD SUCCESSFUL in 2m 53s
+46 actionable tasks: 46 executed
