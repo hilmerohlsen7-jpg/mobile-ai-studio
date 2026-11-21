@@ -1,0 +1,48 @@
+name: Probe GeckoView
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: "17"}
+      - name: Look
+        shell: bash
+        run: |
+          B=https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a
+          V=160.0.20261104181552
+          curl -sfL -o g.aar $B/$V/geckoview-arm64-v8a-$V.aar
+          unzip -q g.aar classes.jar -d g
+          J=g/classes.jar
+          p() { echo "=== $1"; javap -cp $J "org.mozilla.geckoview.$1" 2>&1 | grep -v "^Compiled" | grep -E "$2" | sed 's/^ *//' | cut -c1-170; }
+          p GeckoRuntimeSettings "set[A-Z]|get[A-Z]|static final int" | grep -iE "insecure|HTTPS|Trusted|TRR|Autoplay|FontSize|FontInflation|Scalable|Locale|ContentBlocking|DarkMode|ColorScheme|WebFont|Javascript|Remote|Paint|Prompt|Login|Cookie|Fingerprint|Global|Zoom|PreferredColor|Notification|SpoofLocale|Webnotif|DisplayDensity|ScreenSize"
+          p 'ContentBlocking$Settings' "set|get"
+          p 'ContentBlocking' "static final int|class"
+          p 'ContentBlocking$AntiTracking' "static final int"
+          p 'ContentBlocking$CookieBehavior' "static final int"
+          p 'ContentBlocking$SafeBrowsing' "static final int"
+          p 'ContentBlocking$Settings$Builder' "public"
+          p StorageController "clear|public"
+          p 'StorageController$ClearFlags' "static final long"
+          p GeckoSessionSettings "static final int|get|set"
+          p 'GeckoSessionSettings$Builder' "public"
+          p GeckoView "capturePixels|setSession|releaseSession|getSession"
+          p 'GeckoSession$PermissionDelegate' "public|static final int"
+          p 'GeckoSession$PermissionDelegate$ContentPermission' "public|static final int"
+          p 'GeckoSession$NavigationDelegate' "onLoadRequest|onSubframeLoadRequest"
+          p 'GeckoSession$NavigationDelegate$LoadRequest' "public"
+          p 'GeckoSession$ContentDelegate' "on[A-Z]"
+          p 'GeckoSession$ContentDelegate$ContextElement' "public|static final int"
+          p 'GeckoSession$HistoryDelegate' "on[A-Z]|getVisited"
+          p 'GeckoSession$MediaDelegate' "on[A-Z]"
+          p 'GeckoSession$PromptDelegate' "on[A-Z]"
+          p 'GeckoSession$ProgressDelegate' "on[A-Z]"
+          p 'GeckoSession$SelectionActionDelegate' "on[A-Z]"
+          p GeckoSession "setPermissionDelegate|setMediaDelegate|setSelectionActionDelegate|setHistoryDelegate|setPromptDelegate|saveState|restoreState|getPanZoomController|setPriorityHint|setActive|setFocused|getWebExtensionController|didPrintPage|printPage|requestAnalysis|containsPrivate|isOpen|getUserAgent|loadUri|getSettings|setContentBlockingDelegate|exitFullScreen|setAutofillDelegate|setCookieBannerHandlingModeForSession|setCookieBannerHandlingMode"
+          p 'GeckoSession$SessionState' "public"
+          p WebExtensionController "public"
+          p 'WebExtension$MetaData' "public"
+          p 'GeckoRuntime' "getStorageController|getWebExtensionController|getSettings|orientationChanged|setPauseForDebugger|getProfileDir|getServiceWorkerDelegate|setWebNotificationDelegate|setActivityDelegate|setDelegate|appendAppNotesToCrashReport|getAutocompleteStorageDelegate|setAutocompleteStorageDelegate|getRuntimeTelemetry|getWebPushController|getAutofill"
+          p 'Autocomplete$StorageDelegate' "public"
+          p 'WebNotificationDelegate' "public"
+          p 'GeckoSession$ContentBlocking$Delegate' "public"
