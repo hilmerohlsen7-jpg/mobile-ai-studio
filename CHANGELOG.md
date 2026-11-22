@@ -2,6 +2,9 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-22 (c)
+- Browser: tab cards in the tab tray now show a small picture of the page (not for private tabs)
+
 ## 2026-11-22 (b)
 - Browser: search suggestions under the address bar (from your search engine, bookmarks, history, recent searches and the clipboard, each controlled by its setting)
 - Browser: the "expanded" toolbar option now puts a bottom bar with back, forward, reload, tabs and menu
