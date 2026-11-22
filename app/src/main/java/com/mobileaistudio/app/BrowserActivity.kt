@@ -215,10 +215,17 @@ class BrowserActivity : Activity() {
         }
     }
     /** Pressing Home while a video is full screen shrinks it into a small floating window, like the YouTube app. */
+    private var pipping = false
+    private var geckoFs = false
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (!isInPictureInPictureMode) { pipping = false; setFs(geckoFs) }
+        else if (fs) { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE }
+    }
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (fs && android.os.Build.VERSION.SDK_INT >= 26) try {
-            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            pipping = true
             enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build())
         } catch (_: Throwable) {}
     }
@@ -600,7 +607,7 @@ class BrowserActivity : Activity() {
             override fun onTitleChange(session: GeckoSession, title: String?) { t.title = title ?: ""; if (t.url.startsWith("http") && !t.priv) addHistory(t.url, t.title) }
             override fun onExternalResponse(session: GeckoSession, resp: WebResponse) { download(resp.uri) }
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
-            override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) setFs(fullScreen) } }
+            override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) { geckoFs = fullScreen; if (!(pipping && !fullScreen)) setFs(fullScreen) } } }
         }
         s.open(rt)
         applyDesktop(t)
