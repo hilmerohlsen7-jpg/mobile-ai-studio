@@ -47,6 +47,7 @@ class Tab(val session: GeckoSession) {
     var fwd = false
     var home = false
     var priv = false
+    var thumb: android.graphics.Bitmap? = null
 }
 
 /** Dialog builder that colours its buttons with the app's accent. */
@@ -219,7 +220,18 @@ class BrowserActivity : Activity() {
     private var micBtn: ImageButton? = null
 
     /** Firefox-style tab tray: grid of cards, Normal / Private switch, new tab, close all. */
-    internal fun tabTray(startPrivate: Boolean = cur?.priv == true) {
+    /** Takes a small picture of the page showing in a tab, for the tab tray. */
+    private fun snap(t: Tab?, then: () -> Unit) {
+        if (t == null || t !== cur || t.home || !t.url.startsWith("http")) { then(); return }
+        try {
+            gv.capturePixels().accept({ bmp ->
+                if (bmp != null) try { t.thumb = android.graphics.Bitmap.createScaledBitmap(bmp, 360, maxOf(1, bmp.height * 360 / bmp.width), true) } catch (_: Throwable) {}
+                runOnUiThread { then() }
+            }, { _ -> runOnUiThread { then() } })
+        } catch (_: Throwable) { then() }
+    }
+    internal fun tabTray(startPrivate: Boolean = cur?.priv == true) { snap(cur) { tabTray2(startPrivate) } }
+    private fun tabTray2(startPrivate: Boolean) {
         var showPriv = startPrivate
         lateinit var page: View
         val grid = prefs.getBoolean("tabGrid", true)
@@ -251,7 +263,10 @@ class BrowserActivity : Activity() {
                     xb.setOnClickListener { closeTab(t); popPage(); if (tabs.any { it.priv == showPriv }) tabTray(showPriv) }
                     head.addView(xb)
                     card.addView(head)
-                    card.addView(label(this, if (t.home) "" else (Uri.parse(t.url).host ?: t.url), size = 12f).also { it.setTextColor(th.mute); it.maxLines = 1; it.setPadding(0, dp(2), 0, dp(24)) })
+                    card.addView(label(this, if (t.home) "" else (Uri.parse(t.url).host ?: t.url), size = 12f).also { it.setTextColor(th.mute); it.maxLines = 1; it.setPadding(0, dp(2), 0, dp(8)) })
+                    val th0 = t.thumb
+                    if (th0 != null && !t.priv) { val iv = ImageView(this); iv.setImageBitmap(th0); iv.scaleType = ImageView.ScaleType.CENTER_CROP; iv.adjustViewBounds = false; card.addView(iv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(130)).also { it.rightMargin = dp(6) }) }
+                    else card.addView(View(this), LinearLayout.LayoutParams(1, dp(60)))
                     card.setOnClickListener { select(t); popPage() }
                     rowL!!.addView(card, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).also { it.setMargins(dp(4), dp(4), dp(4), dp(4)) })
                 }
@@ -528,6 +543,7 @@ class BrowserActivity : Activity() {
         select(t); if (!t.home) t.session.loadUri(url)
     }
     internal fun select(t: Tab) {
+        val old = cur; if (old != null && old !== t && !old.priv && old.url.startsWith("http")) try { gv.capturePixels().accept({ b -> if (b != null) try { old.thumb = android.graphics.Bitmap.createScaledBitmap(b, 360, maxOf(1, b.height * 360 / b.width), true) } catch (_: Throwable) {} }, { _ -> }) } catch (_: Throwable) {}
         cur = t; gv.setSession(t.session); applySecure(); urlBox.setText(if (t.home) "" else t.url); urlBox.clearFocus(); updCount(); applyHome()
     }
     internal fun closeTab(t: Tab) {
