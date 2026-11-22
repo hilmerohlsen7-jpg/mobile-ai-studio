@@ -109,7 +109,12 @@ class BrowserActivity : Activity() {
         urlBox.background = GradientDrawable().also { it.setColor(th.side); it.cornerRadius = dp(10).toFloat() }
         urlBox.setPadding(dp(12), dp(8), dp(12), dp(8))
         urlBox.setOnEditorActionListener { _, _, _ -> go(urlBox.text.toString()); true }
-        urlBox.setOnFocusChangeListener { _, f -> if (f) urlBox.post { urlBox.selectAll() } }
+        urlBox.setOnFocusChangeListener { _, f -> if (f) { urlBox.post { urlBox.selectAll() }; showSug("") } else hideSug() }
+        urlBox.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(e: android.text.Editable?) { if (urlBox.hasFocus()) showSug(e?.toString() ?: "") }
+            override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+        })
         top.addView(urlBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         micBtn = ibtn(R.drawable.bt_mic) {
             try { startActivityForResult(android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM), 7303) }
@@ -121,7 +126,7 @@ class BrowserActivity : Activity() {
         tabBtn.background = GradientDrawable().also { it.setColor(Color.TRANSPARENT); it.setStroke(dp(2), th.txt); it.cornerRadius = dp(6).toFloat() }
         tabBtn.setOnClickListener { tabTray() }
         top.addView(tabBtn, LinearLayout.LayoutParams(dp(28), dp(28)).also { it.leftMargin = dp(8); it.rightMargin = dp(8) })
-        top.addView(ibtn(R.drawable.bt_more) { pages.menu() })
+        moreBtn = ibtn(R.drawable.bt_more) { pages.menu() }; top.addView(moreBtn)
         topBar = top
         prog = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); prog.max = 100; prog.visibility = View.GONE
         prog.progressDrawable.setColorFilter(th.acc, PorterDuff.Mode.SRC_IN)
@@ -264,6 +269,64 @@ class BrowserActivity : Activity() {
         pushPage(wrap)
     }
 
+
+    // ---------- address-bar suggestions ----------
+    private var sugBox: LinearLayout? = null
+    private var sugSeq = 0
+    private fun hideSug() { sugBox?.let { holder.removeView(it) }; sugBox = null }
+    private fun showSug(q0: String) {
+        val q = q0.trim()
+        if (appMode || (q.isEmpty() && cur?.url?.startsWith("http") == true && urlBox.text.toString() == cur?.url)) { hideSug(); return }
+        val items = ArrayList<Pair<String, String>>()   // text to show, address or search words
+        fun local(key: String, on: Boolean) { if (!on || q.isEmpty()) return; val a = load(key); for (i in 0 until a.length()) { val o = a.getJSONObject(i); if ((o.optString("t") + o.getString("u")).contains(q, true) && items.size < 5 && items.none { it.second == o.getString("u") }) items.add((o.optString("t").ifBlank { o.getString("u") }) to o.getString("u")) } }
+        if (cur?.priv != true) { local("bm", prefs.getBoolean("sg_bm", true)); local("hist", prefs.getBoolean("sg_hist", true)) }
+        val clip = try { if (q.isEmpty() && prefs.getBoolean("sg_clip", true)) (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip?.getItemAt(0)?.text?.toString()?.trim() else null } catch (e: Throwable) { null }
+        if (!clip.isNullOrBlank() && clip.length < 300) items.add("Clipboard: $clip" to clip)
+        if (q.isEmpty() && prefs.getBoolean("recent_searches", true) && cur?.priv != true) { val r = load("recent"); for (i in 0 until minOf(r.length(), 4)) items.add(r.getString(i) to r.getString(i)) }
+        fun draw(extra: List<String>) {
+            hideSug()
+            if (items.isEmpty() && extra.isEmpty()) return
+            val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.setBackgroundColor(th.bg); box.isClickable = true
+            fun row(t: String, v: String) {
+                val tv = label(this, t, size = 15f); tv.maxLines = 1; tv.ellipsize = android.text.TextUtils.TruncateAt.END; tv.setPadding(dp(16), dp(12), dp(16), dp(12))
+                tv.setOnClickListener { urlBox.clearFocus(); go(v) }
+                box.addView(tv)
+            }
+            items.forEach { row(it.first, it.second) }
+            extra.forEach { row(it, it) }
+            holder.addView(ScrollView(this).also { it.addView(box); it.setBackgroundColor(th.bg) }.also { sugBox = box }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            sugBox = box
+        }
+        draw(emptyList())
+        val e = pages.engine()
+        if (q.isNotEmpty() && e.sug.isNotEmpty() && prefs.getBoolean("sugg", true) && (cur?.priv != true || prefs.getBoolean("sugg_priv", false))) {
+            val my = ++sugSeq
+            Thread {
+                val body = httpGet(e.sug + java.net.URLEncoder.encode(q, "UTF-8"), 100_000)?.toString(Charsets.UTF_8)
+                val out = ArrayList<String>()
+                try { val a = JSONArray(body).getJSONArray(1); for (i in 0 until minOf(a.length(), 6)) out.add(a.get(i).toString()) } catch (_: Throwable) {}
+                runOnUiThread { if (my == sugSeq && urlBox.hasFocus()) draw(out) }
+            }.start()
+        }
+    }
+
+    // ---------- bottom navigation (expanded toolbar) ----------
+    private var navBar: LinearLayout? = null
+    private fun buildNav() {
+        val n = LinearLayout(this); n.orientation = LinearLayout.HORIZONTAL; n.gravity = Gravity.CENTER_VERTICAL; n.setBackgroundColor(th.bg)
+        fun cell(v: View) { n.addView(v, LinearLayout.LayoutParams(0, dp(48), 1f)) }
+        cell(ibtn(R.drawable.bt_back) { cur?.let { if (it.back) it.session.goBack() } })
+        cell(ibtn(R.drawable.bt_forward) { cur?.let { if (it.fwd) it.session.goForward() } })
+        cell(ibtn(R.drawable.bt_reload) { cur?.session?.reload() })
+        val c = TextView(this); c.gravity = Gravity.CENTER; c.setTextColor(th.txt); c.textSize = 12f; c.setTypeface(null, Typeface.BOLD); c.text = tabs.size.toString()
+        c.setOnClickListener { tabTray() }; navCount = c
+        val w = FrameLayout(this); w.addView(c, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER)); c.background = GradientDrawable().also { it.setColor(Color.TRANSPARENT); it.setStroke(dp(2), th.txt); it.cornerRadius = dp(6).toFloat() }
+        w.setOnClickListener { tabTray() }; cell(w)
+        cell(ibtn(R.drawable.bt_more) { pages.menu() })
+        navBar = n
+    }
+    private var navCount: TextView? = null
+
     private lateinit var tabBtn: TextView
     private lateinit var holder: FrameLayout
     private lateinit var homeBox: FrameLayout
@@ -282,9 +345,13 @@ class BrowserActivity : Activity() {
             rootView.addView(prog, LinearLayout.LayoutParams(mp, dp(3)))
             rootView.addView(holder, LinearLayout.LayoutParams(mp, 0, 1f))
         }
+        val ex = !appMode && prefs.getBoolean("toolbarExpanded", false)
+        tabBtn.visibility = if (ex) View.GONE else View.VISIBLE; moreBtn?.visibility = if (ex) View.GONE else View.VISIBLE
+        if (ex) { if (navBar == null) buildNav(); (navBar!!.parent as? ViewGroup)?.removeView(navBar); rootView.addView(navBar, LinearLayout.LayoutParams(mp, ViewGroup.LayoutParams.WRAP_CONTENT)) }
         if (::frame.isInitialized) frame.requestApplyInsets()
     }
-    private fun updCount() { if (::tabBtn.isInitialized) tabBtn.text = tabs.size.toString() }
+    private fun updCount() { if (::tabBtn.isInitialized) tabBtn.text = tabs.size.toString(); navCount?.text = tabs.size.toString() }
+    private var moreBtn: ImageButton? = null
 
     // ---------- home page ----------
     private val ENGINES = listOf(
@@ -607,10 +674,10 @@ class BrowserActivity : Activity() {
         val u = when {
             s.startsWith("http://") || s.startsWith("https://") || s.startsWith("about:") -> s
             !s.contains(" ") && s.contains(".") -> "https://$s"
-            else -> pages.engine().searchUrl(s).let { it.substring(0, it.length - java.net.URLEncoder.encode(s, "UTF-8").length) } + java.net.URLEncoder.encode(s, "UTF-8")
+            else -> { if (cur?.priv != true && prefs.getBoolean("recent_searches", true)) { val r = load("recent"); val n = JSONArray(); n.put(s); for (i in 0 until r.length()) if (r.getString(i) != s && n.length() < 8) n.put(r.getString(i)); prefs.edit().putString("recent", n.toString()).apply() }; pages.engine().searchUrl(s).let { it.substring(0, it.length - java.net.URLEncoder.encode(s, "UTF-8").length) } + java.net.URLEncoder.encode(s, "UTF-8") }
         }
         cur?.home = false; applyHome()
-        cur?.session?.loadUri(u); urlBox.clearFocus(); gv.requestFocus()
+        cur?.session?.loadUri(u); hideSug(); urlBox.clearFocus(); gv.requestFocus()
     }
 
     // ---------- website as an app ----------
