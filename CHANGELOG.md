@@ -2,6 +2,9 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-22 (e)
+- Browser: videos can go full screen like the YouTube app: all bars and the system bars hide, the phone turns sideways, and Back (or the video's own button) leaves full screen
+
 ## 2026-11-22 (d)
 - Browser home: shortcut tiles show each website's own icon (letter until it loads); the search bar has the engine's icon with a drop-down arrow
 - Tapping the engine icon opens Firefox's "This time search in:" list (engine icons, Bookmarks, Tabs, History, Search settings); picking an engine uses it for the next search only
