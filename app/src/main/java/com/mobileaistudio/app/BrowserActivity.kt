@@ -215,7 +215,7 @@ class BrowserActivity : Activity() {
         }
     }
     private fun popTop(): Boolean {
-        if (fs) { cur?.session?.exitFullScreen(); return true } if (pageStack.isEmpty()) return false; popPage(); return true }
+        if (fs) { cur?.session?.exitFullScreen(); return true }; if (pageStack.isEmpty()) return false; popPage(); return true }
     internal fun closeAllTabs() {
         val all = tabs.toList(); gv.releaseSession(); tabs.clear(); cur = null
         all.forEach { try { it.session.close() } catch (_: Throwable) {} }
