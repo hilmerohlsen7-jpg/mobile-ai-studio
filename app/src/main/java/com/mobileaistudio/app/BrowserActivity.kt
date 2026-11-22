@@ -216,11 +216,21 @@ class BrowserActivity : Activity() {
     }
     /** Pressing Home while a video is full screen shrinks it into a small floating window, like the YouTube app. */
     private var pipping = false
+    /** Makes the page's video fill the whole window (floating window), or puts the page back. */
+    private fun pipJs(on: Boolean) {
+        val js = if (on) """(function(){var vs=[].slice.call(document.querySelectorAll('video')).sort(function(a,b){return b.videoWidth*b.videoHeight-a.videoWidth*a.videoHeight});var v=vs[0];if(!v)return;
+        if(window.__pipT)return;window.__pip=[];function sv(e){window.__pip.push([e,e.getAttribute('style')])}
+        sv(v);var p=v.parentElement;while(p&&p!==document.documentElement){sv(p);['transform','contain','filter','overflow'].forEach(function(k){p.style.setProperty(k,k=='overflow'?'visible':'none','important')});p=p.parentElement}
+        function ap(){var x=[['position','fixed'],['top','0'],['left','0'],['width','100vw'],['height','100vh'],['max-width','none'],['max-height','none'],['z-index','2147483647'],['background','#000'],['object-fit','contain'],['margin','0']];x.forEach(function(a){v.style.setProperty(a[0],a[1],'important')})}
+        ap();window.__pipT=setInterval(ap,300);document.documentElement.style.setProperty('overflow','hidden','important')})();void 0"""
+        else """(function(){if(!window.__pipT)return;clearInterval(window.__pipT);window.__pipT=0;(window.__pip||[]).reverse().forEach(function(a){if(a[1]===null)a[0].removeAttribute('style');else a[0].setAttribute('style',a[1])});window.__pip=[];document.documentElement.style.removeProperty('overflow')})();void 0"""
+        try { cur?.session?.loadUri("javascript:" + Uri.encode(js)) } catch (_: Throwable) {}
+    }
     private var geckoFs = false
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (!isInPictureInPictureMode) { pipping = false; setFs(geckoFs) }
-        else if (fs) { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE }
+        if (!isInPictureInPictureMode) { pipping = false; pipJs(false); setFs(geckoFs) }
+        else if (fs) { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; pipJs(true); main.postDelayed({ if (isInPictureInPictureMode) pipJs(true) }, 500) }
     }
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
