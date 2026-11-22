@@ -473,7 +473,7 @@ class BrowserActivity : Activity() {
     }
 
     // ---------- downloads: the app's own downloader ----------
-    internal fun download(u: String) {
+    internal fun download(u: String, quiet: Boolean = false) {
         val low = u.lowercase()
         if (!(low.startsWith("http://") || low.startsWith("https://") || low.startsWith("ftp://"))) {
             runOnUiThread { Toast.makeText(this, "This kind of link can not be downloaded here.", Toast.LENGTH_LONG).show() }
@@ -482,7 +482,7 @@ class BrowserActivity : Activity() {
         try {
             DownloadCenter.init(this)
             DownloadCenter.manager.add(u, "file", "", DownloadCenter.filesDir, null, DownloadCenter.manager.defaultThreads)
-            runOnUiThread { Toast.makeText(this, "Added to Downloads", Toast.LENGTH_SHORT).show(); showDownloads() }
+            runOnUiThread { Toast.makeText(this, "Added to Downloads", Toast.LENGTH_SHORT).show(); if (!quiet) pages.downloads() }
         } catch (e: Throwable) { runOnUiThread { Toast.makeText(this, "Could not download: " + e.message, Toast.LENGTH_LONG).show() } }
     }
 

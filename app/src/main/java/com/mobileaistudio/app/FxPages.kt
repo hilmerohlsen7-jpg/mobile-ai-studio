@@ -1,5 +1,7 @@
 package com.mobileaistudio.app
 
+import org.mozilla.geckoview.ContentBlocking.AntiTracking as AT
+import org.mozilla.geckoview.ContentBlocking.CookieBehavior as CB
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
@@ -88,8 +90,6 @@ class FxPages(private val a: BrowserActivity, private val fx: Fx) {
     fun applyEtp() {
         try {
             val cb = a.rt.settings.contentBlocking
-            val AT = ContentBlocking.AntiTracking
-            val CB = ContentBlocking.CookieBehavior
             when (int("etp", 0)) {
                 0 -> { cb.setAntiTracking(AT.DEFAULT); cb.setCookieBehavior(CB.ACCEPT_NON_TRACKERS) }
                 1 -> { cb.setAntiTracking(AT.STRICT); cb.setCookieBehavior(CB.ACCEPT_FIRST_PARTY_AND_ISOLATE_OTHERS) }
