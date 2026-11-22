@@ -344,6 +344,45 @@ class BrowserActivity : Activity() {
     }
     private var navCount: TextView? = null
 
+
+    /** A round icon: the site's own icon fetched from the web, with a letter shown until it arrives. */
+    private fun favView(site: String, size: Int, fill: Int, letter: String): View {
+        val f = FrameLayout(this); f.background = GradientDrawable().also { it.setColor(fill); it.shape = GradientDrawable.OVAL }
+        val t = label(this, letter, bold = true, size = (size * 0.45f)); t.gravity = Gravity.CENTER; t.setTextColor(if (fill == Color.WHITE) Color.parseColor("#333333") else th.txt)
+        f.addView(t, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val iv = ImageView(this); iv.scaleType = ImageView.ScaleType.FIT_CENTER; val pd = dp((size * 0.22f).toInt()); iv.setPadding(pd, pd, pd, pd)
+        val host = try { Uri.parse(site).host ?: site } catch (e: Throwable) { site }
+        f.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        fx.load("https://www.google.com/s2/favicons?sz=128&domain=" + host, iv)
+        return f
+    }
+
+    internal var oneShot: Eng? = null
+    /** Firefox's "This time search in:" list under the search bar. */
+    private fun engineMenu(anchor: View) {
+        val box = LinearLayout(this); box.orientation = LinearLayout.VERTICAL; box.setPadding(0, dp(8), 0, dp(8))
+        box.background = roundBg(if (th.dark) Color.parseColor("#2B2A33") else Color.WHITE, 16)
+        lateinit var pw: PopupWindow
+        fun row(ico: View, name: String, f: () -> Unit) {
+            val r = LinearLayout(this); r.orientation = LinearLayout.HORIZONTAL; r.gravity = Gravity.CENTER_VERTICAL; r.setPadding(dp(20), dp(12), dp(24), dp(12))
+            r.addView(ico, LinearLayout.LayoutParams(dp(34), dp(34)))
+            r.addView(label(this, name, size = 17f), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.leftMargin = dp(20) })
+            r.setOnClickListener { pw.dismiss(); f() }
+            box.addView(r)
+        }
+        fun sym(res: Int) = ImageView(this).also { it.setImageResource(res); it.setColorFilter(th.txt, PorterDuff.Mode.SRC_IN); it.setPadding(dp(4), dp(4), dp(4), dp(4)) }
+        box.addView(label(this, "This time search in:", size = 17f).also { it.setPadding(dp(20), dp(14), dp(20), dp(10)) })
+        pages.visibleEngines().forEach { e -> row(favView(e.url, 34, Color.WHITE, e.letter), e.name) { oneShot = e; Toast.makeText(this, "Next search uses " + e.name, Toast.LENGTH_SHORT).show() } }
+        row(sym(R.drawable.bt_star), "Bookmarks") { pages.bookmarks() }
+        row(sym(R.drawable.bt_tabs), "Tabs") { tabTray() }
+        row(sym(R.drawable.bt_history), "History") { pages.history() }
+        row(sym(R.drawable.bt_gear), "Search settings") { pages.searchSettings() }
+        val sc = ScrollView(this); sc.addView(box)
+        pw = PopupWindow(sc, minOf(resources.displayMetrics.widthPixels - dp(24), dp(330)), ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        pw.elevation = dp(8).toFloat(); pw.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        pw.showAsDropDown(anchor, dp(8), -dp(8))
+    }
+
     private lateinit var tabBtn: TextView
     private lateinit var holder: FrameLayout
     private lateinit var homeBox: FrameLayout
@@ -404,12 +443,13 @@ class BrowserActivity : Activity() {
         col.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = dp(10); it.bottomMargin = dp(20) })
         // search
         val sr = LinearLayout(this); sr.orientation = LinearLayout.HORIZONTAL; sr.gravity = Gravity.CENTER_VERTICAL; sr.background = roundBg(th.side, 24)
-        val eb = label(this, pages.engine().letter, bold = true, size = 16f); eb.gravity = Gravity.CENTER; eb.setTextColor(th.bg); eb.background = GradientDrawable().also { it.setColor(th.acc); it.shape = GradientDrawable.OVAL }
-        eb.setOnClickListener {
-            val l = pages.visibleEngines(); bd().setTitle("Search engine").setItems(l.map { it.name }.toTypedArray()) { _, i -> prefs.edit().putString("engine_name", l[i].name).apply(); buildHome() }.show()
-        }
-        sr.addView(eb, LinearLayout.LayoutParams(dp(32), dp(32)).also { it.leftMargin = dp(10) })
-        val se = EditText(this); se.setSingleLine(); se.hint = "Search with " + pages.engine().name; se.setTextColor(th.txt); se.setHintTextColor(th.mute); se.textSize = 15f
+        val eb = LinearLayout(this); eb.orientation = LinearLayout.HORIZONTAL; eb.gravity = Gravity.CENTER_VERTICAL; eb.setPadding(dp(6), dp(4), dp(8), dp(4))
+        eb.background = roundBg(Color.parseColor(if (th.dark) "#0F0F12" else "#E6E6EC"), 22)
+        eb.addView(favView(pages.engine().url, 30, Color.WHITE, pages.engine().letter), LinearLayout.LayoutParams(dp(30), dp(30)))
+        eb.addView(ImageView(this).also { it.setImageResource(R.drawable.bt_chev); it.rotation = 90f; it.setColorFilter(th.txt, PorterDuff.Mode.SRC_IN) }, LinearLayout.LayoutParams(dp(18), dp(18)).also { it.leftMargin = dp(4) })
+        eb.setOnClickListener { engineMenu(sr) }
+        sr.addView(eb, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.leftMargin = dp(6) })
+        val se = EditText(this); se.setSingleLine(); se.hint = "Search"; se.setTextColor(th.txt); se.setHintTextColor(th.mute); se.textSize = 15f
         se.background = null; se.setPadding(dp(12), dp(12), dp(12), dp(12)); se.imeOptions = EditorInfo.IME_ACTION_GO; se.inputType = InputType.TYPE_TEXT_VARIATION_URI
         se.setOnEditorActionListener { _, _, _ -> val q = se.text.toString(); if (q.isNotBlank()) go(q); true }
         sr.addView(se, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -419,10 +459,10 @@ class BrowserActivity : Activity() {
             val grid = GridLayout(this); grid.columnCount = 4
             val arr = tiles()
             val w = (resources.displayMetrics.widthPixels - dp(40)) / 4
-            fun cell(letter: String, name: String, fill: Int, click: () -> Unit, long: (() -> Unit)?) {
+            fun cell(letter: String, name: String, fill: Int, site: String?, click: () -> Unit, long: (() -> Unit)?) {
                 val c = LinearLayout(this); c.orientation = LinearLayout.VERTICAL; c.gravity = Gravity.CENTER_HORIZONTAL; c.setPadding(0, dp(14), 0, 0)
-                val ic = label(this, letter, bold = true, size = 22f); ic.gravity = Gravity.CENTER; ic.setTextColor(th.txt); ic.background = roundBg(fill, 16)
-                c.addView(ic, LinearLayout.LayoutParams(dp(56), dp(56)))
+                val ic = if (site != null) favView(site, 64, fill, letter) else label(this, letter, bold = true, size = 28f).also { it.gravity = Gravity.CENTER; it.setTextColor(th.txt); it.background = GradientDrawable().also { g -> g.setColor(fill); g.shape = GradientDrawable.OVAL } }
+                c.addView(ic, LinearLayout.LayoutParams(dp(64), dp(64)))
                 val nm = label(this, name, size = 12f); nm.maxLines = 1; nm.gravity = Gravity.CENTER; nm.setPadding(dp(2), dp(6), dp(2), 0); nm.ellipsize = android.text.TextUtils.TruncateAt.END
                 c.addView(nm, LinearLayout.LayoutParams(w, ViewGroup.LayoutParams.WRAP_CONTENT))
                 c.setOnClickListener { click() }
@@ -431,13 +471,13 @@ class BrowserActivity : Activity() {
             }
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                cell(o.getString("n").take(1).uppercase(), o.getString("n"), th.side, { go(o.getString("u")) }, {
+                cell(o.getString("n").take(1).uppercase(), o.getString("n"), th.side, o.getString("u"), { go(o.getString("u")) }, {
                     bd().setTitle(o.getString("n")).setItems(arrayOf("Open in new tab", "Remove")) { _, k ->
                         if (k == 0) newTab(o.getString("u")) else { val n = JSONArray(); for (j in 0 until arr.length()) if (j != i) n.put(arr.get(j)); prefs.edit().putString("tiles", n.toString()).apply(); buildHome() }
                     }.show()
                 })
             }
-            cell("+", "Add shortcut", th.side, { addTile() }, null)
+            cell("+", "Add shortcut", th.side, null, { addTile() }, null)
             col.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = dp(10) })
         }
         // continue where you left off
@@ -692,7 +732,7 @@ class BrowserActivity : Activity() {
         val u = when {
             s.startsWith("http://") || s.startsWith("https://") || s.startsWith("about:") -> s
             !s.contains(" ") && s.contains(".") -> "https://$s"
-            else -> { if (cur?.priv != true && prefs.getBoolean("recent_searches", true)) { val r = load("recent"); val n = JSONArray(); n.put(s); for (i in 0 until r.length()) if (r.getString(i) != s && n.length() < 8) n.put(r.getString(i)); prefs.edit().putString("recent", n.toString()).apply() }; pages.engine().searchUrl(s).let { it.substring(0, it.length - java.net.URLEncoder.encode(s, "UTF-8").length) } + java.net.URLEncoder.encode(s, "UTF-8") }
+            else -> { val eng = oneShot ?: pages.engine(); oneShot = null; if (cur?.priv != true && prefs.getBoolean("recent_searches", true)) { val r = load("recent"); val n = JSONArray(); n.put(s); for (i in 0 until r.length()) if (r.getString(i) != s && n.length() < 8) n.put(r.getString(i)); prefs.edit().putString("recent", n.toString()).apply() }; eng.searchUrl(s) }
         }
         cur?.home = false; applyHome()
         cur?.session?.loadUri(u); hideSug(); urlBox.clearFocus(); gv.requestFocus()

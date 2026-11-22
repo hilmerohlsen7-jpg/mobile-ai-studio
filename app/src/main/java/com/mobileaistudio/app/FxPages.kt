@@ -261,13 +261,16 @@ class FxPages(private val a: BrowserActivity, private val fx: Fx) {
                 val l = allEngines(); a.bd().setTitle("Default search engine").setItems(l.map { it.name }.toTypedArray()) { _, i -> a.prefs.edit().putString("engine_name", l[i].name).apply(); a.popPage(); searchSettings() }.show()
             }
             fx.row(b, "Manage alternative search engines", "Edit engines visible in the search menu") { manageEngines() }
+            fx.switchRow(b, "Enable Google Lens search", "Sends images and photos to Google for visual search.", bool("lens", true)) { put("lens", it) }
+            fx.switchRow(b, "Home screen widget", null, bool("hs_widget", false)) { put("hs_widget", it); if (it) fx.toast("Add the widget from your phone's widget list") }
             fx.divider(b)
             fx.header(b, "Suggestions from search engines")
             fx.switchRow(b, "Show search suggestions", null, bool("sugg", true)) { put("sugg", it) }
             fx.checkRow(b, "Show in private sessions", bool("sugg_priv", false), 24) { put("sugg_priv", it) }
+            fx.checkRow(b, "Show trending suggestions", bool("sugg_trend", true), 24) { put("sugg_trend", it) }
             fx.switchRow(b, "Show recent searches", null, bool("recent_searches", true)) { put("recent_searches", it) }
             fx.divider(b)
-            fx.header(b, "Address bar")
+            fx.header(b, "Address bar - Firefox Suggest")
             fx.switchRow(b, "Search browsing history", null, bool("sg_hist", true)) { put("sg_hist", it) }
             fx.switchRow(b, "Search bookmarks", null, bool("sg_bm", true)) { put("sg_bm", it) }
             fx.header(b, "Address bar preferences")
