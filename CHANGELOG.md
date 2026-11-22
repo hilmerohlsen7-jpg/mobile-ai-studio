@@ -2,6 +2,9 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-22 (f)
+- Browser: picture-in-picture. Play a video full screen, press Home, and it keeps playing in a small floating window
+
 ## 2026-11-22 (e)
 - Browser: videos can go full screen like the YouTube app: all bars and the system bars hide, the phone turns sideways, and Back (or the video's own button) leaves full screen
 
