@@ -2,6 +2,11 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-22 (d)
+- Browser home: shortcut tiles show each website's own icon (letter until it loads); the search bar has the engine's icon with a drop-down arrow
+- Tapping the engine icon opens Firefox's "This time search in:" list (engine icons, Bookmarks, Tabs, History, Search settings); picking an engine uses it for the next search only
+- Search settings: added Google Lens, Home screen widget and Show trending suggestions rows, and the "Address bar - Firefox Suggest" heading, like Firefox (Lens, widget and trending switches are saved but do nothing yet)
+
 ## 2026-11-22 (c)
 - Browser: tab cards in the tab tray now show a small picture of the page (not for private tabs)
 
