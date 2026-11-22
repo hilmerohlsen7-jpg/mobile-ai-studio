@@ -141,6 +141,7 @@ class BrowserActivity : Activity() {
         frame = FrameLayout(this); frame.setBackgroundColor(th.bg)
         // leave room for the status bar only when the system really draws under it
         frame.setOnApplyWindowInsetsListener { _, ins ->
+            if (fs) { rootView.setPadding(0, 0, 0, 0); return@setOnApplyWindowInsetsListener ins }
             @Suppress("DEPRECATION") val t = ins.systemWindowInsetTop
             @Suppress("DEPRECATION") val bt = ins.systemWindowInsetBottom
             inTop = t
@@ -197,7 +198,24 @@ class BrowserActivity : Activity() {
         pageStack.add(v); frame.addView(v, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
     internal fun popPage() { if (pageStack.isNotEmpty()) frame.removeView(pageStack.removeAt(pageStack.size - 1)) }
-    private fun popTop(): Boolean { if (pageStack.isEmpty()) return false; popPage(); return true }
+    private var fs = false
+    /** Page (video) full screen: hides every bar and the system bars, turns the phone sideways like the YouTube app. */
+    private fun setFs(on: Boolean) {
+        fs = on
+        if (on) {
+            topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; prog.visibility = View.GONE
+            if (android.os.Build.VERSION.SDK_INT >= 28) window.attributes = window.attributes.also { it.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+            @Suppress("DEPRECATION") window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            rootView.setPadding(0, 0, 0, 0)
+        } else {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            baseUi(); applyBar(); navBar?.visibility = View.VISIBLE
+            frame.requestApplyInsets()
+        }
+    }
+    private fun popTop(): Boolean {
+        if (fs) { cur?.session?.exitFullScreen(); return true } if (pageStack.isEmpty()) return false; popPage(); return true }
     internal fun closeAllTabs() {
         val all = tabs.toList(); gv.releaseSession(); tabs.clear(); cur = null
         all.forEach { try { it.session.close() } catch (_: Throwable) {} }
@@ -574,6 +592,7 @@ class BrowserActivity : Activity() {
             override fun onTitleChange(session: GeckoSession, title: String?) { t.title = title ?: ""; if (t.url.startsWith("http") && !t.priv) addHistory(t.url, t.title) }
             override fun onExternalResponse(session: GeckoSession, resp: WebResponse) { download(resp.uri) }
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
+            override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) setFs(fullScreen) } }
         }
         s.open(rt)
         applyDesktop(t)
