@@ -44,7 +44,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 
 ## Not done yet
 
-- Browser: add-on toolbar buttons and popups; tab thumbnails, search suggestions dropdown, bottom navigation bar ("expanded" toolbar)
+- Browser: add-on toolbar buttons and popups; tab thumbnails
 - Still to add: SMB2 toggle, key shortcuts, Configure buttons, Tweaks, Link storage, Add shortcut
 - Folder counts and image/APK previews in Vault, DLNA and server folder lists (they have type icons now)
 - Tick boxes / batch select on app rows

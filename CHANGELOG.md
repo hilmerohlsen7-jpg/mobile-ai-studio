@@ -2,6 +2,10 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-22 (b)
+- Browser: search suggestions under the address bar (from your search engine, bookmarks, history, recent searches and the clipboard, each controlled by its setting)
+- Browser: the "expanded" toolbar option now puts a bottom bar with back, forward, reload, tabs and menu
+
 ## 2026-11-22
 - Browser redone to follow Firefox for Android: new bottom-sheet menu, full Settings list (Search, Tabs, Homepage, Customise, Accessibility, Language, Private browsing, HTTPS-Only, DNS over HTTPS, Enhanced Tracking Protection, Site settings, Delete browsing data, Open links in apps, Downloads, Extensions, Remote debugging), History, Bookmarks, Downloads and Extensions pages
 - Private tabs (separate Normal/Private tab tray, nothing saved to history), grid tab tray, recently closed tabs
