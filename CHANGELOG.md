@@ -2,6 +2,12 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-22
+- Browser redone to follow Firefox for Android: new bottom-sheet menu, full Settings list (Search, Tabs, Homepage, Customise, Accessibility, Language, Private browsing, HTTPS-Only, DNS over HTTPS, Enhanced Tracking Protection, Site settings, Delete browsing data, Open links in apps, Downloads, Extensions, Remote debugging), History, Bookmarks, Downloads and Extensions pages
+- Private tabs (separate Normal/Private tab tray, nothing saved to history), grid tab tray, recently closed tabs
+- Search engine picker with add-your-own engines, voice search button, theme light/dark/follow device, "opening screen" (homepage, last tabs, or homepage after four hours)
+- Not included, they need Mozilla's servers or are not possible here: Firefox account sync, built-in VPN, stories/sponsored shortcuts, AI controls/page summaries/translations, Firefox Labs, camera sign-in. Not tested on a phone yet
+
 ## 2026-11-19
 - Make this site an app: a "Shortcut style" choice. "Old style" uses the launcher's older shortcut method, which may drop the ring around the icon on some phones
 - Make this site an app: you choose "Included" or "Excluded (full screen)" for the top bar in the dialog; an excluded bar is gone completely, with no button left on screen
