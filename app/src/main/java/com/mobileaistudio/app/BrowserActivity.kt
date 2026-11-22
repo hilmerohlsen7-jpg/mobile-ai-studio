@@ -288,7 +288,8 @@ class BrowserActivity : Activity() {
     // ---------- address-bar suggestions ----------
     private var sugBox: LinearLayout? = null
     private var sugSeq = 0
-    private fun hideSug() { sugBox?.let { holder.removeView(it) }; sugBox = null }
+    private var sugView: View? = null
+    private fun hideSug() { sugView?.let { holder.removeView(it) }; sugView = null; sugBox = null; sugSeq++ }
     private fun showSug(q0: String) {
         val q = q0.trim()
         if (appMode || (q.isEmpty() && cur?.url?.startsWith("http") == true && urlBox.text.toString() == cur?.url)) { hideSug(); return }
@@ -309,7 +310,8 @@ class BrowserActivity : Activity() {
             }
             items.forEach { row(it.first, it.second) }
             extra.forEach { row(it, it) }
-            holder.addView(ScrollView(this).also { it.addView(box); it.setBackgroundColor(th.bg) }.also { sugBox = box }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            val sv = ScrollView(this).also { it.addView(box); it.setBackgroundColor(th.bg) }; sugView = sv
+            holder.addView(sv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             sugBox = box
         }
         draw(emptyList())
