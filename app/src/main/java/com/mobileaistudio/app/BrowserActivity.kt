@@ -214,6 +214,14 @@ class BrowserActivity : Activity() {
             frame.requestApplyInsets()
         }
     }
+    /** Pressing Home while a video is full screen shrinks it into a small floating window, like the YouTube app. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (fs && android.os.Build.VERSION.SDK_INT >= 26) try {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build())
+        } catch (_: Throwable) {}
+    }
     private fun popTop(): Boolean {
         if (fs) { cur?.session?.exitFullScreen(); return true }; if (pageStack.isEmpty()) return false; popPage(); return true }
     internal fun closeAllTabs() {
