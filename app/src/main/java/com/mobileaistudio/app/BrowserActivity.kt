@@ -372,7 +372,7 @@ class BrowserActivity : Activity() {
         }
         fun sym(res: Int) = ImageView(this).also { it.setImageResource(res); it.setColorFilter(th.txt, PorterDuff.Mode.SRC_IN); it.setPadding(dp(4), dp(4), dp(4), dp(4)) }
         box.addView(label(this, "This time search in:", size = 17f).also { it.setPadding(dp(20), dp(14), dp(20), dp(10)) })
-        pages.visibleEngines().forEach { e -> row(favView(e.url, 34, Color.WHITE, e.letter), e.name) { oneShot = e; Toast.makeText(this, "Next search uses " + e.name, Toast.LENGTH_SHORT).show() } }
+        pages.visibleEngines().forEach { e -> row(favView(e.url, 34, Color.WHITE, e.letter), e.name) { oneShot = e; buildHome() } }
         row(sym(R.drawable.bt_star), "Bookmarks") { pages.bookmarks() }
         row(sym(R.drawable.bt_tabs), "Tabs") { tabTray() }
         row(sym(R.drawable.bt_history), "History") { pages.history() }
@@ -445,7 +445,8 @@ class BrowserActivity : Activity() {
         val sr = LinearLayout(this); sr.orientation = LinearLayout.HORIZONTAL; sr.gravity = Gravity.CENTER_VERTICAL; sr.background = roundBg(th.side, 24)
         val eb = LinearLayout(this); eb.orientation = LinearLayout.HORIZONTAL; eb.gravity = Gravity.CENTER_VERTICAL; eb.setPadding(dp(6), dp(4), dp(8), dp(4))
         eb.background = roundBg(Color.parseColor(if (th.dark) "#0F0F12" else "#E6E6EC"), 22)
-        eb.addView(favView(pages.engine().url, 30, Color.WHITE, pages.engine().letter), LinearLayout.LayoutParams(dp(30), dp(30)))
+        val shown = oneShot ?: pages.engine()
+        eb.addView(favView(shown.url, 30, Color.WHITE, shown.letter), LinearLayout.LayoutParams(dp(30), dp(30)))
         eb.addView(ImageView(this).also { it.setImageResource(R.drawable.bt_chev); it.rotation = 90f; it.setColorFilter(th.txt, PorterDuff.Mode.SRC_IN) }, LinearLayout.LayoutParams(dp(18), dp(18)).also { it.leftMargin = dp(4) })
         eb.setOnClickListener { engineMenu(sr) }
         sr.addView(eb, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.leftMargin = dp(6) })
