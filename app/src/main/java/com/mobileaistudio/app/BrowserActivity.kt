@@ -217,6 +217,7 @@ class BrowserActivity : Activity() {
     }
     /** Pressing Home while a video is full screen shrinks it into a small floating window, like the YouTube app. */
     private var pipping = false
+    private var geckoFs = false
     private var pipTick: Runnable? = null
     /** Asks the page where its video is; the answer comes back through the page title (see onTitleChange). */
     private fun askVideoRect() {
@@ -642,10 +643,10 @@ class BrowserActivity : Activity() {
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) { geckoFs = fullScreen; if (!(pipping && !fullScreen)) setFs(fullScreen) } } }
         }
-        s.mediaSessionDelegate = object : GeckoSession.MediaSession.Delegate {
-            override fun onPlay(session: GeckoSession, mediaSession: GeckoSession.MediaSession) { t.playing = true }
-            override fun onPause(session: GeckoSession, mediaSession: GeckoSession.MediaSession) { t.playing = false }
-            override fun onStop(session: GeckoSession, mediaSession: GeckoSession.MediaSession) { t.playing = false }
+        s.mediaSessionDelegate = object : MediaSession.Delegate {
+            override fun onPlay(session: GeckoSession, mediaSession: MediaSession) { t.playing = true }
+            override fun onPause(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
+            override fun onStop(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
         }
         s.open(rt)
         applyDesktop(t)
