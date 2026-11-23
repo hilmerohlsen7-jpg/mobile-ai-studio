@@ -224,6 +224,7 @@ class BrowserActivity : Activity() {
         else { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; if (!startEmbed()) { pipScroll(true); main.postDelayed({ if (pipping || fs) pipScroll(true) }, 700) }; pipKeep = true; keepPlaying() }
     }
     private var pipKeep = false
+    private val USE_EMBED = false   // YouTube answers error 152-4 to its embed player in this browser
     private var pipSession: GeckoSession? = null
     private var timeCb: ((Double) -> Unit)? = null
     private fun runJs(s: GeckoSession?, js: String) { try { s?.loadUri("javascript:" + Uri.encode(js)) } catch (_: Throwable) {} }
@@ -244,6 +245,7 @@ class BrowserActivity : Activity() {
     }
     /** YouTube: swap the page for YouTube's own embed player of the same video, so the small window shows only the video. */
     private fun startEmbed(): Boolean {
+        if (!USE_EMBED) return false
         val t = cur ?: return false
         val id = ytId(t.url) ?: return false
         readTime(t.session) { sec ->
