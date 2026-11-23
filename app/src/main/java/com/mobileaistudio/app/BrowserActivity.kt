@@ -220,8 +220,16 @@ class BrowserActivity : Activity() {
     private var geckoFs = false
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (!isInPictureInPictureMode) { pipping = false; pipScroll(false); setFs(geckoFs) }
-        else { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; pipScroll(true); main.postDelayed({ if (pipping || fs) pipScroll(true) }, 700) }
+        if (!isInPictureInPictureMode) { pipping = false; pipKeep = false; pipScroll(false); setFs(geckoFs) }
+        else { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; pipScroll(true); main.postDelayed({ if (pipping || fs) pipScroll(true) }, 700); pipKeep = true; keepPlaying() }
+    }
+    private var pipKeep = false
+    /** While the floating window is up: keep the page awake and press play again if the engine or the site paused the video. */
+    private fun keepPlaying() {
+        if (!pipKeep) return
+        try { cur?.session?.setActive(true) } catch (_: Throwable) {}
+        try { cur?.session?.loadUri("javascript:" + Uri.encode("(function(){var v=[].slice.call(document.querySelectorAll('video'));v.forEach(function(x){if(x.paused&&!x.ended&&x.readyState>2&&window.__wasPlaying!==false)try{x.play()}catch(e){}})})();void 0")) } catch (_: Throwable) {}
+        main.postDelayed({ keepPlaying() }, 1000)
     }
     /** Scrolls the page so the video's top edge is at the top of the small window (nothing is moved or resized). */
     private fun pipScroll(on: Boolean) {
