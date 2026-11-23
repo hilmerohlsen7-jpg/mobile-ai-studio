@@ -257,7 +257,7 @@ class BrowserActivity : Activity() {
             }
             es.setActive(true)
             gv.setSession(es)
-            es.loadUri("https://www.youtube.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0&controls=1&start=" + sec.toInt())
+            es.load(GeckoSession.Loader().uri("https://www.youtube.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0&controls=1&enablejsapi=1&origin=" + Uri.encode("https://www.youtube.com") + "&start=" + sec.toInt()).referrer("https://www.youtube.com/"))
         }
         return true
     }
