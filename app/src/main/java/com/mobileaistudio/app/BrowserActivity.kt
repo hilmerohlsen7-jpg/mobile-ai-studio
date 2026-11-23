@@ -48,7 +48,6 @@ class Tab(val session: GeckoSession) {
     var home = false
     var priv = false
     var thumb: android.graphics.Bitmap? = null
-    var playing = false
 }
 
 /** Dialog builder that colours its buttons with the app's accent. */
@@ -218,47 +217,14 @@ class BrowserActivity : Activity() {
     /** Pressing Home while a video is full screen shrinks it into a small floating window, like the YouTube app. */
     private var pipping = false
     private var geckoFs = false
-    private var pipTick: Runnable? = null
-    /** Asks the page where its video is; the answer comes back through the page title (see onTitleChange). */
-    private fun askVideoRect() {
-        val js = """(function(){var vs=[].slice.call(document.querySelectorAll('video')).sort(function(a,b){return b.videoWidth*b.videoHeight-a.videoWidth*a.videoHeight});var v=vs[0];if(!v)return;var r=v.getBoundingClientRect();var o=window.__pto===undefined?document.title:window.__pto;window.__pto=o;document.title='~~PIP|'+[r.left,r.top,r.width,r.height,innerWidth,innerHeight].join('|');setTimeout(function(){document.title=window.__pto;window.__pto=undefined},60)})();void 0"""
-        try { cur?.session?.loadUri("javascript:" + Uri.encode(js)) } catch (_: Throwable) {}
-    }
-    /** Zooms and slides the page so only the video is visible in the small floating window. */
-    private fun cropToVideo(a: List<String>) {
-        try {
-            val v = a.map { it.toFloat() }; val l = v[0]; val t = v[1]; val w = v[2]; val h = v[3]; val iw = v[4]
-            if (w < 20f || h < 20f || iw <= 0f || !pipOn) return
-            val W = holder.width.toFloat(); val H = holder.height.toFloat(); if (W <= 0f || H <= 0f) return
-            val k = gv.width / iw
-            val wp = w * k; val hp = h * k; val s = minOf(W / wp, H / hp)
-            gv.pivotX = 0f; gv.pivotY = 0f; gv.scaleX = s; gv.scaleY = s
-            gv.translationX = -l * k * s + (W - wp * s) / 2f; gv.translationY = -t * k * s + (H - hp * s) / 2f
-            holder.setBackgroundColor(Color.BLACK)
-        } catch (_: Throwable) {}
-    }
-    private var pipOn = false
-    private fun pipStart() {
-        pipOn = true
-        topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; prog.visibility = View.GONE
-        rootView.setPadding(0, 0, 0, 0)
-        val r = object : Runnable { override fun run() { if (!pipOn) return; askVideoRect(); main.postDelayed(this, 800) } }
-        pipTick = r; main.postDelayed(r, 400)
-    }
-    private fun pipStop() {
-        pipOn = false; pipTick?.let { main.removeCallbacks(it) }; pipTick = null
-        gv.scaleX = 1f; gv.scaleY = 1f; gv.translationX = 0f; gv.translationY = 0f; holder.setBackgroundColor(Color.TRANSPARENT)
-        if (!fs) { applyBar(); navBar?.visibility = View.VISIBLE }
-        frame.requestApplyInsets()
-    }
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (!isInPictureInPictureMode) { pipping = false; pipStop(); setFs(geckoFs) }
-        else pipStart()
+        if (!isInPictureInPictureMode) { pipping = false; setFs(geckoFs) }
+        else if (fs) { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE }
     }
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if ((fs || cur?.playing == true) && android.os.Build.VERSION.SDK_INT >= 26) try {
+        if (fs && android.os.Build.VERSION.SDK_INT >= 26) try {
             pipping = true
             enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build())
         } catch (_: Throwable) {}
@@ -638,15 +604,10 @@ class BrowserActivity : Activity() {
             override fun onProgressChange(session: GeckoSession, p: Int) { if (t === cur) runOnUiThread { prog.progress = p; prog.visibility = if (p in 1..99) View.VISIBLE else View.GONE } }
         }
         s.contentDelegate = object : GeckoSession.ContentDelegate {
-            override fun onTitleChange(session: GeckoSession, title: String?) { if (title != null && title.startsWith("~~PIP|")) { val a = title.substring(6).split("|"); runOnUiThread { cropToVideo(a) }; return }; t.title = title ?: ""; if (t.url.startsWith("http") && !t.priv) addHistory(t.url, t.title) }
+            override fun onTitleChange(session: GeckoSession, title: String?) { t.title = title ?: ""; if (t.url.startsWith("http") && !t.priv) addHistory(t.url, t.title) }
             override fun onExternalResponse(session: GeckoSession, resp: WebResponse) { download(resp.uri) }
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) { geckoFs = fullScreen; if (!(pipping && !fullScreen)) setFs(fullScreen) } } }
-        }
-        s.mediaSessionDelegate = object : MediaSession.Delegate {
-            override fun onPlay(session: GeckoSession, mediaSession: MediaSession) { t.playing = true }
-            override fun onPause(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
-            override fun onStop(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
         }
         s.open(rt)
         applyDesktop(t)
