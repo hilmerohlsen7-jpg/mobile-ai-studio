@@ -229,18 +229,21 @@ class BrowserActivity : Activity() {
     private var pipSession: GeckoSession? = null
     private var nativePip: NativePip? = null
     private val ytUrls = HashMap<String, String>()
+    private val ytTried = HashMap<String, Long>()
     private var lastTime = 0.0
     private var lastTimeId = ""
     private var watching = false
     /** While a YouTube video plays: find its file in the background and remember how far it has played. */
     private fun watchYt(t: Tab) {
         val id = ytId(t.url) ?: return
-        if (!ytUrls.containsKey(id)) Thread { val u = YtStreams.resolve(this, id); if (u != null) ytUrls[id] = u }.start()
+        if (!ytUrls.containsKey(id)) Thread {
+            ytTried[id] = System.currentTimeMillis(); val u = YtStreams.resolve(this, id); if (u != null) ytUrls[id] = u }.start()
         if (watching) return
         watching = true
         val r = object : Runnable { override fun run() {
             val c = cur
             if (c == null || !c.playing || ytId(c.url) == null) { watching = false; return }
+            val cid = ytId(c.url); if (cid != null && !ytUrls.containsKey(cid) && System.currentTimeMillis() - (ytTried[cid] ?: 0L) > 15000L) { ytTried[cid] = System.currentTimeMillis(); Thread { val u = YtStreams.resolve(this@BrowserActivity, cid); if (u != null) ytUrls[cid] = u }.start() }
             if (!pipOnNative()) readTime(c.session) { sec -> lastTime = sec; lastTimeId = ytId(c.url) ?: "" }
             main.postDelayed(this, 2000)
         } }
@@ -331,8 +334,9 @@ class BrowserActivity : Activity() {
     }
     /** Scrolls the page so the video's top edge is at the top of the small window (nothing is moved or resized). */
     private fun pipScroll(on: Boolean) {
-        val js = if (on) "(function(){var vs=[].slice.call(document.querySelectorAll('video')).sort(function(a,b){return b.videoWidth*b.videoHeight-a.videoWidth*a.videoHeight});var v=vs[0];if(!v)return;if(window.__ps===undefined)window.__ps=window.scrollY;window.scrollTo(0,window.scrollY+v.getBoundingClientRect().top)})();void 0"
-                 else "(function(){if(window.__ps!==undefined){window.scrollTo(0,window.__ps);window.__ps=undefined}})();void 0"
+        val css = "ytm-mobile-topbar-renderer,ytm-pivot-bar-renderer,ytm-open-app-promo-renderer,ytm-app-promo-renderer,ytm-search-header-renderer,header,.mobile-topbar-header,.mobile-topbar-header-content,[class*=open-app],[class*=topbar],[class*=masthead]{display:none!important}html,body{overflow-x:hidden!important}"
+        val js = if (on) "(function(){if(!document.getElementById('__pipcss')){var st=document.createElement('style');st.id='__pipcss';st.textContent='" + css + "';document.documentElement.appendChild(st)}var vs=[].slice.call(document.querySelectorAll('video')).sort(function(a,b){return b.videoWidth*b.videoHeight-a.videoWidth*a.videoHeight});var v=vs[0];if(!v)return;if(window.__ps===undefined)window.__ps=window.scrollY;setTimeout(function(){window.scrollTo(0,window.scrollY+v.getBoundingClientRect().top)},150)})();void 0"
+                 else "(function(){var st=document.getElementById('__pipcss');if(st)st.remove();if(window.__ps!==undefined){window.scrollTo(0,window.__ps);window.__ps=undefined}})();void 0"
         try { cur?.session?.loadUri("javascript:" + Uri.encode(js)) } catch (_: Throwable) {}
     }
     override fun onUserLeaveHint() {
