@@ -83,6 +83,7 @@ class BrowserActivity : Activity() {
         th = BTheme.load(this, getSharedPreferences("browser", Context.MODE_PRIVATE).getInt("theme", 0))
         dc = ContextThemeWrapper(this, dlgStyle())
         rt = Gk.get(this)
+        YtStreams.refresh(this)
         pages.applyAll()
         if (prefs.getBoolean("gfxfix", false)) rt.webExtensionController.ensureBuiltIn(GFX_URI, GFX_ID)
         rt.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
@@ -220,12 +221,55 @@ class BrowserActivity : Activity() {
     private var geckoFs = false
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (!isInPictureInPictureMode) { pipping = false; pipKeep = false; if (pipSession != null) endEmbed() else pipScroll(false); setFs(geckoFs) }
+        if (!isInPictureInPictureMode) { pipping = false; pipKeep = false; if (nativePip != null) endNative() else if (pipSession != null) endEmbed() else pipScroll(false); setFs(geckoFs) }
         else { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; if (!startEmbed()) { pipScroll(true); main.postDelayed({ if (pipping || fs) pipScroll(true) }, 700) }; pipKeep = true; keepPlaying() }
     }
     private var pipKeep = false
     private val USE_EMBED = false   // YouTube answers error 152-4 to its embed player in this browser
     private var pipSession: GeckoSession? = null
+    private var nativePip: NativePip? = null
+    private val ytUrls = HashMap<String, String>()
+    private var lastTime = 0.0
+    private var lastTimeId = ""
+    private var watching = false
+    /** While a YouTube video plays: find its file in the background and remember how far it has played. */
+    private fun watchYt(t: Tab) {
+        val id = ytId(t.url) ?: return
+        if (!ytUrls.containsKey(id)) Thread { val u = YtStreams.resolve(this, id); if (u != null) ytUrls[id] = u }.start()
+        if (watching) return
+        watching = true
+        val r = object : Runnable { override fun run() {
+            val c = cur
+            if (c == null || !c.playing || ytId(c.url) == null) { watching = false; return }
+            if (!pipOnNative()) readTime(c.session) { sec -> lastTime = sec; lastTimeId = ytId(c.url) ?: "" }
+            main.postDelayed(this, 2000)
+        } }
+        main.postDelayed(r, 1500)
+    }
+    private fun pipOnNative() = nativePip != null
+    private fun startNative(): Boolean {
+        val t = cur ?: return false
+        val id = ytId(t.url) ?: return false
+        val url = ytUrls[id] ?: return false
+        val n = NativePip(this) { failNative() }
+        nativePip = n
+        runJs(t.session, "(function(){[].slice.call(document.querySelectorAll('video')).forEach(function(v){try{v.pause()}catch(e){}})})();void 0")
+        frame.addView(n, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        n.start(url, if (lastTimeId == id) lastTime else 0.0)
+        return true
+    }
+    private fun failNative() {
+        val n = nativePip ?: return; nativePip = null
+        n.stop(); frame.removeView(n)
+        runJs(cur?.session, "(function(){[].slice.call(document.querySelectorAll('video')).forEach(function(v){try{v.play()}catch(e){}})})();void 0")
+        pipScroll(true)
+    }
+    private fun endNative() {
+        val n = nativePip ?: return; nativePip = null
+        val sec = n.position() / 1000.0
+        n.stop(); frame.removeView(n)
+        runJs(cur?.session, "(function(){[].slice.call(document.querySelectorAll('video')).forEach(function(v){try{v.currentTime=" + sec + ";v.play()}catch(e){}})})();void 0")
+    }
     private var timeCb: ((Double) -> Unit)? = null
     private fun runJs(s: GeckoSession?, js: String) { try { s?.loadUri("javascript:" + Uri.encode(js)) } catch (_: Throwable) {} }
     /** Reads how far the video in this page has played (answer arrives through the page title). */
@@ -245,6 +289,7 @@ class BrowserActivity : Activity() {
     }
     /** YouTube: swap the page for YouTube's own embed player of the same video, so the small window shows only the video. */
     private fun startEmbed(): Boolean {
+        if (startNative()) return true
         if (!USE_EMBED) return false
         val t = cur ?: return false
         val id = ytId(t.url) ?: return false
@@ -279,6 +324,7 @@ class BrowserActivity : Activity() {
     /** While the floating window is up: keep the page awake and press play again if the engine or the site paused the video. */
     private fun keepPlaying() {
         if (!pipKeep) return
+        if (nativePip != null) { main.postDelayed({ keepPlaying() }, 1000); return }
         try { (pipSession ?: cur?.session)?.setActive(true) } catch (_: Throwable) {}
         try { (pipSession ?: cur?.session)?.loadUri("javascript:" + Uri.encode("(function(){var v=[].slice.call(document.querySelectorAll('video'));v.forEach(function(x){if(x.paused&&!x.ended&&x.readyState>2&&window.__wasPlaying!==false)try{x.play()}catch(e){}})})();void 0")) } catch (_: Throwable) {}
         main.postDelayed({ keepPlaying() }, 1000)
@@ -677,7 +723,7 @@ class BrowserActivity : Activity() {
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) { geckoFs = fullScreen; if (!(pipping && !fullScreen)) setFs(fullScreen) } } }
         }
         s.mediaSessionDelegate = object : MediaSession.Delegate {
-            override fun onPlay(session: GeckoSession, mediaSession: MediaSession) { t.playing = true }
+            override fun onPlay(session: GeckoSession, mediaSession: MediaSession) { t.playing = true; runOnUiThread { if (t === cur) watchYt(t) } }
             override fun onPause(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
             override fun onStop(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
         }
