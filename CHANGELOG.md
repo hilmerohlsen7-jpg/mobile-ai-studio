@@ -2,6 +2,9 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-23 (b)
+- Browser: YouTube floating window now plays the video in the app's own small player (no YouTube bar, smooth), using public Piped/Invidious services to find the video file. The list of services is instances.json in this repo: the app reads the newest copy at start, so a broken service can be swapped without a new APK. If no service answers, it falls back to the shrunken page
+
 ## 2026-11-23
 - Browser: floating video window for YouTube now plays YouTube's own embed player of the same video (no header, starts where you were) and hands the position back when you expand it. Other sites scroll the page to the video instead. Videos playing in the normal page also shrink when you press Home
 
