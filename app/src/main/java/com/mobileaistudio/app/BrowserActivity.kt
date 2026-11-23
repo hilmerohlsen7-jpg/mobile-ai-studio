@@ -33,7 +33,7 @@ object Gk {
     fun get(a: Activity): GeckoRuntime {
         runtime?.let { return it }
         // light on memory: one content process instead of one per site
-        val st = GeckoRuntimeSettings.Builder().autoplayDefault(GeckoRuntimeSettings.AUTOPLAY_DEFAULT_ALLOWED).fissionEnabled(false).remoteDebuggingEnabled(false).consoleOutput(false).build()
+        val st = GeckoRuntimeSettings.Builder().fissionEnabled(false).remoteDebuggingEnabled(false).consoleOutput(false).build()
         val r = GeckoRuntime.create(a.applicationContext, st)
         runtime = r
         return r
