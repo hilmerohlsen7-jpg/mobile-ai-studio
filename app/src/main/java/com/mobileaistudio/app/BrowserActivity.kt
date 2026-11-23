@@ -48,6 +48,7 @@ class Tab(val session: GeckoSession) {
     var home = false
     var priv = false
     var thumb: android.graphics.Bitmap? = null
+    var playing = false
 }
 
 /** Dialog builder that colours its buttons with the app's accent. */
@@ -219,12 +220,18 @@ class BrowserActivity : Activity() {
     private var geckoFs = false
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (!isInPictureInPictureMode) { pipping = false; setFs(geckoFs) }
-        else if (fs) { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE }
+        if (!isInPictureInPictureMode) { pipping = false; pipScroll(false); setFs(geckoFs) }
+        else { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; pipScroll(true); main.postDelayed({ if (pipping || fs) pipScroll(true) }, 700) }
+    }
+    /** Scrolls the page so the video's top edge is at the top of the small window (nothing is moved or resized). */
+    private fun pipScroll(on: Boolean) {
+        val js = if (on) "(function(){var vs=[].slice.call(document.querySelectorAll('video')).sort(function(a,b){return b.videoWidth*b.videoHeight-a.videoWidth*a.videoHeight});var v=vs[0];if(!v)return;if(window.__ps===undefined)window.__ps=window.scrollY;window.scrollTo(0,window.scrollY+v.getBoundingClientRect().top)})();void 0"
+                 else "(function(){if(window.__ps!==undefined){window.scrollTo(0,window.__ps);window.__ps=undefined}})();void 0"
+        try { cur?.session?.loadUri("javascript:" + Uri.encode(js)) } catch (_: Throwable) {}
     }
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (fs && android.os.Build.VERSION.SDK_INT >= 26) try {
+        if ((fs || cur?.playing == true) && android.os.Build.VERSION.SDK_INT >= 26) try {
             pipping = true
             enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build())
         } catch (_: Throwable) {}
@@ -608,6 +615,11 @@ class BrowserActivity : Activity() {
             override fun onExternalResponse(session: GeckoSession, resp: WebResponse) { download(resp.uri) }
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) { geckoFs = fullScreen; if (!(pipping && !fullScreen)) setFs(fullScreen) } } }
+        }
+        s.mediaSessionDelegate = object : MediaSession.Delegate {
+            override fun onPlay(session: GeckoSession, mediaSession: MediaSession) { t.playing = true }
+            override fun onPause(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
+            override fun onStop(session: GeckoSession, mediaSession: MediaSession) { t.playing = false }
         }
         s.open(rt)
         applyDesktop(t)
