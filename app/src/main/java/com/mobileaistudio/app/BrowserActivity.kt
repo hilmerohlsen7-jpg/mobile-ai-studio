@@ -503,7 +503,7 @@ class BrowserActivity : Activity() {
         val iv = ImageView(this); iv.scaleType = ImageView.ScaleType.FIT_CENTER; val pd = dp((size * 0.22f).toInt()); iv.setPadding(pd, pd, pd, pd)
         val host = try { Uri.parse(site).host ?: site } catch (e: Throwable) { site }
         f.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        fx.load("https://www.google.com/s2/favicons?sz=128&domain=" + host, iv)
+        if (host.endsWith("bing.com")) { iv.setImageResource(R.drawable.bt_bing); iv.setPadding(pd / 2, pd / 2, pd / 2, pd / 2) } else fx.load("https://www.google.com/s2/favicons?sz=128&domain=" + host, iv)
         return f
     }
 
@@ -764,7 +764,7 @@ class BrowserActivity : Activity() {
         try {
             DownloadCenter.init(this)
             DownloadCenter.manager.add(u, "file", "", DownloadCenter.filesDir, null, DownloadCenter.manager.defaultThreads)
-            runOnUiThread { Toast.makeText(this, "Added to Downloads", Toast.LENGTH_SHORT).show(); if (!quiet) pages.downloads() }
+            runOnUiThread { Toast.makeText(this, "Added to Downloads", Toast.LENGTH_SHORT).show() }
         } catch (e: Throwable) { runOnUiThread { Toast.makeText(this, "Could not download: " + e.message, Toast.LENGTH_LONG).show() } }
     }
 

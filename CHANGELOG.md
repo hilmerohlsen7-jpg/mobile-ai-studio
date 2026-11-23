@@ -2,6 +2,13 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-23 (c)
+- File Manager and Browser no longer appear in the phone's app list on install: they are added only when you tap "Add to desktop" next to them
+- Removed Duck.ai from the left menu
+- Theme: new "Button shape" choice (Square, Rounded, Pill) for the menu buttons, rows and cards
+- Downloads: the browser's Downloads now opens the same Downloads screen as the AI side (one list, one set of settings); a browser download just shows "Added to Downloads"
+- Browser: new Bing logo in the search engine list
+
 ## 2026-11-23 (b)
 - Browser: YouTube floating window now plays the video in the app's own small player (no YouTube bar, smooth), using public Piped/Invidious services to find the video file. The list of services is instances.json in this repo: the app reads the newest copy at start, so a broken service can be swapped without a new APK. If no service answers, it falls back to the shrunken page
 

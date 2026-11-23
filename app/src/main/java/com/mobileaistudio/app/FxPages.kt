@@ -554,7 +554,11 @@ class FxPages(private val a: BrowserActivity, private val fx: Fx) {
 
     private fun mb(n: Long): String = if (n >= 1073741824L) String.format("%.2f GB", n / 1073741824.0) else if (n >= 1048576L) String.format("%.1f MB", n / 1048576.0) else String.format("%d KB", n / 1024)
 
+    /** One list for the whole app: the browser opens the same Downloads screen as the AI side. */
     fun downloads() {
+        a.startActivity(Intent(a, MainActivity::class.java).putExtra("open", "downloads").addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP))
+    }
+    private fun downloadsOld() {
         DownloadCenter.init(a)
         lateinit var list: LinearLayout
         fun fill() {

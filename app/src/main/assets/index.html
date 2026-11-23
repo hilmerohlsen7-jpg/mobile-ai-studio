@@ -16,6 +16,8 @@ header{display:flex;gap:6px;align-items:center;padding:8px;border-bottom:1px sol
 button,select,input,textarea{font:inherit}
 button,select{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 button:disabled{opacity:.5}
+html[data-shape=square] #drawer button,html[data-shape=square] #drawer .row,html[data-shape=square] #drawer .setlink,html[data-shape=square] #settings .srow,html[data-shape=square] .modes button,html[data-shape=square] .skill,html[data-shape=square] select,html[data-shape=square] .scard,html[data-shape=square] button.pri{border-radius:4px!important}
+html[data-shape=pill] #drawer button,html[data-shape=pill] #drawer .row,html[data-shape=pill] #drawer .setlink,html[data-shape=pill] #settings .srow,html[data-shape=pill] .modes button,html[data-shape=pill] .skill,html[data-shape=pill] select,html[data-shape=pill] button.pri{border-radius:999px!important}
 select{max-width:140px}
 button.pri{background:var(--acc);color:var(--onacc);font-weight:700;border:0}
 button.danger{color:var(--bad)}
@@ -385,6 +387,8 @@ header #model{display:none}
 </div></div>
 <button id="iconApply" class="pri" style="margin-top:10px;width:100%">Change my app icon</button>
 <div style="color:var(--mute);font-size:.8rem;margin-top:6px">Replaces the current icon. The launcher icon uses the nearest of 8 ready-made colors to your accent.</div></div>
+<div class="scard"><div class="sct">Button shape</div>
+<div class="modes" id="shapes"><button data-s="square">Square</button><button data-s="round">Rounded</button><button data-s="pill">Pill</button></div></div>
 <div class="scard"><div class="sct">Font style</div>
 <div class="modes" id="fonts"><button data-f="default">Default</button><button data-f="sans">Sans</button><button data-f="serif">Serif</button></div></div>
 </div>
@@ -715,6 +719,7 @@ function applyTheme() {
   try { const a = S.settings && S.settings.accent, st = document.documentElement.style;
     if (/^#[0-9a-f]{6}$/i.test(a || '')) { const n = parseInt(a.slice(1), 16), lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; st.setProperty('--acc', a); st.setProperty('--onacc', lum > 0.62 ? '#141413' : '#FFFFFF'); }
     else { st.removeProperty('--acc'); st.removeProperty('--onacc'); } } catch (e) {}
+  try { const sh = S.settings && S.settings.shape; if (sh === 'square' || sh === 'pill') document.documentElement.setAttribute('data-shape', sh); else document.documentElement.removeAttribute('data-shape'); } catch (e) {}
   const t = S.settings && S.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
   setTimeout(pushNativeTheme, 50);
@@ -1008,7 +1013,6 @@ function renderDrawer() {
   const pinBtn = (kind) => h('button', {class: 'pinbtn', title: 'Add to desktop', onclick: () => { try { Android.pinShortcut(kind); } catch (e) { toast('Needs the new app version.'); } }}, 'Add to desktop');
   d.append(h('div', {class: 'pinrow'}, h('button', {onclick: () => { closeDrawer(); openFiles(); }}, '\u{1F4C1}  File Manager'), hasBridge ? pinBtn('files') : ''));
   if (hasBridge) d.append(h('div', {class: 'pinrow'}, h('button', {onclick: () => { closeDrawer(); try { Android.openBrowser(''); } catch (e) { toast('Browser needs the new app version.'); } }}, '\u{1F310}  Browser'), pinBtn('browser')));
-  if (hasBridge) d.append(h('button', {onclick: () => { closeDrawer(); try { Android.openBrowser('https://duck.ai'); } catch (e) { toast('Needs the new app version.'); } }}, '\u{1F986}  Duck.ai (DuckDuckGo)'));
   d.append(h('button', {class: 'setlink', style: 'margin-top:0;text-align:left', onclick: () => { closeDrawer(); $('setBtn').onclick(); }}, '\u2699  Settings'));
 }
 function renderSkillsPage() {
@@ -1311,7 +1315,7 @@ function openDownloads() { loadDlSettings(); pullDownloads(); renderDownloads();
 function closeDownloads() { $('downloads').classList.remove('open'); }
 if ($('openDl')) $('openDl').onclick = openDownloads;
 if ($('openFiles')) $('openFiles').onclick = () => openFiles();
-window.__open = k => { if (k === 'files') openFiles(); };
+window.__open = k => { if (k === 'files') openFiles(); else if (k === 'downloads') openDownloads(); };
 setTimeout(() => { try { const o = Android.takeOpen(); if (o) window.__open(o); } catch (e) {} }, 700);
 
 
@@ -3632,6 +3636,7 @@ function setHome() {
   try { accUi(); } catch (e) {}
   const n = (S.settings.userName || '').trim(); $('setName').textContent = n || 'You'; $('setAv').textContent = (n || 'Y')[0].toUpperCase();
   const t = S.settings.theme || 'auto'; document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('sel', b.dataset.m === t));
+  const sp = S.settings.shape || 'round'; document.querySelectorAll('#shapes button').forEach(b => b.classList.toggle('sel', b.dataset.s === sp));
   const f = S.settings.font || 'default'; document.querySelectorAll('#fonts button').forEach(b => b.classList.toggle('sel', b.dataset.f === f));
 }
 
@@ -3688,6 +3693,7 @@ function setAcc(col, live) { S.settings.accent = col; applyTheme(); if (live) { 
 $('setBack').onclick = () => { if (setPage !== 'home') setGo('home'); else $('settings').classList.remove('open'); };
 document.querySelectorAll('#settings [data-go]').forEach(b => b.onclick = () => setGo(b.dataset.go));
 document.querySelectorAll('#modes button').forEach(b => b.onclick = () => { S.settings.theme = b.dataset.m; $('s_theme').value = b.dataset.m; applyTheme(); persist(); setHome(); });
+document.querySelectorAll('#shapes button').forEach(b => b.onclick = () => { S.settings.shape = b.dataset.s; applyTheme(); persist(); setHome(); });
 document.querySelectorAll('#fonts button').forEach(b => b.onclick = () => { S.settings.font = b.dataset.f; applyFont(); persist(); setHome(); });
 function applyFont() { const f = S.settings.font; if (f === 'serif' || f === 'sans') document.documentElement.setAttribute('data-font', f); else document.documentElement.removeAttribute('data-font'); }
 applyFont();
