@@ -33,7 +33,7 @@ object Gk {
     fun get(a: Activity): GeckoRuntime {
         runtime?.let { return it }
         // light on memory: one content process instead of one per site
-        val st = GeckoRuntimeSettings.Builder().fissionEnabled(false).remoteDebuggingEnabled(false).consoleOutput(false).build()
+        val st = GeckoRuntimeSettings.Builder().autoplayDefault(GeckoRuntimeSettings.AUTOPLAY_DEFAULT_ALLOWED).fissionEnabled(false).remoteDebuggingEnabled(false).consoleOutput(false).build()
         val r = GeckoRuntime.create(a.applicationContext, st)
         runtime = r
         return r
@@ -220,15 +220,65 @@ class BrowserActivity : Activity() {
     private var geckoFs = false
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (!isInPictureInPictureMode) { pipping = false; pipKeep = false; pipScroll(false); setFs(geckoFs) }
-        else { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; pipScroll(true); main.postDelayed({ if (pipping || fs) pipScroll(true) }, 700); pipKeep = true; keepPlaying() }
+        if (!isInPictureInPictureMode) { pipping = false; pipKeep = false; if (pipSession != null) endEmbed() else pipScroll(false); setFs(geckoFs) }
+        else { topBar.visibility = View.GONE; navBar?.visibility = View.GONE; handle.visibility = View.GONE; if (!startEmbed()) { pipScroll(true); main.postDelayed({ if (pipping || fs) pipScroll(true) }, 700) }; pipKeep = true; keepPlaying() }
     }
     private var pipKeep = false
+    private var pipSession: GeckoSession? = null
+    private var timeCb: ((Double) -> Unit)? = null
+    private fun runJs(s: GeckoSession?, js: String) { try { s?.loadUri("javascript:" + Uri.encode(js)) } catch (_: Throwable) {} }
+    /** Reads how far the video in this page has played (answer arrives through the page title). */
+    private fun readTime(s: GeckoSession?, then: (Double) -> Unit) {
+        timeCb = then
+        runJs(s, "(function(){var vs=[].slice.call(document.querySelectorAll('video')).sort(function(a,b){return b.videoWidth*b.videoHeight-a.videoWidth*a.videoHeight});var v=vs[0];if(!v)return;var o=document.title;document.title='~~T|'+v.currentTime;setTimeout(function(){document.title=o},60)})();void 0")
+    }
+    private fun ytId(u: String): String? {
+        return try {
+            val x = Uri.parse(u); val h = x.host ?: return null
+            when {
+                h.contains("youtu.be") -> x.pathSegments.firstOrNull()
+                h.contains("youtube.com") -> x.getQueryParameter("v") ?: x.pathSegments.let { p -> if (p.size >= 2 && (p[0] == "shorts" || p[0] == "live" || p[0] == "embed")) p[1] else null }
+                else -> null
+            }?.takeIf { it.length in 6..20 }
+        } catch (e: Throwable) { null }
+    }
+    /** YouTube: swap the page for YouTube's own embed player of the same video, so the small window shows only the video. */
+    private fun startEmbed(): Boolean {
+        val t = cur ?: return false
+        val id = ytId(t.url) ?: return false
+        readTime(t.session) { sec ->
+            if (!pipping && !isInPictureInPictureMode) return@readTime
+            runJs(t.session, "(function(){[].slice.call(document.querySelectorAll('video')).forEach(function(v){try{v.pause()}catch(e){}})})();void 0")
+            val es = GeckoSession(); es.open(rt); pipSession = es
+            es.contentDelegate = object : GeckoSession.ContentDelegate {
+                override fun onTitleChange(session: GeckoSession, title: String?) {
+                    if (title != null && title.startsWith("~~T|")) { val c = timeCb; timeCb = null; title.substring(4).toDoubleOrNull()?.let { x -> runOnUiThread { c?.invoke(x) } } }
+                }
+            }
+            es.setActive(true)
+            gv.setSession(es)
+            es.loadUri("https://www.youtube.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0&controls=1&start=" + sec.toInt())
+        }
+        return true
+    }
+    private fun endEmbed() {
+        val es = pipSession ?: return; pipSession = null
+        val t = cur
+        if (t != null) gv.setSession(t.session)
+        var done = false
+        fun fin(sec: Double?) {
+            if (done) return; done = true
+            if (sec != null && t != null) runJs(t.session, "(function(){[].slice.call(document.querySelectorAll('video')).forEach(function(v){try{v.currentTime=" + sec + ";v.play()}catch(e){}})})();void 0")
+            try { es.close() } catch (_: Throwable) {}
+        }
+        readTime(es) { fin(it) }
+        main.postDelayed({ fin(null) }, 1200)
+    }
     /** While the floating window is up: keep the page awake and press play again if the engine or the site paused the video. */
     private fun keepPlaying() {
         if (!pipKeep) return
-        try { cur?.session?.setActive(true) } catch (_: Throwable) {}
-        try { cur?.session?.loadUri("javascript:" + Uri.encode("(function(){var v=[].slice.call(document.querySelectorAll('video'));v.forEach(function(x){if(x.paused&&!x.ended&&x.readyState>2&&window.__wasPlaying!==false)try{x.play()}catch(e){}})})();void 0")) } catch (_: Throwable) {}
+        try { (pipSession ?: cur?.session)?.setActive(true) } catch (_: Throwable) {}
+        try { (pipSession ?: cur?.session)?.loadUri("javascript:" + Uri.encode("(function(){var v=[].slice.call(document.querySelectorAll('video'));v.forEach(function(x){if(x.paused&&!x.ended&&x.readyState>2&&window.__wasPlaying!==false)try{x.play()}catch(e){}})})();void 0")) } catch (_: Throwable) {}
         main.postDelayed({ keepPlaying() }, 1000)
     }
     /** Scrolls the page so the video's top edge is at the top of the small window (nothing is moved or resized). */
@@ -619,7 +669,7 @@ class BrowserActivity : Activity() {
             override fun onProgressChange(session: GeckoSession, p: Int) { if (t === cur) runOnUiThread { prog.progress = p; prog.visibility = if (p in 1..99) View.VISIBLE else View.GONE } }
         }
         s.contentDelegate = object : GeckoSession.ContentDelegate {
-            override fun onTitleChange(session: GeckoSession, title: String?) { t.title = title ?: ""; if (t.url.startsWith("http") && !t.priv) addHistory(t.url, t.title) }
+            override fun onTitleChange(session: GeckoSession, title: String?) { if (title != null && title.startsWith("~~T|")) { val c = timeCb; timeCb = null; title.substring(4).toDoubleOrNull()?.let { x -> runOnUiThread { c?.invoke(x) } }; return }; t.title = title ?: ""; if (t.url.startsWith("http") && !t.priv) addHistory(t.url, t.title) }
             override fun onExternalResponse(session: GeckoSession, resp: WebResponse) { download(resp.uri) }
             override fun onCloseRequest(session: GeckoSession) { runOnUiThread { closeTab(t) } }
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) { runOnUiThread { if (t === cur || !fullScreen) { geckoFs = fullScreen; if (!(pipping && !fullScreen)) setFs(fullScreen) } } }
