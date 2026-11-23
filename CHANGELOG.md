@@ -2,6 +2,9 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-23
+- Browser: floating video window for YouTube now plays YouTube's own embed player of the same video (no header, starts where you were) and hands the position back when you expand it. Other sites scroll the page to the video instead. Videos playing in the normal page also shrink when you press Home
+
 ## 2026-11-22 (f)
 - Browser: picture-in-picture. Play a video full screen, press Home, and it keeps playing in a small floating window
 
