@@ -811,6 +811,59 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    /** Opens a ZIP, 7z or RAR like a folder: unpacks it once into the app's cache and returns that folder. */
+    @JavascriptInterface
+    fun fsArcOpen(reqId: String, path: String, password: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val src = File(path)
+                val key = Integer.toHexString((src.absolutePath + src.lastModified() + src.length()).hashCode())
+                val dest = File(File(activity.cacheDir, "arc"), key)
+                if (File(dest, ".done").exists()) { fsReply(reqId, null, JSONObject().put("ok", true).put("dir", dest.absolutePath)); return@execute }
+                dest.deleteRecursively(); dest.mkdirs()
+                val root = dest.canonicalPath + File.separator
+                val n = src.name.lowercase()
+                if (n.endsWith(".rar")) {
+                    com.github.junrar.Junrar.extract(src, dest, if (password.isEmpty()) null else password)
+                } else if (n.endsWith(".7z")) {
+                    val sz = if (password.isEmpty()) org.apache.commons.compress.archivers.sevenz.SevenZFile(src)
+                        else org.apache.commons.compress.archivers.sevenz.SevenZFile(src, password.toCharArray())
+                    sz.use { z ->
+                        while (true) {
+                            val e = z.nextEntry ?: break
+                            val out = File(dest, e.name)
+                            if (!out.canonicalPath.startsWith(root)) continue
+                            if (e.isDirectory) { out.mkdirs(); continue }
+                            out.parentFile?.mkdirs()
+                            out.outputStream().use { os ->
+                                val buf = ByteArray(64 * 1024)
+                                while (true) { val c = z.read(buf); if (c < 0) break; os.write(buf, 0, c) }
+                            }
+                        }
+                    }
+                } else {
+                    val zf = net.lingala.zip4j.ZipFile(src)
+                    if (zf.isEncrypted) {
+                        if (password.isEmpty()) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "password").put("msg", "This archive needs a password.")); return@execute }
+                        zf.setPassword(password.toCharArray())
+                    }
+                    zf.extractAll(dest.absolutePath)
+                }
+                File(dest, ".done").writeText("1")
+                fsReply(reqId, null, JSONObject().put("ok", true).put("dir", dest.absolutePath))
+            } catch (e: Exception) {
+                val m = e.message ?: ""
+                val pw = m.contains("password", true) || m.contains("encrypted", true) || e.javaClass.simpleName.contains("Password", true)
+                fsReply(reqId, null, JSONObject().put("ok", false).put("code", if (pw) "password" else "").put("msg", if (pw) "This archive needs a password (or the one given is wrong)." else (if (m.isEmpty()) "Could not open it." else m)))
+            }
+        }
+    }
+
+    /** Clears the unpacked copies of opened archives. */
+    @JavascriptInterface
+    fun fsArcClear(): String { File(activity.cacheDir, "arc").deleteRecursively(); return "ok" }
+
     /** Looks for names containing the text anywhere under a folder. The answer arrives in __onFs with "files". */
     @JavascriptInterface
     fun fsFind(reqId: String, path: String, query: String) {

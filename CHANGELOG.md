@@ -107,3 +107,4 @@ Newest first. Every entry is one build pushed to `main`.
 ## 2026-11-24 (batch 2-3)
 - Checksums (MD5, SHA-1, SHA-256) in the file details box.
 - Extract now also opens 7z and RAR files (into a new folder; passwords supported).
+- Zip, 7z and RAR files now open like folders (tap them); Back leaves the archive. Items are unpacked to a temporary copy; copy files out to keep them.
