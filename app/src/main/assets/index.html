@@ -1627,6 +1627,7 @@ function fsBack() {
   if (FS.view !== 'list') { FS.view = 'list'; renderFiles(); return true; }
   const pn = FS.panes[FS.active];
   if (pn.mapOn) { pn.mapOn = false; renderFiles(); return true; }
+  if (pn.arc) { if (FS.path === pn.arc.root) { const b = pn.arc.back; openLocal(b); } else { FS.path = parentOf(FS.path); renderFiles(); } return true; }
   if (pn.home) { if (pn.sub) { pn.sub = ''; renderFiles(); return true; } closeFiles(); return true; }
   if (FS.access && FS.root && FS.path !== FS.root && !pn.remote) { FS.path = parentOf(FS.path); renderFiles(); return true; }
   if (pn.remote && FS.path !== (pn.remote.path || '/')) { FS.path = parentOf(FS.path); renderFiles(); return true; }
@@ -1741,7 +1742,7 @@ function buildPane(o, idx) {
         const nm = h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + ' · ' + fmtDate(it.mtime)));
         const menu = () => itemMenu(FS.active, C, p, it, false);
         if (it.dir) holdOpen(nm, togg, menu);
-        else holdOpen(nm, () => { pr0.focus = fk; if (C) { FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p); renderFiles(); } else openFileView(it, p); }, menu);
+        else holdOpen(nm, () => { pr0.focus = fk; if (C) { FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p); renderFiles(); } else if (/\.(zip|7z|rar)$/i.test(it.name)) openArchive(p); else openFileView(it, p); }, menu);
         row.append(nm);
         row.append(h('span', {class: 'xchk', onclick: () => { if (FS.sel.has(p)) FS.sel.delete(p); else FS.sel.add(p); renderFiles(); }}, '✔'));
         const kids = bx => { const sub = fsListed(p); if (sub) draw(sub, p, depth + 1, bx); };
@@ -1976,6 +1977,7 @@ async function itemMenu(idx, c, p, it, inTree, keepFocus) {
   if (!it.dir) A.push(E('plug', 'Open with...', () => { const r = fsJson('fsOpenWith', p); if (!r.ok) toast(r.msg || 'Could not open it.'); }, {col: '#9aa4b2'}));
   A.push(E('shortcut', 'Add shortcut', () => { const l = shortcuts(); if (l.some(x => x.path === p)) { toast('Already in your shortcuts.'); return; } l.push({name: it.name, path: p, dir: !!it.dir}); persist(); toast('Shortcut added at the top of Home.'); renderFiles(); }, {col: '#6cc24a'}));
   if (it.dir) A.push(E('image', 'Slideshow', () => { const r = fsJson('fsList', p); const f = r.ok && r.items.filter(x => !x.dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(x.name)).sort((x, y) => x.name.localeCompare(y.name))[0]; if (!f) { toast('No pictures in this folder.'); return; } const o = fsJson('fsOpenWith', joinPath(p, f.name)); if (!o.ok) toast(o.msg || 'Could not open it.'); }, {col: '#e8a64a'}));
+  if (!it.dir && /\.(zip|7z|rar)$/i.test(it.name)) A.push(E('folderOpen', 'Open as folder', () => { FS.active = idx; openArchive(p); }, {col: '#e8b84a'}));
   if (!it.dir) { A.push(E('hex', 'Hex viewer', () => hexView(p, 0), {col: '#9aa4b2'}));
     A.push(E('pencil', 'Edit text', () => { FS.active = idx; openFileView(it, p); }, {col: '#2fbfa8'})); }
   ctxMenu(it.name, A);
@@ -2264,7 +2266,17 @@ function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () =>
   el.addEventListener('touchstart', st, {passive: true}); el.addEventListener('touchend', en); el.addEventListener('touchmove', en); el.addEventListener('touchcancel', en);
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
 function goHome() { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = true; pn.sub = ''; pn.remote = null; pn.cache = {}; FS.sel.clear(); renderFiles(); }
-function openLocal(path) { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
+function openLocal(path) { const pn = FS.panes[FS.active]; pn.arc = null; pn.mapOn = false; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
+async function openArchive(p) {
+  const pn = FS.panes[FS.active], back = pn.path; let pw = '';
+  for (let tries = 0; tries < 3; tries++) {
+    toast('Opening the archive...');
+    const r = await fsCall('fsArcOpen', p, pw);
+    if (r.ok) { openLocal(r.dir); pn.arc = {src: p, root: r.dir, back: back}; toast('Inside ' + baseName(p) + '. Copy files out to keep them.'); return; }
+    if (r.code === 'password') { pw = await askText((tries ? 'Wrong password. ' : '') + 'Password for this archive', ''); if (!pw) return; continue; }
+    toast(r.msg || 'Could not open it.'); return;
+  }
+}
 function openConn(cn) { const pn = FS.panes[FS.active]; pn.home = false; pn.remote = Object.assign({}, cn); pn.path = cn.path || '/'; pn.cache = {}; pn.err = ''; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
 function featureMenu(k, idx) {
   const pn = FS.panes[idx]; FS.active = idx;
