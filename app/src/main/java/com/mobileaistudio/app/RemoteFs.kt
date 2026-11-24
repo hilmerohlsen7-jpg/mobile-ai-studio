@@ -17,8 +17,8 @@ import java.io.FileOutputStream
 /** FTP and SFTP browsing and transfers. Each call opens its own short connection. */
 object RemoteFs {
     class NeedHostKey(val fp: String) : Exception("hostkey")
-    class Conn(val type: String, val host: String, val port: Int, val user: String, val pass: String, val hostKey: String, val ftps: Boolean = false, val active: Boolean = false) {
-        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", when (o.optString("type")) { "sftp" -> 22; "smb" -> 445; "dav" -> 443; else -> 21 }), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", ""), o.optBoolean("ftps", false), o.optBoolean("active", false)) }
+    class Conn(val type: String, val host: String, val port: Int, val user: String, val pass: String, val hostKey: String, val ftps: Boolean = false, val active: Boolean = false, val smb1: Boolean = false) {
+        companion object { fun of(o: JSONObject) = Conn(o.optString("type", "ftp"), o.getString("host").trim(), o.optInt("port", when (o.optString("type")) { "sftp" -> 22; "smb" -> 445; "dav" -> 443; else -> 21 }), o.optString("user", "anonymous"), o.optString("pass", ""), o.optString("hostKey", ""), o.optBoolean("ftps", false), o.optBoolean("active", false), o.optBoolean("smb1", false)) }
     }
     class Item(val name: String, val dir: Boolean, val size: Long, val mtime: Long)
 
@@ -85,7 +85,7 @@ object RemoteFs {
         init {
             val props = java.util.Properties()
             props.setProperty("jcifs.smb.client.responseTimeout", "20000"); props.setProperty("jcifs.smb.client.connTimeout", "15000")
-            props.setProperty("jcifs.smb.client.minVersion", "SMB202"); props.setProperty("jcifs.smb.client.maxVersion", "SMB311")
+            props.setProperty("jcifs.smb.client.minVersion", if (c.smb1) "SMB1" else "SMB202"); props.setProperty("jcifs.smb.client.maxVersion", "SMB311")
             val base = jcifs.context.BaseContext(jcifs.config.PropertyConfiguration(props))
             val dom = if (c.user.contains('\\')) c.user.substringBefore('\\') else ""
             val usr = c.user.substringAfter('\\')

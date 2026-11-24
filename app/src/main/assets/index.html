@@ -280,6 +280,7 @@ footer #send{width:40px;height:40px;padding:0;border-radius:50%;background:#F5F4
 .xhex{font:12px/1.5 monospace;white-space:pre;overflow:auto;max-height:55vh;background:#111;padding:8px;border-radius:8px;color:#cfd8dc}
 .xarrow{width:18px;color:#2aa6e6;text-align:center;flex-shrink:0}
 .xic{font-size:1.3rem;flex-shrink:0;min-width:1.5em;height:1.5em;display:flex;align-items:center;justify-content:center}.xrow{min-height:3.3rem}
+#files.compact .xrow{min-height:0;padding-top:3px;padding-bottom:3px}
 .xnm{flex:1;min-width:0;display:flex;flex-direction:column;word-break:break-all}
 .xnm b{font-weight:600;font-size:1rem}
 .xnm small{color:var(--mute);font-size:.75rem;white-space:pre-line;display:block;min-height:1.2em}
@@ -1633,6 +1634,7 @@ function fsBack() {
   closeFiles(); return true;
 }
 function openFiles() {
+  if (!FS._tw) { FS._tw = 1; FS.hidden = !!S.settings.fmHidden; if (S.settings.fmSort) FS.sort = S.settings.fmSort; }
   $('settings').classList.remove('open'); $('drawer').classList.remove('open'); $('scrim').classList.remove('open');
   FS.view = 'list'; FS.access = hasBridge ? !!Android.fsAccess() : false;
   if (FS.access && !FS.root) { FS.root = Android.fsRoot(); FS.path = FS.root; }
@@ -1645,7 +1647,7 @@ window.__onResume = () => { if ($('settings').classList.contains('open')) { try 
 function topbar(title, back) { return h('div', {class: 'topbar'}, h('h2', null, title), back ? h('button', {onclick: back}, 'Back') : null, h('button', {onclick: closeFiles}, 'Close')); }
 function renderFiles() {
   const o0 = $('files'), key = FS.view + '|' + FS.path, tops = [...o0.querySelectorAll('.xlist')].map(e => e.scrollTop), same = FS._rk === key;
-  FS._rk = key; renderFilesRaw();
+  FS._rk = key; renderFilesRaw(); o0.classList.toggle('compact', !!S.settings.fmCompact); appBarUpdate();
   if (same) o0.querySelectorAll('.xlist').forEach((e, i) => { if (tops[i]) e.scrollTop = tops[i]; });
 }
 function renderFilesRaw() {
@@ -1753,6 +1755,66 @@ function buildPane(o, idx) {
   }
   localBar(o, idx, wrap, list, root);
 }
+
+/* ---- configurable buttons, tweaks, key shortcuts, app tick boxes ---- */
+FS._btnAll = {};
+const fmKey = t => t.replace(/ \(\d+\)$/, '').replace(/ to \d$/, ' to other panel').replace(/^(Hide|Show) hidden$/, 'Hidden files');
+function fmHidden() { return new Set(S.settings.fmHide || []); }
+function fmConfigSheet() {
+  const o = $('sheet'); o.textContent = ''; const close = () => o.classList.remove('open'); const hid = fmHidden();
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Configure buttons'), h('div', {class: 'note'}, 'Tick the buttons you want on the strip at the side.'));
+  Object.keys(FS._btnAll).forEach(t => box.append(h('button', {style: 'text-align:left', onclick: () => { if (hid.has(t)) hid.delete(t); else hid.add(t); S.settings.fmHide = [...hid]; persist(); fmConfigSheet(); renderFiles(); }}, (hid.has(t) ? '☐  ' : '☑  ') + FS._btnAll[t] + '  ' + t)));
+  box.append(h('button', {onclick: () => { S.settings.fmHide = []; persist(); fmConfigSheet(); renderFiles(); }}, 'Show all buttons'), h('button', {onclick: close}, 'Done'));
+  o.append(box); o.classList.add('open'); sheetDone = close;
+}
+function fmTweaks() {
+  const o = $('sheet'); o.textContent = ''; const close = () => o.classList.remove('open');
+  const row = (t, on, fn) => h('button', {style: 'text-align:left', onclick: fn}, (on ? '☑  ' : '☐  ') + t), redo = () => { fmTweaks(); renderFiles(); };
+  const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, 'Tweaks'),
+    row('Show hidden files', FS.hidden, () => { FS.hidden = !FS.hidden; S.settings.fmHidden = FS.hidden; persist(); redo(); }),
+    row('Compact rows (more files on screen)', !!S.settings.fmCompact, () => { S.settings.fmCompact = !S.settings.fmCompact; persist(); redo(); }),
+    h('button', {style: 'text-align:left', onclick: async () => { const v = await choose('Start with this sort order', [{label: 'Name', value: 'name'}, {label: 'Size (biggest first)', value: 'size'}, {label: 'Date (newest first)', value: 'date'}]); if (v) { FS.sort = v; S.settings.fmSort = v; persist(); redo(); } }}, 'Sort order: ' + (FS.sort === 'size' ? 'size' : FS.sort === 'date' ? 'date' : 'name')),
+    h('button', {onclick: close}, 'Done'));
+  o.append(box); o.classList.add('open'); sheetDone = close;
+}
+document.addEventListener('keydown', e => {
+  if (!hasBridge || !$('files').classList.contains('open') || FS.view !== 'list') return;
+  if (e.target && e.target.matches && e.target.matches('input,textarea,select')) return;
+  const bars = $('files').querySelectorAll('.xbar'), bar = bars[FS.active] || bars[0]; if (!bar) return;
+  const press = k => { const b = bar.querySelector('[data-t="' + k + '"]'); if (b) { e.preventDefault(); b.click(); } };
+  const c = e.ctrlKey || e.metaKey, key = e.key;
+  if (c && key === 'a') press('Select all'); else if (c && key === 'c') press('Clipboard'); else if (c && key === 'v') press('Paste'); else if (c && key === 'f') press('Find'); else if (c && key === 'n') press('New folder');
+  else if (key === 'Delete' || key === 'F8') press('Delete'); else if (key === 'F2') press('Rename'); else if (key === 'F5') press('Copy to other panel'); else if (key === 'F6') press('Move to other panel');
+  else if (key === 'F7') press('New folder'); else if (key === 'F9') press('Refresh'); else if (key === 'Backspace') press('Up dir'); else if (key === 'Tab') { e.preventDefault(); xSwap(1 - FS.active); }
+});
+FS.appSel = new Set(); FS.appObj = {};
+function appTick(a) {
+  FS.appObj[a.pkg] = a; const on = FS.appSel.has(a.pkg);
+  return h('span', {style: 'padding:6px 8px;font-size:1.3rem;cursor:pointer;flex:0 0 auto', onclick: e => { e.stopPropagation(); if (on) FS.appSel.delete(a.pkg); else FS.appSel.add(a.pkg); renderFiles(); }}, on ? '☑' : '☐');
+}
+function appBarUpdate() {
+  const old = document.getElementById('appSelBar'); if (old) old.remove();
+  const o = $('files'); if (!o.classList.contains('open') || !FS.appSel.size) return;
+  o.append(h('div', {id: 'appSelBar', style: 'position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;gap:8px;padding:10px;background:var(--panel);border-top:1px solid var(--line)'},
+    h('button', {style: 'flex:1', onclick: () => { FS.appSel.clear(); renderFiles(); }}, 'Clear (' + FS.appSel.size + ')'),
+    h('button', {style: 'flex:1', onclick: appBackupMany}, 'Back up'),
+    h('button', {class: 'danger', style: 'flex:1', onclick: appUninstallMany}, 'Uninstall')));
+}
+const appTicked = () => [...FS.appSel].map(p => FS.appObj[p]).filter(Boolean);
+async function appBackupMany() {
+  const list = appTicked(); if (!list.length) return;
+  const c = await askApproval({title: 'Back up ' + list.length + ' apps', path: 'Download', reason: 'You ticked apps in the app manager and chose Back up.', rows: [['Apps', list.map(a => a.name).join('\n')]], primary: {label: 'Approve: back them up', value: 'ok'}});
+  if (c === 'deny') return; toast('Saving...'); let ok = 0;
+  for (const a of list) { const r = await fsCall('appBackup', a.pkg); if (r && r.ok) ok++; }
+  toast('Backed up ' + ok + ' of ' + list.length + '.'); FS.appSel.clear(); renderFiles();
+}
+async function appUninstallMany() {
+  const list = appTicked(); if (!list.length) return;
+  const c = await askApproval({title: 'Uninstall ' + list.length + ' apps', path: 'Apps', reason: 'You ticked apps and chose Uninstall.', rows: [['Apps', list.map(a => a.name).join('\n')]], primary: {label: 'Continue to Android', value: 'ok'}, note: 'Android asks about each app one by one. Nothing is removed until you confirm there.'});
+  if (c === 'deny') return;
+  for (const a of list) { try { const r = JSON.parse(Android.appAction(a.pkg, 'uninstall')); if (!r.ok) toast(r.msg || 'Could not.'); else watchUninstall(a); } catch (e) {} await new Promise(r => setTimeout(r, 1500)); }
+  FS.appSel.clear(); renderFiles();
+}
 function localBar(o, idx, wrap, list, root) {
   const bar = h('div', {class: 'xbar'});
   const oth = FS.panes[1 - idx];
@@ -1760,7 +1822,8 @@ function localBar(o, idx, wrap, list, root) {
   bar.append(h('button', {class: 'xhandle', onclick: () => xSwap(1 - idx)}, h('span', {class: 'xarr'}, idx ? '\u25C0' : '\u25B6'), h('span', {class: 'xhl'}, baseName(oth.path) || 'Storage')));
   if (R) { buildRemoteBar(bar, idx, root); if (idx) wrap.style.flexDirection = 'row-reverse'; wrap.append(list, bar); o.append(wrap); return; }
   const n = FS.sel.size, one = n === 1;
-  const tb = (ico, t, fn, off) => bar.append(h('button', {class: 'xtb' + (off ? ' off' : ''), onclick: off ? () => toast('Tick a file or folder first.') : fn}, h('span', null, ico), t));
+  const hid = fmHidden(); FS._btnAll = {};
+  const tb = (ico, t, fn, off) => { const k = fmKey(t); FS._btnAll[k] = ico; if (hid.has(k)) return; bar.append(h('button', {class: 'xtb' + (off ? ' off' : ''), 'data-t': k, onclick: off ? () => toast('Tick a file or folder first.') : fn}, h('span', null, ico), t)); };
   tb('⬆', 'Up dir', () => { if (FS.path !== FS.root) { FS.path = parentOf(FS.path); FS.sel.clear(); renderFiles(); } else goHome(); });
   tb('✏', 'Rename', () => { const p = [...FS.sel][0]; fsRename({name: baseName(p), dir: FS.kind[p]}, p); FS.sel.clear(); }, !one);
   const other = FS.panes[1 - FS.active];
@@ -1787,14 +1850,17 @@ function localBar(o, idx, wrap, list, root) {
   tb('\u{1F4C1}', 'New folder', fsNewFolder);
   tb('\u{1F4DD}', 'New text file', fsNewFile);
   tb(FS.hidden ? '\u{1F441}' : '\u{1F576}', FS.hidden ? 'Hide hidden' : 'Show hidden', () => { FS.hidden = !FS.hidden; renderFiles(); });
-  tb('↕', 'Sort by', async () => { const v = await choose('Sort by', [{label: 'Name', value: 'name'}, {label: 'Size (biggest first)', value: 'size'}, {label: 'Date (newest first)', value: 'date'}]); if (v) { FS.sort = v; renderFiles(); } });
+  tb('↕', 'Sort by', async () => { const v = await choose('Sort by', [{label: 'Name', value: 'name'}, {label: 'Size (biggest first)', value: 'size'}, {label: 'Date (newest first)', value: 'date'}]); if (v) { FS.sort = v; S.settings.fmSort = v; persist(); renderFiles(); } });
   tb('\u{1F50D}', 'Find', async () => { const t = await askText('Find names containing... (searches this folder and everything inside)', ''); if (!t) return; toast('Searching...'); const r = await fsCall('fsFind', FS.path, t.trim()); if (!r.ok) { toast(r.msg || 'Search failed.'); return; } FS.results = {title: 'Found: ' + t.trim(), files: r.files, note: r.partial ? 'Showing the first matches only.' : ''}; FS.view = 'results'; renderFiles(); });
+  tb('\u2B50', 'Add shortcut', () => { const l = shortcuts(); if (l.some(x => x.path === FS.path)) { toast('Already in your shortcuts.'); return; } l.push({name: baseName(FS.path) || 'Storage', path: FS.path, dir: true}); persist(); toast('Added to Home.'); });
   tb('\u{1F4CA}', 'Disk map', () => openDiskMap(FS.path));
   tb('\u{1F310}', 'Network', () => networkSheet());
   tb('\u{1F4F6}', 'Wi-Fi server', () => wifiSheet());
   tb('\u{1F504}', 'Refresh', () => renderFiles());
   tb('\u{1F552}', 'History', () => { FS.view = 'history'; renderFiles(); });
   tb('♻', 'Trash', () => { FS.view = 'trash'; renderFiles(); });
+  bar.append(h('button', {class: 'xtb', onclick: fmTweaks}, h('span', null, '\u{1F527}'), 'Tweaks'));
+  bar.append(h('button', {class: 'xtb', onclick: fmConfigSheet}, h('span', null, '\u2699'), 'Configure buttons'));
   if (idx) wrap.style.flexDirection = 'row-reverse';
   wrap.append(list, bar); o.append(wrap);
 }
@@ -1962,7 +2028,7 @@ async function openDiskMap(path) {
   const pn = FS.panes[FS.active]; pn.dm = {path: path, node: r.node, total: r.total, free: r.free, partial: r.partial}; pn.mapOn = true; pn.home = false; renderFiles();
 }
 /* ---- FTP / SFTP servers ---- */
-const rconn = r => ({type: r.type, host: r.host, port: r.port, user: r.user, pass: r.pass, hostKey: r.hostKey || '', ftps: !!r.ftps, active: !!r.active});
+const rconn = r => ({type: r.type, host: r.host, port: r.port, user: r.user, pass: r.pass, hostKey: r.hostKey || '', ftps: !!r.ftps, active: !!r.active, smb1: !!r.smb1});
 function saveConns() { persist(); }
 async function remoteCall(pn, op) {
   for (let i = 0; i < 2; i++) {
@@ -2121,12 +2187,12 @@ function serverForm(type, pre) {
     const box = h('div', {class: 'sbox'}, h('div', {class: 'mt'}, dav ? 'Add web storage' : 'Add server'),
       fld('name', 'Label (may be blank)', pre.name), fld('host', dav ? 'Web address (WebDAV)' : 'Server', pre.host, false, smb ? 'for example 192.168.1.20' : (type === 'ftp' ? 'host or host:port' : 'host name or address')), fld('path', 'Path', pre.path || '/', false, smb ? '/ lists all shares' : '/'),
       fld('user', 'Username', pre.user, false, type === 'ftp' ? 'anonymous if empty' : (smb ? 'empty = guest' : '')), fld('pass', 'Password (stored only on this phone)', pre.pass, true));
-    if (smb) box.append(fld('domain', 'Domain', pre.domain));
+    if (smb) { box.append(fld('domain', 'Domain', pre.domain)); f.smb1 = h('input', {type: 'checkbox'}); if (pre.smb1) f.smb1.checked = true; box.append(h('label', {style: 'display:flex;gap:8px;align-items:center;margin:8px 0;font-size:.86rem'}, f.smb1, 'Also allow old SMB1 (only for very old routers or NAS boxes)')); }
     else if (type === 'ftp') { f.ftps = h('select', {style: 'width:100%'}, h('option', {value: ''}, 'FTP'), h('option', {value: '1'}, 'FTPS (explicit TLS)')); f.active = h('input', {type: 'checkbox'});
       box.append(h('label', {style: 'display:block;font-size:.78rem;color:var(--mute);margin:6px 0 2px'}, 'Server type', f.ftps), h('label', {style: 'display:flex;gap:8px;align-items:center;margin:8px 0;font-size:.86rem'}, f.active, 'Active mode (leave off unless the server needs it)')); }
     else if (!dav) box.append(fld('port', 'Port', pre.port || '22'));
     const read = () => { let host = f.host.value.trim(), hp = 0; const m = host.match(/^(.+):(\d+)$/); if (m && type !== 'smb' && type !== 'dav') { host = m[1]; hp = parseInt(m[2], 10); } let user = f.user.value.trim(); if (smb && f.domain.value.trim() && user) user = f.domain.value.trim() + '\\' + user;
-      return {id: uid(), name: f.name.value.trim() || host, type: type, host: host, ftps: !!(f.ftps && f.ftps.value), active: !!(f.active && f.active.checked), port: dav ? 443 : smb ? 445 : (hp || (f.port ? parseInt(f.port.value, 10) : 0) || (type === 'sftp' ? 22 : 21)), user: user || (type === 'ftp' ? 'anonymous' : ''), pass: f.pass.value, path: f.path.value.trim() || '/', hostKey: ''}; };
+      return {id: uid(), name: f.name.value.trim() || host, type: type, host: host, ftps: !!(f.ftps && f.ftps.value), active: !!(f.active && f.active.checked), smb1: !!(f.smb1 && f.smb1.checked), port: dav ? 443 : smb ? 445 : (hp || (f.port ? parseInt(f.port.value, 10) : 0) || (type === 'sftp' ? 22 : 21)), user: user || (type === 'ftp' ? 'anonymous' : ''), pass: f.pass.value, path: f.path.value.trim() || '/', hostKey: ''}; };
     const msg = h('div', {class: 'note'}, '');
     box.append(msg, h('div', {style: 'display:flex;gap:8px;margin-top:10px'},
       h('button', {onclick: async () => { const c = read(); if (!c.host) { msg.textContent = 'Enter the server address.'; return; } msg.textContent = 'Testing...'; const r = await remoteCall({remote: c}, {type: 'list', path: '/'}); msg.textContent = r.ok ? 'Connected. ' + (r.items || []).length + ' item(s) found.' : (r.msg || 'Could not connect.'); }}, 'TEST'),
@@ -2325,7 +2391,7 @@ function buildHome(o, idx) {
             if (!items.length && pn.appsBusy) return;
             if (!items.length) L2.append(h('div', {class: 'xrow', style: 'padding-left:46px'}, h('span', {class: 'xnm'}, h('small', null, 'Empty'))));
             items.forEach(a => { const ak = 'apk:' + a.pkg; pn.anames = pn.anames || {}; pn.anames[ak] = a.name;
-              grp(ak, L2, () => { const el = h('div', {class: 'xrow', style: 'padding-left:46px;align-items:center'},
+              grp(ak, L2, () => { const el = h('div', {class: 'xrow', style: 'padding-left:46px;align-items:center'}, appTick(a),
                 h('span', {class: 'xic'}, pn.icons[a.pkg] ? h('img', {src: 'data:image/png;base64,' + pn.icons[a.pkg], style: 'width:40px;height:40px;border-radius:8px'}) : '\u{1F4E6}'),
                 h('span', {class: 'xnm', style: 'min-width:0;flex:1;overflow:hidden'}, h('b', null, a.name), h('small', {style: 'word-break:break-all'}, a.pkg), a.splits ? h('small', null, 'Split APK ' + (a.splits + 1) + 'x') : null, h('small', {style: 'text-align:right'}, a.time ? fmtDate(a.time) : '')),
                 h('span', {style: 'text-align:right;font-size:.75rem;color:var(--mute);flex:0 0 76px;max-width:76px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis'}, h('div', {style: 'overflow:hidden;text-overflow:ellipsis'}, a.version || ''), h('div', null, fmtSize(a.size))));
@@ -2440,7 +2506,7 @@ function buildApps(list, idx) {
   list.append(inp); const holder = h('div'); list.append(holder);
   const drawApps = () => {
     holder.textContent = ''; const q = (pn.q || '').toLowerCase();
-    pn.apps.filter(a => !q || a.name.toLowerCase().includes(q) || a.pkg.includes(q)).forEach(a => holder.append(h('div', {class: 'xrow', onclick: () => appSheet(a)}, h('span', {class: 'xic'}, pn.icons[a.pkg] ? h('img', {src: 'data:image/png;base64,' + pn.icons[a.pkg], style: 'width:32px;height:32px;border-radius:7px'}) : '\u{1F4E6}'), h('span', {class: 'xnm'}, h('b', null, a.name), h('small', null, fmtSize(a.size) + ' · ' + (a.version || '') + (a.system ? ' · system' : ''))))));
+    pn.apps.filter(a => !q || a.name.toLowerCase().includes(q) || a.pkg.includes(q)).forEach(a => holder.append(h('div', {class: 'xrow', onclick: () => appSheet(a)}, appTick(a), h('span', {class: 'xic'}, pn.icons[a.pkg] ? h('img', {src: 'data:image/png;base64,' + pn.icons[a.pkg], style: 'width:32px;height:32px;border-radius:7px'}) : '\u{1F4E6}'), h('span', {class: 'xnm'}, h('b', null, a.name), h('small', null, fmtSize(a.size) + ' · ' + (a.version || '') + (a.system ? ' · system' : ''))))));
   };
   drawApps();
   if (!pn.iconsBusy) { pn.iconsBusy = true; (async () => { const todo = pn.apps.map(a => a.pkg).filter(k => !pn.icons[k]);

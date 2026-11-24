@@ -34,6 +34,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 - File sync tasks: copy, full, two-way and move modes, schedule, servers and Google Drive as source or target, never deletes on servers
 - App manager: installed and system apps, uninstall
 - Storage bars and folder/file counts on roots and folders
+- Configure buttons, Tweaks, Add shortcut, keyboard shortcuts, tick boxes on app rows, old SMB1 option
 - File icons: image, video, PDF and APK previews, music note, zip and extension badges
 - Loading wheels on slow folders
 
@@ -45,9 +46,7 @@ An Android app that runs an AI model on the phone itself (llama.cpp), with no in
 ## Not done yet
 
 - Browser: add-on toolbar buttons and popups
-- Still to add: SMB2 toggle, key shortcuts, Configure buttons, Tweaks, Link storage, Add shortcut
 - Folder counts and image/APK previews in Vault, DLNA and server folder lists (they have type icons now)
-- Tick boxes / batch select on app rows
 - Weather city bug
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in each update.

@@ -2,6 +2,12 @@
 
 Newest first. Every entry is one build pushed to `main`.
 
+## 2026-11-24
+- File Manager: tick boxes on the app rows (App manager) with a bar to back up or uninstall all ticked apps in one go
+- File Manager: **Configure buttons** (choose which buttons show on the side strip), **Tweaks** (show hidden files, compact rows, start sort order) and **Add shortcut** for the current folder (shows on Home)
+- File Manager: keyboard shortcuts for a connected keyboard: Ctrl+A select all, Ctrl+C clipboard, Ctrl+V paste, Ctrl+F find, Ctrl+N or F7 new folder, F2 rename, F5 copy, F6 move, F8 or Delete delete, F9 refresh, Backspace up, Tab switch panel
+- LAN servers: new tick box "Also allow old SMB1" for very old routers and NAS boxes (newer SMB2/3 stays the default)
+
 ## 2026-11-23 (c)
 - File Manager and Browser no longer appear in the phone's app list on install: they are added only when you tap "Add to desktop" next to them
 - Removed Duck.ai from the left menu
