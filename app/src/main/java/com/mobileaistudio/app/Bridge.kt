@@ -706,6 +706,27 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         } catch (e: Exception) { JSONObject().put("ok", false).put("msg", e.message ?: "Could not read it.").toString() }
     }
 
+    /** MD5, SHA-1 and SHA-256 of one file, worked out in one pass. The answer arrives in __onFs. */
+    @JavascriptInterface
+    fun fsHash(reqId: String, path: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val f = File(path)
+                if (!f.isFile) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Pick a file, not a folder.")); return@execute }
+                val ds = listOf("MD5", "SHA-1", "SHA-256").map { java.security.MessageDigest.getInstance(it) }
+                f.inputStream().use { ins ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) { val n = ins.read(buf); if (n < 0) break; for (d in ds) d.update(buf, 0, n) }
+                }
+                val hex = ds.map { d -> d.digest().joinToString("") { "%02x".format(it) } }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("md5", hex[0]).put("sha1", hex[1]).put("sha256", hex[2]))
+            } catch (e: Exception) {
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not read the file."))
+            }
+        }
+    }
+
     /** Makes a new ZIP of the chosen files and folders next to them. The answer arrives in __onFs. */
     @JavascriptInterface
     fun fsZip(reqId: String, pathsJson: String, destDir: String, zipName: String, password: String) {

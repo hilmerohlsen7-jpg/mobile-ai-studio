@@ -1988,6 +1988,15 @@ function fsInfoBox(path) {
   line('Where', parentOf(r.path)); line('Kind', r.dir ? 'Folder' : r.mime); line('Size', fmtSize(r.size) + (r.partial ? '+' : ''));
   if (r.dir) line('Contains', r.dirs + ' folders, ' + r.files + ' files' + (r.partial ? ' (at least)' : ''));
   line('Changed', fmtDate(r.mtime)); line('Can read', r.canRead ? 'Yes' : 'No'); line('Can change', r.canWrite ? 'Yes' : 'No');
+  if (!r.dir) {
+    const out = h('div', {style: 'font-size:.72rem;word-break:break-all;margin:6px 0;user-select:text'});
+    box.append(out, h('button', {onclick: async () => {
+      out.textContent = 'Working it out...'; const x = await fsCall('fsHash', path);
+      if (!x.ok) { out.textContent = x.msg || 'Could not read the file.'; return; }
+      out.textContent = ''; for (const [k, v] of [['MD5', x.md5], ['SHA-1', x.sha1], ['SHA-256', x.sha256]]) out.append(h('div', {style: 'margin:3px 0'}, h('b', null, k + ' '), v));
+      try { navigator.clipboard.writeText('MD5 ' + x.md5 + '\nSHA-1 ' + x.sha1 + '\nSHA-256 ' + x.sha256); toast('Checksums copied.'); } catch (e) {}
+    }}, 'Checksums (MD5, SHA-1, SHA-256)'));
+  }
   box.append(h('button', {onclick: () => o.classList.remove('open')}, 'Close'));
   o.append(box); o.classList.add('open'); sheetDone = () => o.classList.remove('open');
 }
