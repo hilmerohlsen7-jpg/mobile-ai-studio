@@ -773,6 +773,44 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    /** Unpacks a 7z or RAR file into a new folder next to it. The answer arrives in __onFs. */
+    @JavascriptInterface
+    fun fsUnpackOther(reqId: String, path: String, password: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            try {
+                val src = File(path)
+                val dest = uniqueFile(src.parentFile ?: File("/"), src.name.substringBeforeLast('.'))
+                dest.mkdirs()
+                val root = dest.canonicalPath + File.separator
+                if (src.name.endsWith(".rar", true)) {
+                    com.github.junrar.Junrar.extract(src, dest, if (password.isEmpty()) null else password)
+                } else {
+                    val sz = if (password.isEmpty()) org.apache.commons.compress.archivers.sevenz.SevenZFile(src)
+                        else org.apache.commons.compress.archivers.sevenz.SevenZFile(src, password.toCharArray())
+                    sz.use { z ->
+                        while (true) {
+                            val e = z.nextEntry ?: break
+                            val out = File(dest, e.name)
+                            if (!out.canonicalPath.startsWith(root)) continue
+                            if (e.isDirectory) { out.mkdirs(); continue }
+                            out.parentFile?.mkdirs()
+                            out.outputStream().use { os ->
+                                val buf = ByteArray(64 * 1024)
+                                while (true) { val n = z.read(buf); if (n < 0) break; os.write(buf, 0, n) }
+                            }
+                        }
+                    }
+                }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Unpacked into " + dest.name).put("path", dest.absolutePath))
+            } catch (e: Exception) {
+                val m = e.message ?: ""
+                val pw = m.contains("password", true) || m.contains("encrypted", true) || e.javaClass.simpleName.contains("Password", true)
+                fsReply(reqId, null, JSONObject().put("ok", false).put("code", if (pw) "password" else "").put("msg", if (pw) "This archive needs a password (or the one given is wrong)." else (if (m.isEmpty()) "Could not unpack it." else m)))
+            }
+        }
+    }
+
     /** Looks for names containing the text anywhere under a folder. The answer arrives in __onFs with "files". */
     @JavascriptInterface
     fun fsFind(reqId: String, path: String, query: String) {

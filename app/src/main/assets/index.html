@@ -1846,7 +1846,7 @@ function localBar(o, idx, wrap, list, root) {
   tb('\u{1F4C2}', 'Open with', () => { const r = fsJson('fsOpenWith', [...FS.sel][0]); if (!r.ok) toast(r.msg || 'Could not open it.'); }, !one || FS.kind[[...FS.sel][0]]);
   tb('\u{1F512}', 'Lock in vault', () => vaultLock([...FS.sel]), !n);
   tb('\u{1F5DC}', 'Create ZIP', () => fsMakeZip(), !n);
-  tb('\u{1F4E6}', 'Extract ZIP', () => fsExtract([...FS.sel][0]), !one || !/\.zip$/i.test([...FS.sel][0]));
+  tb('\u{1F4E6}', 'Extract archive', () => fsExtract([...FS.sel][0]), !one || !/\.(zip|7z|rar)$/i.test([...FS.sel][0]));
   tb('\u{1F4C1}', 'New folder', fsNewFolder);
   tb('\u{1F4DD}', 'New text file', fsNewFile);
   tb(FS.hidden ? '\u{1F441}' : '\u{1F576}', FS.hidden ? 'Hide hidden' : 'Show hidden', () => { FS.hidden = !FS.hidden; renderFiles(); });
@@ -2013,13 +2013,13 @@ async function fsMakeZip() {
   toast(r.msg || (r.ok ? 'Done.' : 'Could not make the ZIP.')); FS.sel.clear(); renderFiles();
 }
 async function fsExtract(zip) {
-  const c = await askApproval({title: 'Unpack a ZIP file', path: zip, reason: 'You chose Extract ZIP in the file browser.',
-    rows: [['Goes into', 'A new folder next to the ZIP']], primary: {label: 'Approve: unpack it', value: 'ok'}, note: 'Nothing existing is replaced.'});
+  const c = await askApproval({title: 'Unpack an archive', path: zip, reason: 'You chose Extract archive in the file browser.',
+    rows: [['Goes into', 'A new folder next to the archive']], primary: {label: 'Approve: unpack it', value: 'ok'}, note: 'Nothing existing is replaced.'});
   if (c === 'deny') return;
   let pw = '';
   for (let tries = 0; tries < 3; tries++) {
     toast('Unpacking...');
-    const r = await fsCall('fsUnzip', zip, pw);
+    const r = /\.(7z|rar)$/i.test(zip) ? await fsCall('fsUnpackOther', zip, pw) : await fsCall('fsUnzip', zip, pw);
     if (r.ok) { toast(r.msg); FS.sel.clear(); renderFiles(); return; }
     if (r.code === 'password') { pw = await askText((tries ? 'Wrong password. ' : '') + 'Password for this ZIP', ''); if (!pw) return; continue; }
     toast(r.msg || 'Could not unpack it.'); return;

@@ -103,3 +103,7 @@ Newest first. Every entry is one build pushed to `main`.
 - File manager: expand Web storage in the Home tree, teal box around open folders, long-press menus
 - Web storage: pick Google Drive/Dropbox/OneDrive through Android's storage picker, with explanations
 
+
+## 2026-11-24 (batch 2-3)
+- Checksums (MD5, SHA-1, SHA-256) in the file details box.
+- Extract now also opens 7z and RAR files (into a new folder; passwords supported).
