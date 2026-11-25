@@ -1985,6 +1985,7 @@ async function itemMenu(idx, c, p, it, inTree, keepFocus) {
   A.push(E('shortcut', 'Add shortcut', () => { const l = shortcuts(); if (l.some(x => x.path === p)) { toast('Already in your shortcuts.'); return; } l.push({name: it.name, path: p, dir: !!it.dir}); persist(); toast('Shortcut added at the top of Home.'); renderFiles(); }, {col: '#6cc24a'}));
   if (it.dir) A.push(E('image', 'Slideshow', () => { const r = fsJson('fsList', p); const f = r.ok && r.items.filter(x => !x.dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(x.name)).sort((x, y) => x.name.localeCompare(y.name))[0]; if (!f) { toast('No pictures in this folder.'); return; } const o = fsJson('fsOpenWith', joinPath(p, f.name)); if (!o.ok) toast(o.msg || 'Could not open it.'); }, {col: '#e8a64a'}));
   if (!it.dir && /\.(zip|7z|rar)$/i.test(it.name)) A.push(E('folderOpen', 'Open as folder', () => { FS.active = idx; openArchive(p); }, {col: '#e8b84a'}));
+  if (!it.dir) A.push(E('plus', 'Add to project', () => { addFsFileToProject(p, it.name); }, {col: '#6cc24a'}));
   if (!it.dir) { A.push(E('hex', 'Hex viewer', () => hexView(p, 0), {col: '#9aa4b2'}));
     A.push(E('pencil', 'Edit text', () => { FS.active = idx; openFileView(it, p); }, {col: '#2fbfa8'})); }
   ctxMenu(it.name, A);

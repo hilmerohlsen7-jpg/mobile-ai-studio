@@ -819,7 +819,8 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
             try {
                 val src = File(path)
                 val key = Integer.toHexString((src.absolutePath + src.lastModified() + src.length()).hashCode())
-                val dest = File(File(activity.cacheDir, "arc"), key)
+                val arcRoot = File(fsOps.root(), ".mobileai-archives"); arcRoot.mkdirs(); File(arcRoot, ".nomedia").createNewFile()
+                val dest = File(arcRoot, key)
                 if (File(dest, ".done").exists()) { fsReply(reqId, null, JSONObject().put("ok", true).put("dir", dest.absolutePath)); return@execute }
                 dest.deleteRecursively(); dest.mkdirs()
                 val root = dest.canonicalPath + File.separator
@@ -862,7 +863,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     /** Clears the unpacked copies of opened archives. */
     @JavascriptInterface
-    fun fsArcClear(): String { File(activity.cacheDir, "arc").deleteRecursively(); return "ok" }
+    fun fsArcClear(): String { File(fsOps.root(), ".mobileai-archives").deleteRecursively(); return "ok" }
 
     /** Looks for names containing the text anywhere under a folder. The answer arrives in __onFs with "files". */
     @JavascriptInterface
