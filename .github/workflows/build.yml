@@ -40,6 +40,7 @@ jobs:
           git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers /tmp/spirv-src
           cmake -S /tmp/spirv-src -B /tmp/spirv-build -DCMAKE_INSTALL_PREFIX="$PWD/app/src/main/cpp/spirv"
           cmake --install /tmp/spirv-build
+          git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers app/src/main/cpp/vkh
 
       - uses: gradle/actions/setup-gradle@v4
         with:
