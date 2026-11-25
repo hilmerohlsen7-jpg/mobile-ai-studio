@@ -33,7 +33,6 @@ object Native {
     external fun systemInfo(): String
 
     /** Returns a handle, or 0 if the model could not be loaded. */
-    external fun setGpu(on: Boolean)
     external fun loadModel(path: String, nCtx: Int, nThreads: Int): Long
 
     external fun freeModel(handle: Long)

@@ -321,7 +321,6 @@ object HeadlessAssistant {
                     Shared.loadedKey = ""
                 }
                 val threads = cfg.optInt("threads", 4).coerceIn(1, 8)
-                Native.setGpu(false)
                 val h = Native.loadModel(file.absolutePath, 2048, threads)
                 if (h == 0L) throw IllegalStateException("the model could not load")
                 Shared.handle = h

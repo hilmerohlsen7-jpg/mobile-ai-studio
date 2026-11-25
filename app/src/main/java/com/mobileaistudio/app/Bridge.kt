@@ -1938,8 +1938,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         var maxTok = req.optInt("max_tokens", 512).coerceIn(16, 2048)
         val temp = req.optDouble("temperature", 0.7).toFloat()
 
-        val gpu = req.optBoolean("gpu", false)
-        val key = "$id|$nCtx|$threads|$gpu"
+        val key = "$id|$nCtx|$threads"
         if (handle == 0L || key != loadedKey) {
             js("__onStatus", "Loading the model...")
             if (handle != 0L) {
@@ -1947,9 +1946,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 handle = 0L
                 loadedKey = ""
             }
-            Native.setGpu(gpu)
             handle = Native.loadModel(file.absolutePath, nCtx, threads)
-            if (handle == 0L && gpu) { js("__onStatus", "The graphics chip could not run this model. Using the normal processor..."); Native.setGpu(false); handle = Native.loadModel(file.absolutePath, nCtx, threads) }
             if (handle == 0L) {
                 chatError("Could not load the model. If this keeps happening, delete it in Models and download it again.")
                 return

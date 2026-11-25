@@ -454,7 +454,6 @@ header #model{display:none}
   <label>Max reply length (tokens)<input type="number" id="s_num_predict"></label>
   <label>Memory size / context (tokens)<input type="number" id="s_num_ctx"></label>
   <label>CPU threads (0 = automatic)<input type="number" id="s_num_thread"></label>
-  <label class="chk"><input type="checkbox" id="s_gpu"> Use the graphics chip (experimental; may be slower or fail, then the normal processor is used)</label>
   <label>Creativity (0 to 1.5)<input type="number" step="0.1" id="s_temperature"></label>
 </div>
 </div>
@@ -3494,7 +3493,6 @@ function initSettings() {
   const det = $('s_imgDetail');
   try { det.checked = hasBridge && Android.getImageSide() >= 1024; } catch (e) {}
   det.onchange = () => { try { Android.setImageSide(det.checked ? 1024 : 512); } catch (e) {} };
-  const gp = $('s_gpu'); gp.checked = !!S.settings.gpu; gp.onchange = () => { S.settings.gpu = gp.checked; persist(); };
   ['num_predict', 'num_ctx', 'num_thread', 'temperature'].forEach(k => {
     const el = $('s_' + k); el.value = k === 'num_ctx' ? effCtx() : S.settings[k];
     el.onchange = () => { const v = parseFloat(el.value); if (!isNaN(v) && v >= 0) { S.settings[k] = v; if (k === 'num_ctx') S.settings.ctxManual = true; persist(); } };
@@ -3600,7 +3598,7 @@ function generate(messages) {
     const cm = curModel();
     if (cm && cm.cloud) { Android.cloudChat(JSON.stringify({provider: cm.cloud, key: cloudKey(cm.cloud), model: ((S.settings.cloudModels || {})[cm.cloud] || '').trim() || CLOUD[cm.cloud].model, messages: messages, max_tokens: Math.max(S.settings.num_predict, 2048), temperature: S.settings.temperature})); return; }
     Android.chat(JSON.stringify({model: curModel().id, messages: messages, max_tokens: S.settings.num_predict, n_ctx: (curModel() && curModel().vision) ? Math.max(4096, effCtx()) : effCtx(),
-      threads: S.settings.num_thread || autoThreads(), gpu: !!S.settings.gpu, temperature: S.settings.temperature}));
+      threads: S.settings.num_thread || autoThreads(), temperature: S.settings.temperature}));
   });
 }
 async function send() {
