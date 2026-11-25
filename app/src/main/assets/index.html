@@ -1740,21 +1740,22 @@ function buildPane(o, idx) {
       items.forEach(it => {
         const p = joinPath(base, it.name); FS.kind[p] = it.dir; FS.size[p] = it.size;
         if (q && !it.dir && !it.name.toLowerCase().includes(q)) return;
-        const open = it.dir && FS.open.has(p), fk = fkey(C, p);
+        const isArc = !it.dir && !C && /\.(zip|7z|rar)$/i.test(it.name), dirish = it.dir || isArc;
+        const open = dirish && (isArc ? (FS.open.has(p) && !!FS.arc[p]) : FS.open.has(p)), fk = fkey(C, p);
         const row = h('div', {class: 'xrow' + (FS.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (6 + Math.min(depth, 6) * 8) + 'px'});
-        const togg = () => { if (open) FS.open.delete(p); else FS.open.add(p); pr0.focus = fk; renderFiles(); };
-        row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!it.dir) return; togg(); }}, it.dir ? (open ? '▼' : '▶') : ''));
-        row.append(h('span', {class: 'xic'}, it.dir ? '\u{1F4C1}' : fileIcon(it.name, p)));
+        const togg = () => { if (isArc && !FS.arc[p]) { arcExpand(p, fk); return; } if (open) FS.open.delete(p); else FS.open.add(p); pr0.focus = fk; renderFiles(); };
+        row.append(h('span', {class: 'xarrow', onclick: e => { e.stopPropagation(); if (!dirish) return; togg(); }}, dirish ? (open ? '▼' : '▶') : ''));
+        row.append(h('span', {class: 'xic'}, dirish ? '\u{1F4C1}' : fileIcon(it.name, p)));
         const cnt = FS.cnt[p];
-        const nm = h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : fmtSize(it.size) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + ' · ' + fmtDate(it.mtime)));
+        const nm = h('span', {class: 'xnm'}, h('b', null, it.name), h('small', null, it.dir ? (cnt ? cnt[0] + ' folders · ' + cnt[1] + ' files' : 'Folder') : (isArc && FS.arc[p] && FS.cnt[FS.arc[p]] ? 'Archive · ' + FS.cnt[FS.arc[p]][0] + ' folders · ' + FS.cnt[FS.arc[p]][1] + ' files' : fmtSize(it.size) + (FS.thumb[p] && FS.thumb[p].w ? ' · ' + FS.thumb[p].w + 'x' + FS.thumb[p].h : '') + ' · ' + fmtDate(it.mtime))));
         const menu = () => itemMenu(FS.active, C, p, it, false);
-        if (it.dir) holdOpen(nm, togg, menu);
-        else holdOpen(nm, () => { pr0.focus = fk; if (C) { FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p); renderFiles(); } else if (/\.(zip|7z|rar)$/i.test(it.name)) openArchive(p); else openFileView(it, p); }, menu);
+        if (dirish) holdOpen(nm, togg, menu);
+        else holdOpen(nm, () => { pr0.focus = fk; if (C) { FS.sel.has(p) ? FS.sel.delete(p) : FS.sel.add(p); renderFiles(); } else openFileView(it, p); }, menu);
         row.append(nm);
         row.append(h('span', {class: 'xchk', onclick: () => { if (FS.sel.has(p)) FS.sel.delete(p); else FS.sel.add(p); renderFiles(); }}, '✔'));
-        const kids = bx => { const sub = fsListed(p); if (sub) draw(sub, p, depth + 1, bx); };
+        const kids = bx => { const bp = isArc ? FS.arc[p] : p, sub = bp && fsListed(bp); if (sub) draw(sub, bp, depth + 1, bx); };
         const foc = pr0.focus === fk, anc = pr0.focus && pr0.focus.startsWith(fk + '/') && open;
-        if ((foc && (it.dir ? open : true)) || anc) { const bx = h('div', {class: 'xbox' + (foc ? '' : ' gr')}); bx.append(row); if (open) kids(bx); parent.append(bx); }
+        if ((foc && (dirish ? open : true)) || anc) { const bx = h('div', {class: 'xbox' + (foc ? '' : ' gr')}); bx.append(row); if (open) kids(bx); parent.append(bx); }
         else { parent.append(row); if (open) kids(parent); }
       });
     };
@@ -1984,7 +1985,6 @@ async function itemMenu(idx, c, p, it, inTree, keepFocus) {
   if (!it.dir) A.push(E('plug', 'Open with...', () => { const r = fsJson('fsOpenWith', p); if (!r.ok) toast(r.msg || 'Could not open it.'); }, {col: '#9aa4b2'}));
   A.push(E('shortcut', 'Add shortcut', () => { const l = shortcuts(); if (l.some(x => x.path === p)) { toast('Already in your shortcuts.'); return; } l.push({name: it.name, path: p, dir: !!it.dir}); persist(); toast('Shortcut added at the top of Home.'); renderFiles(); }, {col: '#6cc24a'}));
   if (it.dir) A.push(E('image', 'Slideshow', () => { const r = fsJson('fsList', p); const f = r.ok && r.items.filter(x => !x.dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(x.name)).sort((x, y) => x.name.localeCompare(y.name))[0]; if (!f) { toast('No pictures in this folder.'); return; } const o = fsJson('fsOpenWith', joinPath(p, f.name)); if (!o.ok) toast(o.msg || 'Could not open it.'); }, {col: '#e8a64a'}));
-  if (!it.dir && /\.(zip|7z|rar)$/i.test(it.name)) A.push(E('folderOpen', 'Open as folder', () => { FS.active = idx; openArchive(p); }, {col: '#e8b84a'}));
   if (!it.dir) A.push(E('plus', 'Add to project', () => { addFsFileToProject(p, it.name); }, {col: '#6cc24a'}));
   if (!it.dir) { A.push(E('hex', 'Hex viewer', () => hexView(p, 0), {col: '#9aa4b2'}));
     A.push(E('pencil', 'Edit text', () => { FS.active = idx; openFileView(it, p); }, {col: '#2fbfa8'})); }
@@ -2275,12 +2275,13 @@ function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () =>
   el.addEventListener('mousedown', st); el.addEventListener('mouseup', en); el.addEventListener('click', e => { if (fired) { fired = false; return; } tap(e); }); }
 function goHome() { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = true; pn.sub = ''; pn.remote = null; pn.cache = {}; FS.sel.clear(); renderFiles(); }
 function openLocal(path) { const pn = FS.panes[FS.active]; pn.arc = null; pn.mapOn = false; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
-async function openArchive(p) {
-  const pn = FS.panes[FS.active], back = pn.path; let pw = '';
+FS.arc = {};
+async function arcExpand(p, fk) {
+  let pw = '';
   for (let tries = 0; tries < 3; tries++) {
     toast('Opening the archive...');
     const r = await fsCall('fsArcOpen', p, pw);
-    if (r.ok) { openLocal(r.dir); pn.arc = {src: p, root: r.dir, back: back}; toast('Inside ' + baseName(p) + '. Copy files out to keep them.'); return; }
+    if (r.ok) { FS.arc[p] = r.dir; FS.open.add(p); FS.panes[FS.active].focus = fk; renderFiles(); return; }
     if (r.code === 'password') { pw = await askText((tries ? 'Wrong password. ' : '') + 'Password for this archive', ''); if (!pw) return; continue; }
     toast(r.msg || 'Could not open it.'); return;
   }
