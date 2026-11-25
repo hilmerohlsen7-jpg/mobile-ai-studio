@@ -34,7 +34,7 @@ set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 # Optional graphics-chip (Vulkan) support, loaded only when the user switches it on.
 if(ANDROID)
     file(GLOB _glslc "${CMAKE_ANDROID_NDK}/shader-tools/*/glslc")
-    file(GLOB _vklib "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/*/sysroot/usr/lib/aarch64-linux-android/${ANDROID_PLATFORM_LEVEL}/libvulkan.so")
+    file(GLOB _vklib "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/*/sysroot/usr/lib/aarch64-linux-android/33/libvulkan.so")
     file(GLOB _vkinc "${CMAKE_CURRENT_SOURCE_DIR}/vkh/include")
     file(GLOB _spv "${CMAKE_CURRENT_SOURCE_DIR}/spirv/share/cmake/SPIRV-Headers")
     if(_glslc AND _vklib AND _spv AND _vkinc)
