@@ -192,9 +192,14 @@ llama_sampler *make_sampler(Engine *e, float temperature) {
     return smpl;
 }
 
+bool g_gpu = false;
+
 }  // namespace
 
 extern "C" {
+
+JNIEXPORT void JNICALL Java_com_mobileaistudio_app_Native_setGpu(JNIEnv *, jobject, jboolean on) { g_gpu = on; }
+
 
 JNIEXPORT void JNICALL Java_com_mobileaistudio_app_Native_backendInit(JNIEnv *env, jobject, jstring jdir) {
     llama_log_set(log_cb, nullptr);
@@ -213,7 +218,7 @@ JNIEXPORT jstring JNICALL Java_com_mobileaistudio_app_Native_systemInfo(JNIEnv *
 JNIEXPORT jlong JNICALL Java_com_mobileaistudio_app_Native_loadModel(JNIEnv *env, jobject, jstring jpath, jint n_ctx, jint n_threads) {
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     llama_model_params mp = llama_model_default_params();
-    mp.n_gpu_layers = 0;
+    mp.n_gpu_layers = g_gpu ? 99 : 0;
     mp.load_mode = LLAMA_LOAD_MODE_MMAP;  // map the file instead of copying it: saves RAM on small phones
     llama_model *model = llama_model_load_from_file(path, mp);
     env->ReleaseStringUTFChars(jpath, path);
