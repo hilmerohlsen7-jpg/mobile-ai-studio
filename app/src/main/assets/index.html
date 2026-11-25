@@ -326,6 +326,7 @@ footer textarea{width:100%;box-sizing:border-box;padding:4px 8px;max-height:140p
 #modelPill .vi{width:.9rem;height:.9rem;color:var(--mute)}
 footer #micBtn{width:40px;height:40px;padding:0;border-radius:50%;background:var(--side)}
 header #model{display:none}
+.cdiv{border:0;border-top:1px solid var(--line, rgba(255,255,255,.14));margin:18px 0 12px}
 </style></head>
 <body>
 <div id="app">
@@ -411,18 +412,24 @@ header #model{display:none}
 <div class="pg" id="pg_conn" data-title="Connectors" hidden>
 <div class="note">Online AI needs internet. Your chat is sent to that company. Keys stay on this phone.</div>
   <label>Gemini key (free at aistudio.google.com)<input type="password" id="k_gemini" autocomplete="off" autocapitalize="none"></label>
-  <label>Claude key (console.anthropic.com, paid)<input type="password" id="k_claude" autocomplete="off" autocapitalize="none"></label>
-  <label>Grok key (console.x.ai, paid)<input type="password" id="k_grok" autocomplete="off" autocapitalize="none"></label>
-  <label>ChatGPT key (platform.openai.com, paid)<input type="password" id="k_openai" autocomplete="off" autocapitalize="none"></label>
-  <label>Groq key (free at console.groq.com)<input type="password" id="k_groq" autocomplete="off" autocapitalize="none"></label>
-  <label>OpenRouter key (free models at openrouter.ai)<input type="password" id="k_openrouter" autocomplete="off" autocapitalize="none"></label>
-  <label>Mistral key (free tier at console.mistral.ai)<input type="password" id="k_mistral" autocomplete="off" autocapitalize="none"></label>
   <label>Gemini model name<input type="text" id="m_gemini" autocomplete="off" autocapitalize="none"></label>
+  <hr class="cdiv">
+  <label>Claude key (console.anthropic.com, paid)<input type="password" id="k_claude" autocomplete="off" autocapitalize="none"></label>
   <label>Claude model name<input type="text" id="m_claude" autocomplete="off" autocapitalize="none"></label>
+  <hr class="cdiv">
+  <label>Grok key (console.x.ai, paid)<input type="password" id="k_grok" autocomplete="off" autocapitalize="none"></label>
   <label>Grok model name<input type="text" id="m_grok" autocomplete="off" autocapitalize="none"></label>
+  <hr class="cdiv">
+  <label>ChatGPT key (platform.openai.com, paid)<input type="password" id="k_openai" autocomplete="off" autocapitalize="none"></label>
   <label>ChatGPT model name<input type="text" id="m_openai" autocomplete="off" autocapitalize="none"></label>
+  <hr class="cdiv">
+  <label>Groq key (free at console.groq.com)<input type="password" id="k_groq" autocomplete="off" autocapitalize="none"></label>
   <label>Groq model name<input type="text" id="m_groq" autocomplete="off" autocapitalize="none"></label>
+  <hr class="cdiv">
+  <label>OpenRouter key (free models at openrouter.ai)<input type="password" id="k_openrouter" autocomplete="off" autocapitalize="none"></label>
   <label>OpenRouter model name<input type="text" id="m_openrouter" autocomplete="off" autocapitalize="none"></label>
+  <hr class="cdiv">
+  <label>Mistral key (free tier at console.mistral.ai)<input type="password" id="k_mistral" autocomplete="off" autocapitalize="none"></label>
   <label>Mistral model name<input type="text" id="m_mistral" autocomplete="off" autocapitalize="none"></label>
 </div>
 <div class="pg" id="pg_voice" data-title="Voice and dictation" hidden>
