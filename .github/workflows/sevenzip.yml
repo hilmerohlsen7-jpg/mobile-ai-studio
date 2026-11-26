@@ -15,7 +15,10 @@ jobs:
           git clone --depth 1 --branch 24.09 https://github.com/ip7z/7zip /tmp/7zip
           BIN="$ANDROID_HOME/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin"
           ls "$BIN" | head -3 || true
-          cd /tmp/7zip/CPP/7zip/Bundles/Alone2
+          cd /tmp/7zip/CPP
+          sed -i 's/timespec_get(&ft, TIME_UTC);/clock_gettime(CLOCK_REALTIME, \&ft);/' Windows/TimeUtils.cpp
+          sed -i 's/-Werror//; s/-Weverything//; s/-Wfatal-errors//' 7zip/warn_clang.mak 7zip/7zip_gcc.mak
+          cd 7zip/Bundles/Alone2
           mkdir -p b/g
           make -j4 -f ../../cmpl_clang_arm64.mak CC="$BIN/aarch64-linux-android26-clang" CXX="$BIN/aarch64-linux-android26-clang++" USE_ASM= LOCAL_FLAGS="-DZ7_AFFINITY_DISABLE" 2>&1 | tail -60
           ls -la b/g || true
