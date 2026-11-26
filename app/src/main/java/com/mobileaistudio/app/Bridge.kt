@@ -748,6 +748,100 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         }
     }
 
+    /** Makes a new archive of the chosen files and folders next to them, in the chosen format. The answer arrives in __onFs. */
+    @JavascriptInterface
+    fun fsMakeArchive(reqId: String, pathsJson: String, destDir: String, name: String, fmt: String, password: String) {
+        fsPool.execute {
+            if (!activity.hasFilesAccess()) { fsReply(reqId, null, fsNoAccess()); return@execute }
+            var out: File? = null
+            try {
+                val arr = JSONArray(pathsJson)
+                val items = (0 until arr.length()).map { File(arr.getString(it)) }.filter { it.exists() }
+                if (items.isEmpty()) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Nothing to pack.")); return@execute }
+                val ext = when (fmt) { "zip" -> ".zip"; "jar" -> ".jar"; "7z" -> ".7z"; "tar" -> ".tar"; "tgz" -> ".tar.gz"; "tbz2" -> ".tar.bz2"; "txz" -> ".tar.xz"; "tzst" -> ".tar.zst"
+                    "cpio" -> ".cpio"; "gz" -> ".gz"; "bz2" -> ".bz2"; "xz" -> ".xz"; "zst" -> ".zst"; else -> ".zip" }
+                val dir = File(destDir)
+                val o = uniqueFile(dir, if (name.endsWith(ext, true)) name else name + ext)
+                out = o
+                fun tarTree(tos: org.apache.commons.compress.archivers.tar.TarArchiveOutputStream, f: File, base: String) {
+                    val nm = base + f.name + (if (f.isDirectory) "/" else "")
+                    tos.putArchiveEntry(org.apache.commons.compress.archivers.tar.TarArchiveEntry(f, nm))
+                    if (f.isFile) f.inputStream().use { it.copyTo(tos) }
+                    tos.closeArchiveEntry()
+                    if (f.isDirectory) f.listFiles()?.sortedBy { it.name }?.forEach { tarTree(tos, it, nm) }
+                }
+                fun wrap(os: java.io.OutputStream): java.io.OutputStream = when (fmt) {
+                    "tgz", "gz" -> org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream(os)
+                    "tbz2", "bz2" -> org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream(os)
+                    "txz", "xz" -> org.apache.commons.compress.compressors.xz.XZCompressorOutputStream(os)
+                    "tzst", "zst" -> org.apache.commons.compress.compressors.zstandard.ZstdCompressorOutputStream(os)
+                    else -> os
+                }
+                when (fmt) {
+                    "zip", "jar" -> {
+                        val zf = if (password.isNotEmpty()) net.lingala.zip4j.ZipFile(o, password.toCharArray()) else net.lingala.zip4j.ZipFile(o)
+                        val prm = net.lingala.zip4j.model.ZipParameters()
+                        if (password.isNotEmpty()) { prm.isEncryptFiles = true; prm.encryptionMethod = net.lingala.zip4j.model.enums.EncryptionMethod.AES }
+                        for (f in items) { if (f.isDirectory) zf.addFolder(f, prm) else zf.addFile(f, prm) }
+                    }
+                    "7z" -> {
+                        val exe = File(activity.applicationInfo.nativeLibraryDir, "libsz.so")
+                        if (password.isNotEmpty()) {
+                            if (!exe.exists()) throw Exception("A password on a 7z file needs the built-in 7-Zip, which is not in this build.")
+                            val cmd = mutableListOf(exe.absolutePath, "a", "-t7z", "-mhe=on", "-p" + password, o.absolutePath)
+                            for (f in items) cmd.add(f.name)
+                            val pr = ProcessBuilder(cmd).directory(items[0].parentFile).redirectErrorStream(true).start()
+                            pr.outputStream.close(); val txt = pr.inputStream.bufferedReader().readText()
+                            if (pr.waitFor() > 1) throw Exception(txt.lines().filter { it.isNotBlank() }.takeLast(2).joinToString(" "))
+                        } else {
+                            org.apache.commons.compress.archivers.sevenz.SevenZOutputFile(o).use { sz ->
+                                fun add(f: File, base: String) {
+                                    val nm = base + f.name + (if (f.isDirectory) "/" else "")
+                                    sz.putArchiveEntry(sz.createArchiveEntry(f, nm))
+                                    if (f.isFile) f.inputStream().use { ins -> val b = ByteArray(64 * 1024); while (true) { val n = ins.read(b); if (n < 0) break; sz.write(b, 0, n) } }
+                                    sz.closeArchiveEntry()
+                                    if (f.isDirectory) f.listFiles()?.sortedBy { it.name }?.forEach { add(it, nm) }
+                                }
+                                for (f in items) add(f, "")
+                            }
+                        }
+                    }
+                    "tar", "tgz", "tbz2", "txz", "tzst" -> {
+                        wrap(java.io.BufferedOutputStream(o.outputStream())).use { os ->
+                            val tos = org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(os)
+                            tos.setLongFileMode(org.apache.commons.compress.archivers.tar.TarArchiveOutputStream.LONGFILE_POSIX)
+                            tos.setBigNumberMode(org.apache.commons.compress.archivers.tar.TarArchiveOutputStream.BIGNUMBER_POSIX)
+                            for (f in items) tarTree(tos, f, "")
+                            tos.finish()
+                        }
+                    }
+                    "cpio" -> {
+                        java.io.BufferedOutputStream(o.outputStream()).use { os ->
+                            val cos = org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream(os)
+                            fun add(f: File, base: String) {
+                                val nm = base + f.name
+                                cos.putArchiveEntry(org.apache.commons.compress.archivers.cpio.CpioArchiveEntry(org.apache.commons.compress.archivers.cpio.CpioConstants.FORMAT_NEW, f, nm))
+                                if (f.isFile) f.inputStream().use { it.copyTo(cos) }
+                                cos.closeArchiveEntry()
+                                if (f.isDirectory) f.listFiles()?.sortedBy { it.name }?.forEach { add(it, nm + "/") }
+                            }
+                            for (f in items) add(f, "")
+                            cos.finish()
+                        }
+                    }
+                    "gz", "bz2", "xz", "zst" -> {
+                        if (items.size != 1 || !items[0].isFile) throw Exception("This kind packs one single file. Pick one file, not a folder.")
+                        wrap(java.io.BufferedOutputStream(o.outputStream())).use { os -> items[0].inputStream().use { it.copyTo(os) } }
+                    }
+                }
+                fsReply(reqId, null, JSONObject().put("ok", true).put("msg", "Made " + o.name).put("path", o.absolutePath))
+            } catch (e: Throwable) {
+                try { out?.delete() } catch (x: Exception) {}
+                fsReply(reqId, null, JSONObject().put("ok", false).put("msg", e.message ?: "Could not make the archive."))
+            }
+        }
+    }
+
     /** Unpacks a ZIP into a new folder beside it. A wrong password is reported as code "password". */
     @JavascriptInterface
     fun fsUnzip(reqId: String, zipPath: String, password: String) {

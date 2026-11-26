@@ -1854,7 +1854,7 @@ function localBar(o, idx, wrap, list, root) {
   tb('\u{1F4E4}', 'Share', () => { const r = fsJson('fsShare', JSON.stringify([...FS.sel])); if (!r.ok) toast(r.msg || 'Could not share.'); }, !n);
   tb('\u{1F4C2}', 'Open with', () => { const r = fsJson('fsOpenWith', [...FS.sel][0]); if (!r.ok) toast(r.msg || 'Could not open it.'); }, !one || FS.kind[[...FS.sel][0]]);
   tb('\u{1F512}', 'Lock in vault', () => vaultLock([...FS.sel]), !n);
-  tb('\u{1F5DC}', 'Create ZIP', () => fsMakeZip(), !n);
+  tb('\u{1F5DC}', 'Create archive', () => fsMakeZip(), !n);
   tb('\u{1F4E6}', 'Extract archive', () => fsExtract([...FS.sel][0]), !one || !/\.(zip|7z|rar)$/i.test([...FS.sel][0]));
   tb('\u{1F4C1}', 'New folder', fsNewFolder);
   tb('\u{1F4DD}', 'New text file', fsNewFile);
@@ -1970,7 +1970,7 @@ async function itemMenu(idx, c, p, it, inTree, keepFocus) {
   A.push(E('copy', 'Copy', () => { one(); xferSel(false); }, {col: '#7aa6c8'}));
   A.push(E('clipboard', 'Copy to clipboard', () => { FS.clip = pn.sel.has(p) ? [...pn.sel] : [p]; toast(FS.clip.length + ' copied. Open the target folder and tap Paste.'); renderFiles(); }, {col: '#c9a66b'}));
   A.push(E('scissors', 'Move', () => { one(); xferSel(true); }, {col: '#7aa6c8'}));
-  A.push(E('archive', 'Create ZIP', async () => { one(); const keep = pn.path; pn.path = dir; try { await fsMakeZip(); } finally { pn.path = keep; } renderFiles(); }, {col: '#c9a66b'}));
+  A.push(E('archive', 'Create archive', async () => { one(); const keep = pn.path; pn.path = dir; try { await fsMakeZip(); } finally { pn.path = keep; } renderFiles(); }, {col: '#c9a66b'}));
   A.push(E('trash', 'Delete', () => fsDelete(item, p), {danger: true, col: '#e04545'}));
   if (!it.dir) A.push(E('share', 'Share', () => { const r = fsJson('fsShare', JSON.stringify([p])); if (!r.ok) toast(r.msg || 'Could not share.'); }, {col: '#f0b429'}));
   if (it.dir) A.push(E('folder', 'New folder', async () => { const n = await askText('Name of the new folder', ''); if (!n) return; const np = joinPath(p, n);
@@ -2013,15 +2013,22 @@ function fsInfoBox(path) {
 }
 async function fsMakeZip() {
   const its = [...FS.sel]; if (!its.length) return;
-  const name = await askText('Name for the new ZIP file', (its.length === 1 ? baseName(its[0]) : baseName(FS.path) || 'archive') + '.zip'); if (!name) return;
-  const pw = await askText('Password (leave empty for none)', '');
-  const c = await askApproval({title: 'Create a ZIP file', path: FS.path, reason: 'You chose Create ZIP in the file browser.',
-    rows: [['New file', name], ['Packs', its.map(baseName).join('\n')], ['Password', pw ? 'Yes (AES)' : 'None']], primary: {label: 'Approve: create the ZIP', value: 'ok'},
+  const single = its.length === 1 && !FS.kind[its[0]];
+  const fmts = [{label: 'ZIP (.zip, can have a password)', value: 'zip'}, {label: '7z (.7z, small, can have a password)', value: '7z'}, {label: 'TAR (.tar)', value: 'tar'},
+    {label: 'TAR + GZIP (.tar.gz)', value: 'tgz'}, {label: 'TAR + BZIP2 (.tar.bz2)', value: 'tbz2'}, {label: 'TAR + XZ (.tar.xz)', value: 'txz'}, {label: 'TAR + ZSTD (.tar.zst)', value: 'tzst'},
+    {label: 'CPIO (.cpio)', value: 'cpio'}, {label: 'JAR (.jar)', value: 'jar'}];
+  if (single) fmts.push({label: 'GZIP, one file (.gz)', value: 'gz'}, {label: 'BZIP2, one file (.bz2)', value: 'bz2'}, {label: 'XZ, one file (.xz)', value: 'xz'}, {label: 'ZSTD, one file (.zst)', value: 'zst'});
+  const fmt = await choose('Create archive as', fmts); if (!fmt) return;
+  const ext = {zip: '.zip', jar: '.jar', '7z': '.7z', tar: '.tar', tgz: '.tar.gz', tbz2: '.tar.bz2', txz: '.tar.xz', tzst: '.tar.zst', cpio: '.cpio', gz: '.gz', bz2: '.bz2', xz: '.xz', zst: '.zst'}[fmt];
+  const name = await askText('Name for the new archive', (its.length === 1 ? baseName(its[0]) : baseName(FS.path) || 'archive') + ext); if (!name) return;
+  const pw = (fmt === 'zip' || fmt === '7z') ? await askText('Password (leave empty for none)', '') : '';
+  const c = await askApproval({title: 'Create an archive', path: FS.path, reason: 'You chose Create archive in the file browser.',
+    rows: [['New file', name], ['Packs', its.map(baseName).join('\n')], ['Password', pw ? (fmt === 'zip' ? 'Yes (AES)' : 'Yes') : 'None']], primary: {label: 'Approve: create the archive', value: 'ok'},
     note: 'Your originals are not touched. A new file is added next to them.'});
   if (c === 'deny') return;
-  toast('Making the ZIP...');
-  const r = await fsCall('fsZip', JSON.stringify(its), FS.path, name, pw || '');
-  toast(r.msg || (r.ok ? 'Done.' : 'Could not make the ZIP.')); FS.sel.clear(); renderFiles();
+  toast('Making the archive...');
+  const r = await fsCall('fsMakeArchive', JSON.stringify(its), FS.path, name, fmt, pw || '');
+  toast(r.msg || (r.ok ? 'Done.' : 'Could not make the archive.')); FS.sel.clear(); renderFiles();
 }
 async function fsExtract(zip) {
   const c = await askApproval({title: 'Unpack an archive', path: zip, reason: 'You chose Extract archive in the file browser.',
