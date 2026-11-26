@@ -871,6 +871,26 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         throw first ?: Exception("Could not open it.")
     }
 
+    /** Runs the built-in 7-Zip program. Returns null when it worked, "NA" when it is not in this build, or a message. */
+    private fun sevenZip(src: File, dest: File, password: String): String? {
+        val exe = File(activity.applicationInfo.nativeLibraryDir, "libsz.so")
+        if (!exe.exists()) return "NA"
+        return try {
+            val cmd = mutableListOf(exe.absolutePath, "x", "-y", "-aoa", "-bd", "-o" + dest.absolutePath)
+            if (password.isNotEmpty()) cmd.add("-p" + password)
+            cmd.add(src.absolutePath)
+            val pb = ProcessBuilder(cmd).redirectErrorStream(true)
+            pb.environment()["LC_ALL"] = "C.UTF-8"
+            val p = pb.start()
+            p.outputStream.close()
+            val out = p.inputStream.bufferedReader().readText()
+            val code = p.waitFor()
+            if (code == 0 || code == 1) null
+            else if (out.contains("password", true) || out.contains("encrypted", true)) "This archive needs a password (or the one given is wrong)."
+            else out.lines().map { it.trim() }.filter { it.isNotEmpty() }.takeLast(2).joinToString(" ").ifEmpty { "Could not open it." }
+        } catch (e: Throwable) { e.message ?: "Could not run the 7-Zip program." }
+    }
+
     /** Joins split parts (.001, .002 ...) and finds an archive hidden inside a self-extracting .exe. Returns the file to read. */
     private fun prepArc(src: File, tmp: File): File {
         val m = Regex("^(.*)\\.001$").find(src.name)
@@ -960,7 +980,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                         }
                     }
                 } else if (kind != "zip") {
-                    genericExtract(work, dest, root, password)
+                    try { genericExtract(work, dest, root, password) } catch (first: Throwable) {
+                        dest.deleteRecursively(); dest.mkdirs()
+                        val m = sevenZip(work, dest, password)
+                        if (m != null) throw (if (m == "NA") first else Exception(m))
+                    }
                 } else {
                     val zf = net.lingala.zip4j.ZipFile(work)
                     if (zf.isEncrypted) {

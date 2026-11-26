@@ -38,6 +38,22 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch v3.7.7 https://github.com/libarchive/libarchive app/src/main/cpp/libarchive
 
+      - name: Build 7-Zip (opens disk images, installers and many other archives)
+        continue-on-error: true
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 24.09 https://github.com/ip7z/7zip /tmp/7zip
+          BIN="$ANDROID_HOME/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          cd /tmp/7zip/CPP
+          sed -i 's/^#if defined(TIME_UTC)/#if 0/' Windows/TimeUtils.cpp
+          sed -i 's/-Werror//; s/-Weverything//; s/-Wfatal-errors//' 7zip/warn_clang.mak 7zip/7zip_gcc.mak
+          sed -i 's/-lpthread//g' 7zip/7zip_gcc.mak
+          cd 7zip/Bundles/Alone2
+          mkdir -p b/g
+          make -j4 -f ../../cmpl_clang_arm64.mak CC="$BIN/aarch64-linux-android26-clang" CXX="$BIN/aarch64-linux-android26-clang++" USE_ASM= LOCAL_FLAGS="-DZ7_AFFINITY_DISABLE"
+          mkdir -p "$GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a"
+          cp b/c_arm64/7zz "$GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/libsz.so"
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
