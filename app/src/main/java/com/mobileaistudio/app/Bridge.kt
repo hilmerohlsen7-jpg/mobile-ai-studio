@@ -871,6 +871,55 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
         throw first ?: Exception("Could not open it.")
     }
 
+    /** Joins split parts (.001, .002 ...) and finds an archive hidden inside a self-extracting .exe. Returns the file to read. */
+    private fun prepArc(src: File, tmp: File): File {
+        val m = Regex("^(.*)\\.001$").find(src.name)
+        if (m != null) {
+            val base = m.groupValues[1]
+            tmp.outputStream().use { os ->
+                var i = 1
+                while (true) {
+                    val part = File(src.parentFile, base + "." + "%03d".format(i))
+                    if (!part.exists()) break
+                    part.inputStream().use { it.copyTo(os) }
+                    i++
+                }
+            }
+            return tmp
+        }
+        if (src.name.endsWith(".exe", true)) {
+            val sigs = listOf(byteArrayOf(0x37, 0x7A, 0xBC.toByte(), 0xAF.toByte(), 0x27, 0x1C), byteArrayOf(0x52, 0x61, 0x72, 0x21, 0x1A, 0x07), byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+            var best = -1L
+            java.io.RandomAccessFile(src, "r").use { raf ->
+                val buf = ByteArray(1 shl 20)
+                var pos = 0L
+                while (pos < raf.length() && best < 0) {
+                    raf.seek(pos)
+                    val n = raf.read(buf)
+                    if (n <= 0) break
+                    for (i in 0 until n - 6) {
+                        if (pos + i == 0L) continue
+                        for (sg in sigs) {
+                            var ok = true
+                            for (k in sg.indices) if (buf[i + k] != sg[k]) { ok = false; break }
+                            if (ok) { best = pos + i; break }
+                        }
+                        if (best >= 0) break
+                    }
+                    pos += (n - 6).coerceAtLeast(1)
+                }
+            }
+            if (best > 0) {
+                java.io.RandomAccessFile(src, "r").use { raf ->
+                    raf.seek(best)
+                    tmp.outputStream().use { os -> val b = ByteArray(1 shl 16); while (true) { val n = raf.read(b); if (n < 0) break; os.write(b, 0, n) } }
+                }
+                return tmp
+            }
+        }
+        return src
+    }
+
     /** Opens a ZIP, 7z or RAR like a folder: unpacks it once into the app's cache and returns that folder. */
     @JavascriptInterface
     fun fsArcOpen(reqId: String, path: String, password: String) {
@@ -884,18 +933,19 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 if (File(dest, ".done").exists()) { fsReply(reqId, null, JSONObject().put("ok", true).put("dir", dest.absolutePath)); return@execute }
                 dest.deleteRecursively(); dest.mkdirs()
                 val root = dest.canonicalPath + File.separator
-                val kind = sniffArc(src)
+                val work = prepArc(src, File(arcRoot, key + ".tmp"))
+                val kind = sniffArc(work)
                 if (kind == "rar") {
-                    if (rarFive(src) || password.isEmpty()) {
+                    if (rarFive(work) || password.isEmpty()) {
                         if (!Arc.available()) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "").put("msg", "The RAR reader could not start on this phone.")); return@execute }
-                        val err = Arc.extract(src.absolutePath, dest.absolutePath, password)
+                        val err = Arc.extract(work.absolutePath, dest.absolutePath, password)
                         if (err != null) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", if (err.contains("password", true) || err.contains("ncrypt", true)) "password" else "").put("msg", err)); return@execute }
                     } else {
-                        com.github.junrar.Junrar.extract(src, dest, password)
+                        com.github.junrar.Junrar.extract(work, dest, password)
                     }
                 } else if (kind == "7z") {
-                    val sz = if (password.isEmpty()) org.apache.commons.compress.archivers.sevenz.SevenZFile(src)
-                        else org.apache.commons.compress.archivers.sevenz.SevenZFile(src, password.toCharArray())
+                    val sz = if (password.isEmpty()) org.apache.commons.compress.archivers.sevenz.SevenZFile(work)
+                        else org.apache.commons.compress.archivers.sevenz.SevenZFile(work, password.toCharArray())
                     sz.use { z ->
                         while (true) {
                             val e = z.nextEntry ?: break
@@ -910,18 +960,20 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                         }
                     }
                 } else if (kind != "zip") {
-                    genericExtract(src, dest, root, password)
+                    genericExtract(work, dest, root, password)
                 } else {
-                    val zf = net.lingala.zip4j.ZipFile(src)
+                    val zf = net.lingala.zip4j.ZipFile(work)
                     if (zf.isEncrypted) {
                         if (password.isEmpty()) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "password").put("msg", "This archive needs a password.")); return@execute }
                         zf.setPassword(password.toCharArray())
                     }
                     zf.extractAll(dest.absolutePath)
                 }
+                if (work != src) work.delete()
                 File(dest, ".done").writeText("1")
                 fsReply(reqId, null, JSONObject().put("ok", true).put("dir", dest.absolutePath))
             } catch (e: Throwable) {
+                File(fsOps.root(), ".mobileai-archives").listFiles()?.filter { it.name.endsWith(".tmp") }?.forEach { it.delete() }
                 val m = e.message ?: e.javaClass.simpleName
                 val pw = m.contains("password", true) || m.contains("encrypted", true) || e.javaClass.simpleName.contains("Password", true)
                 fsReply(reqId, null, JSONObject().put("ok", false).put("code", if (pw) "password" else "").put("msg", if (pw) "This archive needs a password (or the one given is wrong)." else (if (m.isEmpty()) "Could not open it." else m)))

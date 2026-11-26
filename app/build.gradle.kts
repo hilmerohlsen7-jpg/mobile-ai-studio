@@ -81,6 +81,7 @@ dependencies {
     implementation("net.lingala.zip4j:zip4j:2.11.5")
     implementation("org.apache.commons:commons-compress:1.26.2")
     implementation("org.tukaani:xz:1.9")
+    implementation("com.github.luben:zstd-jni:1.5.6-4@aar")
     implementation("com.github.junrar:junrar:7.5.5")
     implementation("commons-net:commons-net:3.11.1")
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.10") { exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18") }

@@ -111,3 +111,4 @@ Newest first. Every entry is one build pushed to `main`.
 - Vault and DLNA rows show counts (vaults, devices, items per DLNA folder).
 - Removed the experimental graphics-chip (Vulkan) option: it crashed on the Redmi and the build was giving garbled replies.
 - Hold menu: "Open as archive" for many kinds of archives and packages (zip, rar, 7z, tar, gz, bz2, xz, iso, deb, rpm, cab, docx/xlsx/jar/epub and more). Disk images (vhd, vmdk, qcow, dmg, ntfs, ext4...) and split parts (.001) are listed but may not open.
+- Open as archive also joins split parts (.001), finds the archive inside self-extracting .exe files, and reads zstd.
