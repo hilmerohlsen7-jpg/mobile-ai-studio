@@ -110,3 +110,4 @@ Newest first. Every entry is one build pushed to `main`.
 - Zip, 7z and RAR files now open like folders (tap them); Back leaves the archive. Items are unpacked to a temporary copy; copy files out to keep them.
 - Vault and DLNA rows show counts (vaults, devices, items per DLNA folder).
 - Removed the experimental graphics-chip (Vulkan) option: it crashed on the Redmi and the build was giving garbled replies.
+- Hold menu: "Open as archive" for many kinds of archives and packages (zip, rar, 7z, tar, gz, bz2, xz, iso, deb, rpm, cab, docx/xlsx/jar/epub and more). Disk images (vhd, vmdk, qcow, dmg, ntfs, ext4...) and split parts (.001) are listed but may not open.

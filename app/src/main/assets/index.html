@@ -1740,7 +1740,7 @@ function buildPane(o, idx) {
       items.forEach(it => {
         const p = joinPath(base, it.name); FS.kind[p] = it.dir; FS.size[p] = it.size;
         if (q && !it.dir && !it.name.toLowerCase().includes(q)) return;
-        const isArc = !it.dir && !C && /\.(zip|7z|rar)$/i.test(it.name), dirish = it.dir || isArc;
+        const isArc = !it.dir && !C && (/\.(zip|7z|rar)$/i.test(it.name) || !!FS.arc[p]), dirish = it.dir || isArc;
         const open = dirish && (isArc ? (FS.open.has(p) && !!FS.arc[p]) : FS.open.has(p)), fk = fkey(C, p);
         const row = h('div', {class: 'xrow' + (FS.sel.has(p) ? ' sel' : ''), style: 'padding-left:' + (6 + Math.min(depth, 6) * 8) + 'px'});
         const togg = () => { if (isArc && !FS.arc[p]) { arcExpand(p, fk); return; } if (open) FS.open.delete(p); else FS.open.add(p); pr0.focus = fk; renderFiles(); };
@@ -1986,6 +1986,7 @@ async function itemMenu(idx, c, p, it, inTree, keepFocus) {
   A.push(E('shortcut', 'Add shortcut', () => { const l = shortcuts(); if (l.some(x => x.path === p)) { toast('Already in your shortcuts.'); return; } l.push({name: it.name, path: p, dir: !!it.dir}); persist(); toast('Shortcut added at the top of Home.'); renderFiles(); }, {col: '#6cc24a'}));
   if (it.dir) A.push(E('image', 'Slideshow', () => { const r = fsJson('fsList', p); const f = r.ok && r.items.filter(x => !x.dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(x.name)).sort((x, y) => x.name.localeCompare(y.name))[0]; if (!f) { toast('No pictures in this folder.'); return; } const o = fsJson('fsOpenWith', joinPath(p, f.name)); if (!o.ok) toast(o.msg || 'Could not open it.'); }, {col: '#e8a64a'}));
   if (!it.dir) A.push(E('plus', 'Add to project', () => { addFsFileToProject(p, it.name); }, {col: '#6cc24a'}));
+  if (!it.dir && !c && ARC_ALL.test(it.name)) A.push(E('folderOpen', 'Open as archive', () => { FS.active = idx; if (FS.arc[p]) { FS.open.add(p); pn.hopen && pn.hopen.add(p); renderFiles(); } else arcExpand(p, p); }, {col: '#e8b84a'}));
   if (!it.dir) { A.push(E('hex', 'Hex viewer', () => hexView(p, 0), {col: '#9aa4b2'}));
     A.push(E('pencil', 'Edit text', () => { FS.active = idx; openFileView(it, p); }, {col: '#2fbfa8'})); }
   ctxMenu(it.name, A);
@@ -2276,6 +2277,7 @@ function holdOpen(el, tap, hold) { let t = null, fired = false; const st = () =>
 function goHome() { const pn = FS.panes[FS.active]; pn.mapOn = false; pn.home = true; pn.sub = ''; pn.remote = null; pn.cache = {}; FS.sel.clear(); renderFiles(); }
 function openLocal(path) { const pn = FS.panes[FS.active]; pn.arc = null; pn.mapOn = false; pn.home = false; pn.remote = null; pn.cache = {}; pn.path = path; pn.sel = new Set(); pn.open = new Set(); renderFiles(); }
 FS.arc = {};
+const ARC_ALL = /\.(001|002|7z|a|apfs|apm|ar|arj|bz2|bzip2|cab|chi|chm|chq|chw|cpio|cramfs|deb|dmg|doc|docx|epub|esd|exe|ext|ext2|ext3|ext4|fat|gpt|gz|gzip|hfs|hfsx|hxi|hxq|hxr|hxs|hxw|ihex|img|iso|jar|lha|lib|lit|lz|lzh|lzma|mbr|msi|mslz|msp|mub|nsis|ntfs|ods|odt|pkg|ppmd|ppt|qcow|qcow2|qcow2c|r00|r01|rar|rev|rpm|scap|squashfs|swm|tar|taz|tbz|tbz2|tgz|txz|udf|uefif|uue|vdi|vhd|vhdx|vmdk|wim|xar|xls|xlsx|xpi|xxe|xz|z|zip|zipx|zst|apk)$/i;
 async function arcExpand(p, fk) {
   let pw = '';
   for (let tries = 0; tries < 3; tries++) {
@@ -2357,7 +2359,7 @@ function buildHome(o, idx) {
     return el;
   };
   const tree = (path, ind, parent) => { parent = parent || list; const r = fsJson('fsList', path); if (!r.ok) return;
-    fsSortItems(r.items.filter(x => FS.hidden || x.name[0] !== '.')).forEach(it => { const p = joinPath(path, it.name), isArc = !it.dir && /\.(zip|7z|rar)$/i.test(it.name), op = pn.hopen.has(p) && (!isArc || !!FS.arc[p]);
+    fsSortItems(r.items.filter(x => FS.hidden || x.name[0] !== '.')).forEach(it => { const p = joinPath(path, it.name), isArc = !it.dir && (/\.(zip|7z|rar)$/i.test(it.name) || !!FS.arc[p]), op = pn.hopen.has(p) && (!isArc || !!FS.arc[p]);
       FS.kind[p] = it.dir; FS.size[p] = it.size;
       wrapBox(mkrow(it, p, p, ind, op, null, isArc), p, ind, bx => tree(isArc ? FS.arc[p] : p, ind + 1, bx), parent, it.dir || isArc, op); }); };
   const rtree = (c, path, ind, parent) => {

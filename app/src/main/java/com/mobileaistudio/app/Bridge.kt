@@ -819,6 +819,58 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
 
     private fun rarFive(f: File): Boolean = try { f.inputStream().use { val b = ByteArray(8); it.read(b); b[6].toInt() == 1 && b[0] == 0x52.toByte() } } catch (e: Exception) { false }
 
+    /** Looks at the first bytes of a file to tell what kind of archive it is. */
+    private fun sniffArc(f: File): String = try {
+        f.inputStream().use { val b = ByteArray(8); val n = it.read(b)
+            when {
+                n >= 4 && b[0] == 0x52.toByte() && b[1] == 0x61.toByte() && b[2] == 0x72.toByte() && b[3] == 0x21.toByte() -> "rar"
+                n >= 4 && b[0] == 0x37.toByte() && b[1] == 0x7A.toByte() && b[2] == 0xBC.toByte() && b[3] == 0xAF.toByte() -> "7z"
+                n >= 2 && b[0] == 0x50.toByte() && b[1] == 0x4B.toByte() -> "zip"
+                else -> "other"
+            } }
+    } catch (e: Exception) { "other" }
+
+    /** tar, gz, bz2, xz, ar, cpio, arj, deb, rpm, iso, cab and friends. */
+    private fun genericExtract(src: File, dest: File, root: String, password: String) {
+        var first: Throwable? = null
+        try {
+            var ins: java.io.InputStream = java.io.BufferedInputStream(src.inputStream())
+            var unwrapped = false
+            while (true) {
+                val cn = try { org.apache.commons.compress.compressors.CompressorStreamFactory.detect(ins) } catch (e: Exception) { null } ?: break
+                ins = java.io.BufferedInputStream(org.apache.commons.compress.compressors.CompressorStreamFactory().createCompressorInputStream(cn, ins))
+                unwrapped = true
+            }
+            val an = try { org.apache.commons.compress.archivers.ArchiveStreamFactory.detect(ins) } catch (e: Exception) { null }
+            if (an != null) {
+                org.apache.commons.compress.archivers.ArchiveStreamFactory().createArchiveInputStream<org.apache.commons.compress.archivers.ArchiveInputStream<*>>(an, ins).use { ais ->
+                    while (true) {
+                        val e = ais.nextEntry ?: break
+                        val out = File(dest, e.name)
+                        if (!out.canonicalPath.startsWith(root)) continue
+                        if (e.isDirectory) { out.mkdirs(); continue }
+                        out.parentFile?.mkdirs()
+                        out.outputStream().use { os -> ais.copyTo(os) }
+                    }
+                }
+                return
+            }
+            if (unwrapped) {
+                val nm = src.name.substringBeforeLast('.', src.name).ifEmpty { "file" }
+                File(dest, nm).outputStream().use { os -> ins.copyTo(os) }
+                return
+            }
+            first = Exception("Not a kind of archive the built-in reader knows.")
+        } catch (e: Throwable) { first = e }
+        if (Arc.available()) {
+            dest.deleteRecursively(); dest.mkdirs()
+            val m = Arc.extract(src.absolutePath, dest.absolutePath, password)
+            if (m == null) return
+            throw Exception(m)
+        }
+        throw first ?: Exception("Could not open it.")
+    }
+
     /** Opens a ZIP, 7z or RAR like a folder: unpacks it once into the app's cache and returns that folder. */
     @JavascriptInterface
     fun fsArcOpen(reqId: String, path: String, password: String) {
@@ -832,8 +884,8 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 if (File(dest, ".done").exists()) { fsReply(reqId, null, JSONObject().put("ok", true).put("dir", dest.absolutePath)); return@execute }
                 dest.deleteRecursively(); dest.mkdirs()
                 val root = dest.canonicalPath + File.separator
-                val n = src.name.lowercase()
-                if (n.endsWith(".rar")) {
+                val kind = sniffArc(src)
+                if (kind == "rar") {
                     if (rarFive(src) || password.isEmpty()) {
                         if (!Arc.available()) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "").put("msg", "The RAR reader could not start on this phone.")); return@execute }
                         val err = Arc.extract(src.absolutePath, dest.absolutePath, password)
@@ -841,7 +893,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                     } else {
                         com.github.junrar.Junrar.extract(src, dest, password)
                     }
-                } else if (n.endsWith(".7z")) {
+                } else if (kind == "7z") {
                     val sz = if (password.isEmpty()) org.apache.commons.compress.archivers.sevenz.SevenZFile(src)
                         else org.apache.commons.compress.archivers.sevenz.SevenZFile(src, password.toCharArray())
                     sz.use { z ->
@@ -857,6 +909,8 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                             }
                         }
                     }
+                } else if (kind != "zip") {
+                    genericExtract(src, dest, root, password)
                 } else {
                     val zf = net.lingala.zip4j.ZipFile(src)
                     if (zf.isEncrypted) {
