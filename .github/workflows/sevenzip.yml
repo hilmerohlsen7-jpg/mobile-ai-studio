@@ -16,7 +16,7 @@ jobs:
           BIN="$ANDROID_HOME/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin"
           ls "$BIN" | head -3 || true
           cd /tmp/7zip/CPP
-          sed -i 's/timespec_get(&ft, TIME_UTC);/clock_gettime(CLOCK_REALTIME, \&ft);/' Windows/TimeUtils.cpp
+          sed -i 's/^#if defined(TIME_UTC)/#if 0/' Windows/TimeUtils.cpp
           sed -i 's/-Werror//; s/-Weverything//; s/-Wfatal-errors//' 7zip/warn_clang.mak 7zip/7zip_gcc.mak
           cd 7zip/Bundles/Alone2
           mkdir -p b/g
