@@ -18,7 +18,8 @@ jobs:
           cd /tmp/7zip/CPP
           sed -i 's/^#if defined(TIME_UTC)/#if 0/' Windows/TimeUtils.cpp
           sed -i 's/-Werror//; s/-Weverything//; s/-Wfatal-errors//' 7zip/warn_clang.mak 7zip/7zip_gcc.mak
+          sed -i 's/-lpthread//g' 7zip/7zip_gcc.mak
           cd 7zip/Bundles/Alone2
           mkdir -p b/g
           make -j4 -f ../../cmpl_clang_arm64.mak CC="$BIN/aarch64-linux-android26-clang" CXX="$BIN/aarch64-linux-android26-clang++" USE_ASM= LOCAL_FLAGS="-DZ7_AFFINITY_DISABLE" 2>&1 | tail -60
-          ls -la b/g || true
+          ls -la b/c_arm64/7zz || true
