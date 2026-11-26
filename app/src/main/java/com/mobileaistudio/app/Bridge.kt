@@ -784,8 +784,13 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 dest.mkdirs()
                 val root = dest.canonicalPath + File.separator
                 if (src.name.endsWith(".rar", true)) {
-                    if (rarFive(src)) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "").put("msg", "This is a RAR5 file. The app can only open older RAR files (RAR4) so far.")); return@execute }
-                    com.github.junrar.Junrar.extract(src, dest, if (password.isEmpty()) null else password)
+                    if (rarFive(src) || password.isEmpty()) {
+                        if (!Arc.available()) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "").put("msg", "The RAR reader could not start on this phone.")); return@execute }
+                        val err = Arc.extract(src.absolutePath, dest.absolutePath, password)
+                        if (err != null) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", if (err.contains("password", true) || err.contains("ncrypt", true)) "password" else "").put("msg", err)); return@execute }
+                    } else {
+                        com.github.junrar.Junrar.extract(src, dest, password)
+                    }
                 } else {
                     val sz = if (password.isEmpty()) org.apache.commons.compress.archivers.sevenz.SevenZFile(src)
                         else org.apache.commons.compress.archivers.sevenz.SevenZFile(src, password.toCharArray())
@@ -829,8 +834,13 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 val root = dest.canonicalPath + File.separator
                 val n = src.name.lowercase()
                 if (n.endsWith(".rar")) {
-                    if (rarFive(src)) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "").put("msg", "This is a RAR5 file. The app can only open older RAR files (RAR4) so far.")); return@execute }
-                    com.github.junrar.Junrar.extract(src, dest, if (password.isEmpty()) null else password)
+                    if (rarFive(src) || password.isEmpty()) {
+                        if (!Arc.available()) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", "").put("msg", "The RAR reader could not start on this phone.")); return@execute }
+                        val err = Arc.extract(src.absolutePath, dest.absolutePath, password)
+                        if (err != null) { dest.deleteRecursively(); fsReply(reqId, null, JSONObject().put("ok", false).put("code", if (err.contains("password", true) || err.contains("ncrypt", true)) "password" else "").put("msg", err)); return@execute }
+                    } else {
+                        com.github.junrar.Junrar.extract(src, dest, password)
+                    }
                 } else if (n.endsWith(".7z")) {
                     val sz = if (password.isEmpty()) org.apache.commons.compress.archivers.sevenz.SevenZFile(src)
                         else org.apache.commons.compress.archivers.sevenz.SevenZFile(src, password.toCharArray())

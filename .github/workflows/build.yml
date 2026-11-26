@@ -34,6 +34,10 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp app/src/main/cpp/llama.cpp
 
+      - name: Get the archive reader (libarchive)
+        shell: bash
+        run: git clone --depth 1 --branch v3.7.7 https://github.com/libarchive/libarchive app/src/main/cpp/libarchive
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"

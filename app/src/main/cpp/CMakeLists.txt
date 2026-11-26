@@ -41,3 +41,17 @@ if(ANDROID)
 else()
     target_link_libraries(mobileai PRIVATE llama mtmd)
 endif()
+
+# RAR (including RAR5) and other archives, read with libarchive.
+set(LIBARCHIVE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libarchive" CACHE PATH "Path to libarchive")
+if(EXISTS "${LIBARCHIVE_DIR}/CMakeLists.txt")
+    foreach(_o ENABLE_ACL ENABLE_XATTR ENABLE_ICONV ENABLE_OPENSSL ENABLE_LIBB2 ENABLE_LZ4 ENABLE_LZO ENABLE_LZMA ENABLE_ZSTD
+               ENABLE_ZLIB ENABLE_BZip2 ENABLE_EXPAT ENABLE_LIBXML2 ENABLE_PCREPOSIX ENABLE_PCRE2POSIX ENABLE_LIBGCC ENABLE_CNG
+               ENABLE_TAR ENABLE_CPIO ENABLE_CAT ENABLE_UNZIP ENABLE_TEST ENABLE_INSTALL ENABLE_COVERAGE ENABLE_MBEDTLS ENABLE_NETTLE)
+        set(${_o} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    add_subdirectory(${LIBARCHIVE_DIR} libarchive-build EXCLUDE_FROM_ALL)
+    add_library(arc SHARED arc.c)
+    target_include_directories(arc PRIVATE ${LIBARCHIVE_DIR}/libarchive)
+    target_link_libraries(arc PRIVATE archive log)
+endif()
