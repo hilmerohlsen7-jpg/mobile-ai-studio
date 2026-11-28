@@ -21,7 +21,7 @@ jobs:
         shell: bash
         working-directory: pc
         run: |
-          pip install pyinstaller
+          pip install pyinstaller pyftpdlib
           pyinstaller --onefile --windowed --name PhoneTransfer phone_transfer.py
       - name: Publish on the Releases page
         shell: bash

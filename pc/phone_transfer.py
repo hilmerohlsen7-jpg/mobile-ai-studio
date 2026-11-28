@@ -145,7 +145,13 @@ def run_gui():
     state = {"dav": None, "path": "/", "items": []}
     jobs = queue.Queue()
 
-    top = ttk.Frame(root, padding=8)
+    nb = ttk.Notebook(root)
+    nb.pack(fill="both", expand=True)
+    tab1 = ttk.Frame(nb)
+    tab2 = ttk.Frame(nb)
+    nb.add(tab1, text="Transfer files")
+    nb.add(tab2, text="PC storage (keep files here to free the phone)")
+    top = ttk.Frame(tab1, padding=8)
     top.pack(fill="x")
     ttk.Label(top, text="Phone address").grid(row=0, column=0, sticky="w")
     addr = ttk.Entry(top, width=28)
@@ -158,7 +164,7 @@ def run_gui():
     connect = ttk.Button(top, text="Connect")
     connect.grid(row=0, column=4, padx=6)
 
-    bar = ttk.Frame(root, padding=(8, 0))
+    bar = ttk.Frame(tab1, padding=(8, 0))
     bar.pack(fill="x")
     up_btn = ttk.Button(bar, text="Up")
     up_btn.pack(side="left")
@@ -166,7 +172,7 @@ def run_gui():
     ttk.Label(bar, textvariable=path_var).pack(side="left", padx=8)
 
     cols = ("size", "mod")
-    tree = ttk.Treeview(root, columns=cols, selectmode="extended")
+    tree = ttk.Treeview(tab1, columns=cols, selectmode="extended")
     tree.heading("#0", text="Name")
     tree.heading("size", text="Size")
     tree.heading("mod", text="Changed")
@@ -175,7 +181,7 @@ def run_gui():
     tree.column("mod", width=140)
     tree.pack(fill="both", expand=True, padx=8, pady=6)
 
-    btns = ttk.Frame(root, padding=(8, 0))
+    btns = ttk.Frame(tab1, padding=(8, 0))
     btns.pack(fill="x")
     b_dl = ttk.Button(btns, text="Download selected to PC")
     b_up = ttk.Button(btns, text="Send files to phone")
@@ -185,10 +191,10 @@ def run_gui():
     for b in (b_dl, b_up, b_upd, b_new, b_ref):
         b.pack(side="left", padx=3)
 
-    prog = ttk.Progressbar(root, mode="determinate")
+    prog = ttk.Progressbar(tab1, mode="determinate")
     prog.pack(fill="x", padx=8, pady=(8, 0))
     status = tk.StringVar(value="Start the WebDAV server on the phone, then connect.")
-    ttk.Label(root, textvariable=status, padding=8, wraplength=720).pack(fill="x")
+    ttk.Label(tab1, textvariable=status, padding=8, wraplength=720).pack(fill="x")
 
     def say(t):
         status.set(t)
@@ -380,6 +386,84 @@ def run_gui():
             threading.Thread(target=work, daemon=True).start()
         ttk.Button(win, text="Create", command=ok).pack(pady=(0, 10))
         win.bind("<Return>", lambda _e: ok())
+
+
+    # ---- PC storage tab: the PC keeps the files, the phone reaches them over home Wi-Fi ----
+    srv = {"server": None}
+    folder_var = tk.StringVar(value=cfg.get("store", os.path.join(os.path.expanduser("~"), "PhoneStorage")))
+    pin_var = tk.StringVar(value=cfg.get("spin", str(100000 + int.from_bytes(os.urandom(3), "big") % 900000)))
+    port_var = tk.StringVar(value=cfg.get("sport", "2121"))
+    info = tk.StringVar(value="Stopped.")
+    f2 = ttk.Frame(tab2, padding=12)
+    f2.pack(fill="both", expand=True)
+    ttk.Label(f2, wraplength=700, justify="left", text="This turns a folder on this PC into storage for the phone. On the phone, add it as an FTP server "
+              "(File Manager > FTP) and use a sync task with the mode Move to send files here and free phone space. "
+              "Whenever the phone is on the same Wi-Fi you can browse and open them from the phone's File Manager.").pack(anchor="w")
+    row = ttk.Frame(f2)
+    row.pack(fill="x", pady=8)
+    ttk.Label(row, text="Folder on this PC").grid(row=0, column=0, sticky="w")
+    ttk.Entry(row, textvariable=folder_var, width=50).grid(row=0, column=1, padx=6)
+    ttk.Button(row, text="Choose...", command=lambda: folder_var.set(filedialog.askdirectory() or folder_var.get())).grid(row=0, column=2)
+    ttk.Label(row, text="Password").grid(row=1, column=0, sticky="w", pady=4)
+    ttk.Entry(row, textvariable=pin_var, width=20).grid(row=1, column=1, sticky="w", padx=6)
+    ttk.Label(row, text="Port").grid(row=2, column=0, sticky="w")
+    ttk.Entry(row, textvariable=port_var, width=8).grid(row=2, column=1, sticky="w", padx=6)
+    toggle = ttk.Button(f2, text="Start storage server")
+    toggle.pack(anchor="w", pady=6)
+    ttk.Label(f2, textvariable=info, wraplength=700, justify="left").pack(anchor="w", pady=6)
+
+    def lan_ip():
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+        except Exception:
+            return "this-PC-address"
+        finally:
+            s.close()
+
+    def toggle_server():
+        if srv["server"]:
+            try:
+                srv["server"].close_all()
+            except Exception:
+                pass
+            srv["server"] = None
+            toggle.config(text="Start storage server")
+            info.set("Stopped.")
+            return
+        try:
+            from pyftpdlib.authorizers import DummyAuthorizer
+            from pyftpdlib.handlers import FTPHandler
+            from pyftpdlib.servers import ThreadedFTPServer
+            folder = folder_var.get().strip()
+            os.makedirs(folder, exist_ok=True)
+            if not pin_var.get().strip():
+                raise ValueError("Type a password first.")
+            auth = DummyAuthorizer()
+            auth.add_user("phone", pin_var.get().strip(), folder, perm="elradfmwMT")
+
+            class Handler(FTPHandler):
+                pass
+            Handler.authorizer = auth
+            Handler.passive_ports = range(60000, 60100)
+            Handler.banner = "Phone storage ready."
+            server = ThreadedFTPServer(("0.0.0.0", int(port_var.get())), Handler)
+            threading.Thread(target=lambda: server.serve_forever(handle_exit=False), daemon=True).start()
+            srv["server"] = server
+            cfg.update({"store": folder, "spin": pin_var.get().strip(), "sport": port_var.get()})
+            try:
+                json.dump(cfg, open(cfg_path, "w"))
+            except Exception:
+                pass
+            toggle.config(text="Stop storage server")
+            info.set("Running. On the phone add an FTP server with:\n  Address: %s\n  Port: %s\n  User: phone\n  Password: %s\n"
+                     "Keep this window open (you can minimise it). If Windows asks about the firewall, allow it on Private networks."
+                     % (lan_ip(), port_var.get(), pin_var.get().strip()))
+        except Exception as e:
+            info.set("Could not start: %s" % e)
+    toggle.config(command=toggle_server)
 
     connect.config(command=do_connect)
     up_btn.config(command=go_up)
