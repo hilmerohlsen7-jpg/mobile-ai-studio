@@ -1,0 +1,34 @@
+name: Build Windows tool
+
+on:
+  push:
+    branches: [main]
+    paths: ['pc/**', '.github/workflows/pc-tool.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build PhoneTransfer.exe
+        shell: bash
+        working-directory: pc
+        run: |
+          pip install pyinstaller
+          pyinstaller --onefile --windowed --name PhoneTransfer phone_transfer.py
+      - name: Publish on the Releases page
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete pc-tool --yes --cleanup-tag || true
+          gh release create pc-tool pc/dist/PhoneTransfer.exe \
+            --title "Phone Transfer for Windows" \
+            --notes "Download PhoneTransfer.exe and run it on your PC. See pc/README.md for how to connect to the phone."
