@@ -114,3 +114,4 @@ Newest first. Every entry is one build pushed to `main`.
 - Open as archive also joins split parts (.001), finds the archive inside self-extracting .exe files, and reads zstd.
 - 7-Zip is built into the app: Open as archive now also reads disk images, installers (msi, nsis), chm, cab, wim, squashfs, ntfs/ext/fat images and old Office files, when the build includes it.
 - "Create ZIP" is now "Create archive": zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.zst, cpio, jar, and single-file gz, bz2, xz, zst.
+- Create archive also makes ISO disk images (long names, folders; files under 4 GB) and WIM images. RAR cannot be created (closed format).

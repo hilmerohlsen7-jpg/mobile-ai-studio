@@ -759,7 +759,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                 val items = (0 until arr.length()).map { File(arr.getString(it)) }.filter { it.exists() }
                 if (items.isEmpty()) { fsReply(reqId, null, JSONObject().put("ok", false).put("msg", "Nothing to pack.")); return@execute }
                 val ext = when (fmt) { "zip" -> ".zip"; "jar" -> ".jar"; "7z" -> ".7z"; "tar" -> ".tar"; "tgz" -> ".tar.gz"; "tbz2" -> ".tar.bz2"; "txz" -> ".tar.xz"; "tzst" -> ".tar.zst"
-                    "cpio" -> ".cpio"; "gz" -> ".gz"; "bz2" -> ".bz2"; "xz" -> ".xz"; "zst" -> ".zst"; else -> ".zip" }
+                    "cpio" -> ".cpio"; "iso" -> ".iso"; "wim" -> ".wim"; "gz" -> ".gz"; "bz2" -> ".bz2"; "xz" -> ".xz"; "zst" -> ".zst"; else -> ".zip" }
                 val dir = File(destDir)
                 val o = uniqueFile(dir, if (name.endsWith(ext, true)) name else name + ext)
                 out = o
@@ -828,6 +828,18 @@ class Bridge(private val activity: MainActivity, private val web: WebView) {
                             for (f in items) add(f, "")
                             cos.finish()
                         }
+                    }
+                    "iso" -> {
+                        com.mobileaistudio.app.fs.IsoWriter.write(items, o, o.name.substringBefore('.').uppercase().take(32))
+                    }
+                    "wim" -> {
+                        val exe = File(activity.applicationInfo.nativeLibraryDir, "libsz.so")
+                        if (!exe.exists()) throw Exception("WIM needs the built-in 7-Zip, which is not in this build.")
+                        val cmd = mutableListOf(exe.absolutePath, "a", "-twim", o.absolutePath)
+                        for (f in items) cmd.add(f.name)
+                        val pr = ProcessBuilder(cmd).directory(items[0].parentFile).redirectErrorStream(true).start()
+                        pr.outputStream.close(); val txt = pr.inputStream.bufferedReader().readText()
+                        if (pr.waitFor() > 1) throw Exception(txt.lines().filter { it.isNotBlank() }.takeLast(2).joinToString(" "))
                     }
                     "gz", "bz2", "xz", "zst" -> {
                         if (items.size != 1 || !items[0].isFile) throw Exception("This kind packs one single file. Pick one file, not a folder.")
